@@ -1,0 +1,3 @@
+# Crockpot API - built in Go
+
+For hopefully the final time, I am about to embark on rebuilding our much loved recipe management platform from the ground up. The Next.JS full stack app was a significant improvement in terms of user experience, but suffers from performance issues that I think can be solved by keeping the front and backends separate once more. That, combined with my falling head over heals for Go, creates an opportunity for a rebuild.
