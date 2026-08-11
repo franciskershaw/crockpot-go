@@ -1,0 +1,34 @@
+# Lessons
+
+Running retro log for this repo. One entry per ticket close-out: what
+caused rework (if anything), what pattern should become a standing rule,
+and whether this file or the project's own `CLAUDE.md` needed a new line
+as a result. Reviewed at the start of every new ticket's `grill-me` and at
+project kickoff.
+
+## 2026-08-11 — Kickoff
+
+Project set up via `project-kickoff`. Master spec and ticket backlog
+written against the existing `crockpot` (Next.js/Prisma/MongoDB) app as
+the functional reference and `packing-list-go` as the architectural
+reference (repository pattern, JWT/OAuth model, Gin, golang-migrate,
+testing conventions all reused deliberately). Two decisions departed from
+straight reuse: Postgres instead of Mongo (relational schema replaces
+Mongo's embedded documents/array-of-ids many-to-many pattern), and sqlc on
+top of pgx instead of `packing-list-go`'s raw hand-scanned pgx (Crockpot's
+schema is roughly 2x the table count).
+
+First spec draft undersold two things, caught in a second pass before any
+code was written: billing was framed as "design only, no implementation,"
+which read as shelved rather than scheduled — reworded into a real epic
+(Epic 11) sequenced after the PREMIUM features it gates, not dropped. And
+there was no plan at all for getting existing Mongo data into the new
+schema, including for local dev — added as its own epic (Epic 8,
+`cmd/migrate-data`, rerunnable against dev, one real run against prod at
+cutover) once raised. Lesson: kickoff's "non-goals" section is a place
+scope quietly leaks out — read it back to the person, not just written by
+default from what's easy to defer. The PREMIUM/PRO tier split (what's
+free forever vs. paid, whether PRO is worth having yet) also needed an
+actual discussion rather than a single confirm — recorded under "Tiers"
+in `docs/specs/master-spec.md`. No code written yet — nothing to retro on
+implementation quality until CROC-001 lands.
