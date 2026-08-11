@@ -120,6 +120,107 @@ too so it isn't rediscovered as a surprise.
       finish (or the grace period expires), then the process exits 0.
 - [ ] `.env.example` lists every var `config.Load()` reads.
 
+## Roadmap (hand-write order)
+
+No TDD-stub step in this roadmap — this layer is test-exempt (see
+"Tests" under Verification modes below), so the order below goes
+straight from scaffolding to passing code. A feature ticket's roadmap
+would insert a "write failing test stubs, confirm red" step between
+"create the file" and "make it pass" for each piece — see
+`packing-list-go/CLAUDE.md`'s "TDD in Go" section for that shape when it
+applies here.
+
+0. **Check prerequisites.** `go version` (packing-list-go currently pins
+   `go 1.26.5` in its `go.mod:3` — match it or use whatever your local
+   toolchain reports if newer). Confirm you can reach the real Neon dev
+   `DATABASE_URL` (no local/Docker Postgres — same rule as this project's
+   repository tests). Confirm `sqlc` isn't already on `PATH` (`which
+   sqlc`) since step 3 installs it.
+1. **Init the module.** `go mod init github.com/franciskershaw/crockpot-go`
+   (adjust the org/repo if it differs). Reference:
+   `packing-list-go/go.mod:1` for the module-path convention.
+2. **Create the folder skeleton** `CLAUDE.md`'s "Folder layout" section
+   already documents: `config/`, `db/migrations/`, `internal/handler/`,
+   `internal/middleware/`, `internal/models/`, `internal/repository/`,
+   `internal/sqlc/`, `internal/testutil/`. Only `config/`, `db/`, and
+   `internal/sqlc/` get real files this ticket — the rest stay empty
+   until later tickets, just create them now so the layout matches the
+   doc from the start.
+3. **Install the sqlc CLI** (a separate codegen tool, not a `go.mod`
+   dependency): `go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest`
+   (or `brew install sqlc` on macOS). Confirm with `sqlc version`.
+4. **Add Go module dependencies:** `gin-gonic/gin`, `jackc/pgx/v5`
+   (covers both `pgx` and `pgxpool`, no separate module),
+   `golang-migrate/migrate/v4`, `joho/godotenv`. `packing-list-go/go.mod`
+   pins `gin v1.12.0`, `pgx/v5 v5.10.0`, `migrate/v4 v4.19.1`,
+   `godotenv v1.5.1` — match those for stack consistency, or `go get
+   <pkg>@latest` if you'd rather not pin to a specific point in time.
+5. **Write `config/config.go`.** Reference: `packing-list-go/config/config.go`
+   in full — same field set and same required-vs-optional split this
+   doc's "Decisions" section already fixed. No test file (infra-exempt).
+6. **Write `db/db.go`.** Reference: `packing-list-go/db/db.go`, with two
+   deliberate deltas from that file (call these out explicitly as you
+   write, don't copy verbatim):
+   - Use `pgxpool.Pool`, not `stdlib.OpenDB` + `database/sql` — sqlc's
+     `pgx/v5` codegen expects a pgx-native `DBTX`, not `database/sql`.
+   - Set the simple-protocol fix on `pgxpool.Config.ConnConfig` (the
+     field pgxpool's `*pgxpool.Config` wraps its `*pgx.ConnConfig` in),
+     not on a bare `pgx.ConnConfig` the way `packing-list-go/db/db.go:32-36`
+     does — different init path, same fix.
+   - Keep the `//go:embed migrations` + `golang-migrate`
+     `iofs`/`NewWithSourceInstance` wiring structurally identical to
+     `packing-list-go/db/db.go:55-73`.
+7. **Create the placeholder migration** — `db/migrations/000001_init.up.sql`
+   and `.down.sql`, comment-only (e.g. `-- placeholder, real schema lands
+   in CROC-002`). Needed so `go:embed` has a non-hidden file to embed —
+   see "Constraint found during grill-me" above. This same file also
+   gives `sqlc`'s schema scan something to parse in step 9 (zero tables
+   is fine, an error is not).
+8. **Write `sqlc.yaml`** at the repo root: `schema: db/migrations`,
+   `queries: internal/sqlc/queries`, `gen.go.package` output to
+   `internal/sqlc`, `sql_package: "pgx/v5"`. No direct reference file for
+   this one (`packing-list-go` doesn't use sqlc) — sqlc's own
+   `v2` config docs are the source here. `internal/sqlc/queries/` can be
+   an empty directory for now (unlike `go:embed`, sqlc tolerates zero
+   query files) — if `sqlc generate` errors on the empty dir instead,
+   that's a real finding, not something to force past; note it and ask.
+9. **Run `sqlc generate`**, confirm exit 0.
+10. **Write `lifecycle.go`** — just the `newHTTPServer` helper (the four
+    timeouts) and, if you want it, `configureGinMode`. Reference:
+    `packing-list-go/lifecycle.go:18-36` — but *not* `runTokenSweeper` or
+    `tokenSweepRepository` (lines 13-16, 38-55), which exist for
+    `packing-list-go`'s refresh-token feature that doesn't exist in this
+    project yet.
+11. **Write `main.go`** — wire `config.Load()` → `db.InitDB()` →
+    `gin.New()` → `GET /health` → `newHTTPServer` →
+    `signal.NotifyContext` graceful-shutdown block. Reference:
+    `packing-list-go/main.go`, but only these pieces — skip the rest,
+    it's later-epic territory that doesn't exist here yet:
+    - Lines 36-57 (config load, DB init, `defer db.CloseDB()`, all with
+      `os.Exit(1)` on error) — keep as-is.
+    - Skip lines 59-69 (Google OAuth manager init — CROC-004).
+    - Lines 76-78 (`gin.SetMode` + `gin.New()`/`gin.Default()`) — keep,
+      drop `SetTrustedProxies` (needs `cfg.TrustedProxies` wired but no
+      rate-limit middleware exists yet to justify it this ticket).
+    - Skip lines 79-86 (trusted proxies, error-logger/body-limit/rate-
+      limit/CORS middleware — all later tickets).
+    - Lines 89-93 (`/health` handler) — keep, change the message string.
+    - Skip lines 95-156 (auth routes, categories/items/templates/lists
+      routes — none of these handlers exist yet).
+    - Lines 158-182 (`signal.NotifyContext`, `httpServer.ListenAndServe`
+      in a goroutine, `<-ctx.Done()`, `httpServer.Shutdown`) — keep, but
+      drop the `wg`/`runTokenSweeper` goroutine (lines 161-163, 182) —
+      nothing to sweep yet.
+12. **Write `.env.example`** listing every var `config.Load()` reads.
+13. **Verify manually**: `go run .` against the real Neon dev
+    `DATABASE_URL`, `curl localhost:<PORT>/health` → expect `200` +
+    welcome JSON, then `Ctrl-C` → expect a logged shutdown message and
+    exit `0`.
+14. **Lint**: `golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`,
+    fix anything it flags.
+15. **Hand off** — ping for the `code-review` pass named in this doc's
+    header before calling CROC-001 closed.
+
 ## Non-goals
 
 - No auth logic, no business-domain tables, no handlers beyond `/health`

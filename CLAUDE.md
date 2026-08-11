@@ -84,6 +84,17 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
   before close-out — same gate as a Claude-implemented ticket, just
   applied to code Claude didn't write. `grill-me` asks which mode
   applies at the start of each ticket rather than assuming either way.
+  Hand-written handoff docs also get a **Roadmap** section below the
+  acceptance criteria: an ordered, numbered build sequence (dependency
+  install → file-by-file creation → manual verification), each step
+  citing the exact reference file/lines to work from and calling out
+  deltas where this project's code deliberately diverges from its
+  reference. For a ticket whose verification mode is normally
+  tests-first, the roadmap inserts a "write failing test stubs, confirm
+  red" step before each piece's "make it pass" step, per
+  `packing-list-go/CLAUDE.md`'s "TDD in Go" shape — CROC-001 itself
+  skipped that step because this layer is test-exempt, not because the
+  roadmap format omits it by default.
 
 ## Folder layout (once CROC-001 scaffolds it)
 
