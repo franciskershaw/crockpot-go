@@ -69,6 +69,22 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
   billing (Epic 11) exists — no separate beta-access flag.
 - Full rationale for every decision above: `docs/specs/master-spec.md`.
 
+## Overrides of the global default process
+
+- **Hand-written tickets.** On a per-ticket basis (not a default), the
+  founder may choose to implement a ticket by hand instead of Claude
+  doing it test-first — typically to build hands-on familiarity with a
+  new part of the stack (e.g. CROC-001's Go server/DB/sqlc scaffold).
+  When this is chosen: `grill-me` still runs and still produces the
+  normal handoff doc, but Claude writes no code for that ticket — not
+  even TDD stubs. The founder implements against the handoff doc plus
+  whatever reference files it cites. Once done, Claude runs a
+  `code-review` pass on the diff and confirms the ticket's verification
+  mode was actually exercised (real command run, real screen looked at)
+  before close-out — same gate as a Claude-implemented ticket, just
+  applied to code Claude didn't write. `grill-me` asks which mode
+  applies at the start of each ticket rather than assuming either way.
+
 ## Folder layout (once CROC-001 scaffolds it)
 
 Mirrors `packing-list-go`:

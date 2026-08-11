@@ -80,7 +80,17 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   `packing-list-go`'s 6-7-table hand-written pattern. Repository pattern is
   otherwise identical — interfaces defined in `handler`, implemented in
   `repository`, sqlc generates the query/scan layer those implementations
-  call into.
+  call into. `sql_package: "pgx/v5"` (native pgx, not `database/sql`), a
+  `*pgxpool.Pool` as the `DBTX`. Fixed at CROC-001, before any repository
+  exists: `pgxpool.Config.ConnConfig.DefaultQueryExecMode =
+  pgx.QueryExecModeSimpleProtocol`, because Neon's pooled endpoint runs
+  PgBouncer in transaction-pooling mode, incompatible with server-side
+  prepared statements under concurrent queries — the same interaction
+  `packing-list-go/db/db.go:27-36` already diagnosed and worked around.
+  Decided once, up front, so it doesn't need retrofitting across 15+
+  tables' worth of generated repositories later. Revisit only if Crockpot
+  moves off Neon's pooled endpoint (e.g. onto a direct/unpooled
+  connection string), which would remove the reason for the workaround.
 - **Relational schema replaces Mongo's embedded documents.** Prisma/Mongo
   used embedded arrays/subdocuments (`Recipe.ingredients`,
   `RecipeMenu.entries`, `ShoppingList.items`, `*Ids` array fields for
@@ -163,7 +173,11 @@ revisit if/when a "trash" UX is wanted for recipes or menus.
   bootstrap with public `/health`. *AC: `go run .` boots against a local
   `DATABASE_URL`, `/health` returns 200.*
 - **CROC-002** — Initial schema migration: all v1 tables created up front
-  (mirrors `packing-list-go`'s `000001_init_schema`) — users, accounts,
+  (mirrors `packing-list-go`'s `000001_init_schema`). Note: CROC-001
+  creates a placeholder `000001_init.up/down.sql` (needed so `go:embed`
+  has a non-empty directory to embed — see `docs/handoffs/CROC-001.md`).
+  This ticket replaces that placeholder's contents with the real schema
+  rather than adding `000002` — users, accounts,
   refresh_tokens, email_verification_tokens, password_reset_tokens,
   item_categories, items, units, item_allowed_units, recipe_categories,
   recipes, recipe_ingredients, recipe_categories_recipes,
