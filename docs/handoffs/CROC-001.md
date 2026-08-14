@@ -24,17 +24,21 @@ top of pgx instead of hand-scanned pgx — new ground, not a straight copy
   `packing-list-go/config/config.go:12-25` field-for-field: `Port`,
   `Environment`, `DatabaseURL`, `JWTSecretAccess`, `JWTSecretRefresh`,
   `JWTSecretOAuthState`, `GoogleClientID/Secret/RedirectURL`,
-  `FrontendURL`, `TrustedProxies`. Required-at-load-time (fail fast, same
-  set `packing-list-go` requires): `DatabaseURL`, `JWTSecretAccess`,
-  `JWTSecretRefresh`, `JWTSecretOAuthState`, `FrontendURL`. Google OAuth
-  fields load but aren't validated as required (matches
-  `packing-list-go`'s own asymmetry — those become load-bearing only once
-  CROC-004 exists). Chosen over trimming to DB+port now because Go's
-  compiler forces every call site of a changed function signature to
-  update in lockstep — `packing-list-go`'s `PACK-015` ("config threading
-  shipped; large ripple", 15 files touched) is a real instance of that
-  pain, even though that ripple was from a different kind of signature
-  change, not literally late-added env vars.
+  `GoogleOAuth2Config`, `FrontendURL`, `TrustedProxies`. Required-at-load-time
+  (fail fast, same set `packing-list-go` requires): `DatabaseURL`,
+  `JWTSecretAccess`, `JWTSecretRefresh`, `JWTSecretOAuthState`,
+  `FrontendURL`. Google OAuth string fields load but aren't validated as
+  required (matches `packing-list-go`'s own asymmetry — those become
+  load-bearing only once CROC-004 exists); `GoogleOAuth2Config` is still
+  *built* now (same "load everything" reasoning applies to it, not just
+  the raw string fields — it's one more shape on the same struct, and
+  deferring it just moves the ripple to CROC-004 instead of avoiding it).
+  Chosen over trimming to DB+port now because Go's compiler forces every
+  call site of a changed function signature to update in lockstep —
+  `packing-list-go`'s `PACK-015` ("config threading shipped; large
+  ripple", 15 files touched) is a real instance of that pain, even though
+  that ripple was from a different kind of signature change, not
+  literally late-added env vars.
 - **Neon pooled-endpoint connection mode is fixed from day one, not
   deferred.** `packing-list-go/db/db.go:27-36` documents that Neon's
   pooled endpoint runs PgBouncer in transaction-pooling mode, which is
@@ -151,13 +155,18 @@ applies here.
    (or `brew install sqlc` on macOS). Confirm with `sqlc version`.
 4. **Add Go module dependencies:** `gin-gonic/gin`, `jackc/pgx/v5`
    (covers both `pgx` and `pgxpool`, no separate module),
-   `golang-migrate/migrate/v4`, `joho/godotenv`. `packing-list-go/go.mod`
-   pins `gin v1.12.0`, `pgx/v5 v5.10.0`, `migrate/v4 v4.19.1`,
-   `godotenv v1.5.1` — match those for stack consistency, or `go get
-   <pkg>@latest` if you'd rather not pin to a specific point in time.
+   `golang-migrate/migrate/v4`, `joho/godotenv`, `golang.org/x/oauth2`
+   (needed for `config.go`'s `GoogleOAuth2Config` field — pulled in now
+   because config is being built as one complete shape this ticket, not
+   split off just because it also serves CROC-004).
+   `packing-list-go/go.mod` pins `gin v1.12.0`, `pgx/v5 v5.10.0`,
+   `migrate/v4 v4.19.1`, `godotenv v1.5.1`, `oauth2 v0.36.0` — match those
+   for stack consistency, or `go get <pkg>@latest` if you'd rather not pin
+   to a specific point in time.
 5. **Write `config/config.go`.** Reference: `packing-list-go/config/config.go`
-   in full — same field set and same required-vs-optional split this
-   doc's "Decisions" section already fixed. No test file (infra-exempt).
+   in full, copied whole — same field set (including `GoogleOAuth2Config`)
+   and same required-vs-optional split this doc's "Decisions" section
+   already fixed. No test file (infra-exempt).
 6. **Write `db/db.go`.** Reference: `packing-list-go/db/db.go`, with two
    deliberate deltas from that file (call these out explicitly as you
    write, don't copy verbatim):
@@ -252,4 +261,16 @@ applies here.
   (built-in defaults).
 - **Tests**: none for this layer, matching `packing-list-go`'s own
   `PACK-001` precedent (infra/bootstrap code exempted from tests-first —
-  see its handoff doc). Explicit exemption, not an oversight.
+  see its handoff doc). Explicit exemption, not an oversight. **Scoped to
+  this ticket's first-pass scaffold, not a standing exemption for
+  `config.go`/`db.go`/`main.go` forever**: `packing-list-go`'s own
+  `config_test.go`, `db_test.go`, `main_test.go`, and
+  `db_failloud_test.go` didn't exist at `PACK-001` (confirmed — its
+  handoff doc says "None exist for this ticket's code") but were added by
+  later tickets (2026-07-10 to 2026-08-02) once those files grew real
+  logic (refresh tokens, CSRF, lifecycle changes, CI-level checks) —
+  normal tests-first resumed for those deltas. `PACK-001`'s own doc
+  flagged exactly this: "flag if a future ticket touches this layer and
+  needs the exemption revisited." Any future CROC-* ticket that adds real
+  branching logic to these files (not just scaffold) should write tests
+  for that delta, not extend this exemption.
