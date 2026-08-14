@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
@@ -31,7 +32,9 @@ func InitDB(databaseURL string) error {
 	}
 	poolConfig.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	DB, err = pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		return fmt.Errorf("failed to open database pool: %w", err)
@@ -63,6 +66,11 @@ func runMigrations(databaseURL string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create migrator: %w", err)
 	}
+	defer func() {
+		if srcErr, dbErr := m.Close(); srcErr != nil || dbErr != nil {
+			fmt.Printf("failed to close migrator: source=%v db=%v\n", srcErr, dbErr)
+		}
+	}()
 
 	err = m.Up()
 	if err != nil && err != migrate.ErrNoChange {

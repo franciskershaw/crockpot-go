@@ -18,7 +18,8 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 )
 
-const shutdownGracePeriod = 10 * time.Second
+// Must exceed newHTTPServer's WriteTimeout (15s) so in-flight requests within their own allowed timeout aren't cut off by shutdown first.
+const shutdownGracePeriod = 20 * time.Second
 
 func main() {
 	// Match Gin's own default writer (os.Stdout) so log output interleaves in order.

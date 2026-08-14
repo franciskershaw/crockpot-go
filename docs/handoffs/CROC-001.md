@@ -205,10 +205,9 @@ Go" section for that shape when it applies here.
    `queries: internal/sqlc/queries`, `gen.go.package` output to
    `internal/sqlc`, `sql_package: "pgx/v5"`. No direct reference file for
    this one (`packing-list-go` doesn't use sqlc) — sqlc's own
-   `v2` config docs are the source here. `internal/sqlc/queries/` can be
-   an empty directory for now (unlike `go:embed`, sqlc tolerates zero
-   query files) — if `sqlc generate` errors on the empty dir instead,
-   that's a real finding, not something to force past; note it and ask.
+   `v2` config docs are the source here. `internal/sqlc/queries/` stays
+   an empty directory for now — see step 9, which corrects this doc's
+   original assumption that sqlc would tolerate that.
 9. **Skip `sqlc generate` for this ticket** — deferred to CROC-002 (see
    "Acceptance criteria" above: `sqlc` v1.31.1 errors on zero query
    files, an assumption this doc got wrong going in).
@@ -278,12 +277,17 @@ Go" section for that shape when it applies here.
   — run for real, not skipped; works with no `.golangci.yml` present
   (built-in defaults).
 - **Tests**: split by file, not blanket.
-  - `db.go`/`main.go`/`lifecycle.go` — none, matching `packing-list-go`'s
+  - `main.go`/`lifecycle.go` — none, matching `packing-list-go`'s
     own `PACK-001` precedent (infra/bootstrap code exempted from
     tests-first — see its handoff doc). Explicit exemption, not an
     oversight: these files are hand-adapted from their references
     (deltas called out in the Roadmap), not literal copies, so "building
-    familiarity, no tests-first" applies cleanly. **Scoped to this
+    familiarity, no tests-first" applies cleanly. `db.go` breaks from
+    this exemption in one narrow spot: `db_test.go` has
+    `TestInitDB_EmptyDatabaseURL`, covering the one piece of `db.go` that
+    isn't hand-adapted infra plumbing but an actual branch
+    (`databaseURL == ""`) — added during the ticket rather than deferred,
+    not a doc oversight. **Scoped to this
     ticket's first-pass scaffold, not standing forever**:
     `packing-list-go`'s own `db_test.go`, `main_test.go`, and
     `db_failloud_test.go` didn't exist at `PACK-001` (confirmed — its

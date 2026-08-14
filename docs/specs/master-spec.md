@@ -183,13 +183,11 @@ revisit if/when a "trash" UX is wanted for recipes or menus.
   recipes, recipe_ingredients, recipe_categories_recipes,
   recipe_favourites, recipe_menus, recipe_menu_entries,
   menu_history_entries, shopping_lists, shopping_list_items. Also owns
-  the first real `sqlc generate` run: CROC-001 wrote `sqlc.yaml` but left
-  `internal/sqlc/queries/` empty, and `sqlc` v1.31.1 hard-errors on a
-  query dir with zero `.sql` files (`no queries contained in paths`) —
-  contrary to what `docs/handoffs/CROC-001.md` assumed going in, so that
-  AC was deferred to here rather than forced with a throwaway query. *AC:
-  `migrate up` / `migrate down` both run clean against Neon, `sqlc
-  generate` exits 0 against real queries.*
+  the first real `sqlc generate` run, once real queries exist against
+  real tables to write `internal/sqlc/queries/*.sql` against (see
+  `docs/handoffs/CROC-001.md` for why that's deferred rather than
+  covered there). *AC: `migrate up` / `migrate down` both run clean
+  against Neon, `sqlc generate` exits 0 against real queries.*
 - **CROC-003** — JWT helpers + auth middleware (access/refresh
   generate+validate, Bearer extraction, 401 on missing/invalid). *AC:
   mirrors `packing-list-go`'s `internal/auth/jwt.go` +
