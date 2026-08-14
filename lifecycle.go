@@ -1,18 +1,18 @@
-package crockpotgo
+package main
 
 import (
-	"context"
-	"log/slog"
+	// "context"
+	// "log/slog"
 	"net/http"
-	"sync"
+	// "sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-type tokenSweepRepository interface {
-	DeleteAllStaleFamilies(ctx context.Context) error
-}
+// type tokenSweepRepository interface {
+// 	DeleteAllStaleFamilies(ctx context.Context) error
+// }
 
 // configureGinMode returns gin.ReleaseMode if env == "production", else gin.DebugMode.
 func configureGinMode(env string) string {
@@ -34,20 +34,20 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 	}
 }
 
-func runTokenSweeper(ctx context.Context, repo tokenSweepRepository, interval time.Duration, wg *sync.WaitGroup) {
-	defer wg.Done()
+// func runTokenSweeper(ctx context.Context, repo tokenSweepRepository, interval time.Duration, wg *sync.WaitGroup) {
+// 	defer wg.Done()
 
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+// 	ticker := time.NewTicker(interval)
+// 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			if err := repo.DeleteAllStaleFamilies(ctx); err != nil {
-				slog.Error("token sweeper: failed to delete stale refresh token families", "error", err)
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
-}
+// 	for {
+// 		select {
+// 		case <-ticker.C:
+// 			if err := repo.DeleteAllStaleFamilies(ctx); err != nil {
+// 				slog.Error("token sweeper: failed to delete stale refresh token families", "error", err)
+// 			}
+// 		case <-ctx.Done():
+// 			return
+// 		}
+// 	}
+// }
