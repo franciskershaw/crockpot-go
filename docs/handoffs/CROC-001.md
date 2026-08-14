@@ -107,6 +107,7 @@ too so it isn't rediscovered as a surprise.
 - [ ] Config load fails fast with a clear error if any required env var
       (`DATABASE_URL`, `JWT_SECRET_ACCESS`, `JWT_SECRET_REFRESH`,
       `JWT_SECRET_OAUTH_STATE`, `FRONTEND_URL`) is missing.
+- [ ] `go test ./config/...` passes (ported `config_test.go`).
 - [ ] `db.InitDB()` opens a `pgxpool.Pool` with
       `DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol` set, pings
       it, and runs pending migrations from the embedded
@@ -126,13 +127,15 @@ too so it isn't rediscovered as a surprise.
 
 ## Roadmap (hand-write order)
 
-No TDD-stub step in this roadmap — this layer is test-exempt (see
-"Tests" under Verification modes below), so the order below goes
-straight from scaffolding to passing code. A feature ticket's roadmap
-would insert a "write failing test stubs, confirm red" step between
-"create the file" and "make it pass" for each piece — see
-`packing-list-go/CLAUDE.md`'s "TDD in Go" section for that shape when it
-applies here.
+No TDD-stub step in this roadmap — `db.go`/`main.go`/`lifecycle.go` are
+test-exempt (see "Tests" under Verification modes below), and
+`config.go`'s test isn't a TDD stub either, since it's a verbatim port of
+an already-passing test rather than new logic written red-first. So the
+order below goes straight from scaffolding to passing code throughout,
+including step 5. A feature ticket's roadmap would insert a "write
+failing test stubs, confirm red" step between "create the file" and
+"make it pass" for each piece — see `packing-list-go/CLAUDE.md`'s "TDD in
+Go" section for that shape when it applies here.
 
 0. **Check prerequisites.** `go version` (packing-list-go currently pins
    `go 1.26.5` in its `go.mod:3` — match it or use whatever your local
@@ -163,10 +166,16 @@ applies here.
    `migrate/v4 v4.19.1`, `godotenv v1.5.1`, `oauth2 v0.36.0` — match those
    for stack consistency, or `go get <pkg>@latest` if you'd rather not pin
    to a specific point in time.
-5. **Write `config/config.go`.** Reference: `packing-list-go/config/config.go`
-   in full, copied whole — same field set (including `GoogleOAuth2Config`)
-   and same required-vs-optional split this doc's "Decisions" section
-   already fixed. No test file (infra-exempt).
+5. **Write `config/config.go`** and **`config/config_test.go`**, both
+   copied whole from `packing-list-go/config/{config.go,config_test.go}`
+   — same field set (including `GoogleOAuth2Config`) and same
+   required-vs-optional split this doc's "Decisions" section already
+   fixed. Env var names already match this doc's field list, so no
+   renames needed in the test. Unlike `db.go`/`main.go` below, this file
+   isn't hand-adapted — it's a literal port of already-correct code, so
+   its test comes along for the same reason (see "Tests" under
+   Verification modes). Run `go test ./config/...` and confirm it passes
+   before moving on.
 6. **Write `db/db.go`.** Reference: `packing-list-go/db/db.go`, with two
    deliberate deltas from that file (call these out explicitly as you
    write, don't copy verbatim):
@@ -259,18 +268,35 @@ applies here.
 - **Lint**: `golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`
   — run for real, not skipped; works with no `.golangci.yml` present
   (built-in defaults).
-- **Tests**: none for this layer, matching `packing-list-go`'s own
-  `PACK-001` precedent (infra/bootstrap code exempted from tests-first —
-  see its handoff doc). Explicit exemption, not an oversight. **Scoped to
-  this ticket's first-pass scaffold, not a standing exemption for
-  `config.go`/`db.go`/`main.go` forever**: `packing-list-go`'s own
-  `config_test.go`, `db_test.go`, `main_test.go`, and
-  `db_failloud_test.go` didn't exist at `PACK-001` (confirmed — its
-  handoff doc says "None exist for this ticket's code") but were added by
-  later tickets (2026-07-10 to 2026-08-02) once those files grew real
-  logic (refresh tokens, CSRF, lifecycle changes, CI-level checks) —
-  normal tests-first resumed for those deltas. `PACK-001`'s own doc
-  flagged exactly this: "flag if a future ticket touches this layer and
-  needs the exemption revisited." Any future CROC-* ticket that adds real
-  branching logic to these files (not just scaffold) should write tests
-  for that delta, not extend this exemption.
+- **Tests**: split by file, not blanket.
+  - `db.go`/`main.go`/`lifecycle.go` — none, matching `packing-list-go`'s
+    own `PACK-001` precedent (infra/bootstrap code exempted from
+    tests-first — see its handoff doc). Explicit exemption, not an
+    oversight: these files are hand-adapted from their references
+    (deltas called out in the Roadmap), not literal copies, so "building
+    familiarity, no tests-first" applies cleanly. **Scoped to this
+    ticket's first-pass scaffold, not standing forever**:
+    `packing-list-go`'s own `db_test.go`, `main_test.go`, and
+    `db_failloud_test.go` didn't exist at `PACK-001` (confirmed — its
+    handoff doc says "None exist for this ticket's code") but were added
+    by later tickets (2026-07-10 to 2026-08-02) once those files grew
+    real logic (refresh tokens, CSRF, lifecycle changes, CI-level
+    checks) — normal tests-first resumed for those deltas. `PACK-001`'s
+    own doc flagged exactly this: "flag if a future ticket touches this
+    layer and needs the exemption revisited." Any future CROC-* ticket
+    that adds real branching logic to `db.go`/`main.go` (not just
+    scaffold) should write tests for that delta, not extend this
+    exemption.
+  - `config.go` — has one: `config_test.go`, ported verbatim alongside
+    it (step 5). This file breaks from the pattern above because it's a
+    literal, whole-file copy of `packing-list-go`'s *current*
+    `config.go` (including `GoogleOAuth2Config`, added there well after
+    `PACK-001`), not a hand-adaptation — so there's no new logic being
+    authored to build familiarity with, just a transcription, and the
+    ticket's actual verification step (`go run .` + `curl /health`)
+    never exercises most of `config.go`'s behaviour (`TrustedProxies`
+    parsing, the required-vs-optional split, the `Environment` default
+    aren't on the `/health` path). `config_test.go` is what catches a
+    transcription slip there. Not a TDD-stub step — the test is already
+    green from `packing-list-go`, not written red-first (see "Roadmap"
+    above).
