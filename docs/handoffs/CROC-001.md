@@ -1,5 +1,7 @@
 # CROC-001 — Project scaffold, config, DB connection, sqlc & migrations
 
+Completed 2026-08-14.
+
 **Implementation mode: hand-written.** This ticket is being implemented
 by the founder directly, referencing `packing-list-go`'s actual files
 (`config/config.go`, `db/db.go`, `main.go`, `lifecycle.go`) plus this doc

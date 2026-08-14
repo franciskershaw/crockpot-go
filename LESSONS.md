@@ -32,3 +32,18 @@ free forever vs. paid, whether PRO is worth having yet) also needed an
 actual discussion rather than a single confirm — recorded under "Tiers"
 in `docs/specs/master-spec.md`. No code written yet — nothing to retro on
 implementation quality until CROC-001 lands.
+
+## 2026-08-14 — CROC-001 — Scaffold, config, DB, server bootstrap landed
+
+- `go mod tidy` run mid-ticket (fixing an unrelated indirect-flag oddity)
+  pruned `godotenv` before it was ever used, causing a confusing later
+  "package not found" once `main.go` actually needed it.
+- End-of-ticket `/code-review` caught a real bug (`WriteTimeout` 15s vs.
+  `shutdownGracePeriod` 10s) and a self-authored violation of this
+  project's own "plans, not narrated history" rule in `master-spec.md` —
+  neither would've surfaced without a dedicated pass.
+- **Pattern**: hand-written-mode tickets fall back to Claude-written code
+  fastest on pieces with no reference-project precedent (`pgxpool` had
+  none in `packing-list-go`) — expected, not a mode failure.
+- Noted, not acted on: `/code-review`'s time/token cost felt high
+  relative to the diff size reviewed — worth another look if it recurs.

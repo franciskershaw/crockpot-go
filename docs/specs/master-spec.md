@@ -168,10 +168,7 @@ revisit if/when a "trash" UX is wanted for recipes or menus.
 ## Ticket backlog
 
 ### Epic 1: Foundations
-- **CROC-001** — Project scaffold: Go module, config loading, Neon
-  connection, `golang-migrate` wiring, sqlc setup + codegen config, server
-  bootstrap with public `/health`. *AC: `go run .` boots against a local
-  `DATABASE_URL`, `/health` returns 200.*
+- **CROC-001** — Project scaffold. **Done.**
 - **CROC-002** — Initial schema migration: all v1 tables created up front
   (mirrors `packing-list-go`'s `000001_init_schema`). Note: CROC-001
   creates a placeholder `000001_init.up/down.sql` (needed so `go:embed`
