@@ -121,6 +121,15 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   forgot-password issues a separate, single-use, expiring reset token.
   Password hashing via bcrypt (matching the old Next.js app's
   `bcryptjs` choice, Go equivalent `golang.org/x/crypto/bcrypt`).
+  **Google and password login are mutually exclusive per user, not
+  linkable** — decided at `CROC-002` (`docs/handoffs/CROC-002.md`):
+  whichever method created the account is the account, no `accounts`
+  join table, `google_id`/`password_hash` live directly on `users`.
+  Rejected: Auth.js-style multi-provider linking (what the old Next.js
+  app's `Account` model supports) — real complexity (merge/conflict
+  rules, an extra table) for a convenience this app's scale doesn't need
+  yet. Revisit only if a real product need for one person to use both
+  methods on one account shows up.
 - **Ownership model**: reference data (`item_categories`, `items`, `units`,
   `recipe_categories`) is system-level, visible to everyone, admin-managed
   only — no per-user copies (unlike `packing-list-go`, which let users
@@ -169,22 +178,7 @@ revisit if/when a "trash" UX is wanted for recipes or menus.
 
 ### Epic 1: Foundations
 - **CROC-001** — Project scaffold. **Done.**
-- **CROC-002** — Initial schema migration: all v1 tables created up front
-  (mirrors `packing-list-go`'s `000001_init_schema`). Note: CROC-001
-  creates a placeholder `000001_init.up/down.sql` (needed so `go:embed`
-  has a non-empty directory to embed — see `docs/handoffs/CROC-001.md`).
-  This ticket replaces that placeholder's contents with the real schema
-  rather than adding `000002` — users, accounts,
-  refresh_tokens, email_verification_tokens, password_reset_tokens,
-  item_categories, items, units, item_allowed_units, recipe_categories,
-  recipes, recipe_ingredients, recipe_categories_recipes,
-  recipe_favourites, recipe_menus, recipe_menu_entries,
-  menu_history_entries, shopping_lists, shopping_list_items. Also owns
-  the first real `sqlc generate` run, once real queries exist against
-  real tables to write `internal/sqlc/queries/*.sql` against (see
-  `docs/handoffs/CROC-001.md` for why that's deferred rather than
-  covered there). *AC: `migrate up` / `migrate down` both run clean
-  against Neon, `sqlc generate` exits 0 against real queries.*
+- **CROC-002** — Initial schema migration. **Done.**
 - **CROC-003** — JWT helpers + auth middleware (access/refresh
   generate+validate, Bearer extraction, 401 on missing/invalid). *AC:
   mirrors `packing-list-go`'s `internal/auth/jwt.go` +
@@ -192,14 +186,25 @@ revisit if/when a "trash" UX is wanted for recipes or menus.
 
 ### Epic 2: Authentication
 - **CROC-004** — Google OAuth login flow (`/auth/google/login`,
-  `/auth/google/callback`), get-or-create user, issue token pair.
+  `/auth/google/callback`), get-or-create user, issue token pair. First
+  ticket with a real repository query against the new schema — also owns
+  proving `sqlc generate` exits 0 against it (standing rule, not pinned
+  to a ticket number: whichever ticket first adds a real query owns this
+  proof, so it can't need a second correction later — see
+  `docs/handoffs/CROC-002.md`).
 - **CROC-005** — Email/password registration + confirmation
   (`POST /auth/register` creates unverified user + sends confirmation
-  email via Resend; `GET /auth/confirm?token=` verifies).
+  email via Resend; `GET /auth/confirm?token=` verifies). Resending a
+  confirmation email must delete/clear any existing unconsumed
+  `email_verification_tokens` row for that user before inserting a new
+  one — the partial unique index (`docs/handoffs/CROC-002.md`) enforces
+  at most one active row but doesn't do this for you.
 - **CROC-006** — Email/password login (`POST /auth/login`, rejects
   unverified accounts with a distinct error).
 - **CROC-007** — Forgot/reset password (`POST /auth/forgot-password` sends
-  reset email; `POST /auth/reset-password` consumes the token).
+  reset email; `POST /auth/reset-password` consumes the token). Same
+  clear-before-insert requirement as CROC-005, against
+  `password_reset_tokens`.
 - **CROC-008** — Refresh + logout (`POST /auth/refresh`, `POST
   /auth/logout`), rotation + reuse-detection per the design above.
 - **CROC-009** — `GET /me` profile endpoint (id, email, name, image, role).

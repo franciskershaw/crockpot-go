@@ -47,3 +47,18 @@ implementation quality until CROC-001 lands.
   none in `packing-list-go`) — expected, not a mode failure.
 - Noted, not acted on: `/code-review`'s time/token cost felt high
   relative to the diff size reviewed — worth another look if it recurs.
+
+## 2026-08-14 — CROC-002 — Full v1 schema migration landed
+
+- `golang-migrate`'s CLI "nothing applied" sentinel is `force -- -1`, not
+  `force 0` — `0` is treated as a real (nonexistent) migration version,
+  and a bare `-1` gets eaten by the flag parser without `--`. Two failed
+  attempts before finding this.
+- `/code-review` caught a real gap between what was agreed in
+  conversation (token reissue must clear the prior row before inserting
+  a new one) and what actually made it into the written handoff doc —
+  second ticket in a row this exact shape of miss has happened
+  (CROC-001's was the master-spec narration violation).
+- **Pattern**: write a decision into the doc in the same turn it's
+  agreed — don't let the conversation carry it and expect it to land in
+  the AC checklist later from memory.
