@@ -114,7 +114,14 @@ too so it isn't rediscovered as a surprise.
       `db/migrations` FS; `db.CloseDB()` releases it on shutdown.
 - [ ] `migrate up` / `migrate down` both run clean (no-op against the
       placeholder migration).
-- [ ] `sqlc.yaml` is valid and `sqlc generate` exits 0.
+- [ ] `sqlc.yaml` is valid. `sqlc generate` itself is **deferred to
+      CROC-002**: `sqlc` v1.31.1 hard-errors on an empty
+      `internal/sqlc/queries/` (`no queries contained in paths`),
+      contrary to this doc's original assumption that zero query files
+      would be tolerated — confirmed by actually running it, not
+      guessed. Forcing a throwaway query into existence just to satisfy
+      this AC was rejected in favour of running `sqlc generate` for real
+      once CROC-002 lands actual queries against actual tables.
 - [ ] `GET /health` returns 200 with a welcome message, unauthenticated,
       no DB round-trip on the request path (DB health is proven once at
       boot via the `Ping()` in `InitDB`).
@@ -202,7 +209,9 @@ Go" section for that shape when it applies here.
    an empty directory for now (unlike `go:embed`, sqlc tolerates zero
    query files) — if `sqlc generate` errors on the empty dir instead,
    that's a real finding, not something to force past; note it and ask.
-9. **Run `sqlc generate`**, confirm exit 0.
+9. **Skip `sqlc generate` for this ticket** — deferred to CROC-002 (see
+   "Acceptance criteria" above: `sqlc` v1.31.1 errors on zero query
+   files, an assumption this doc got wrong going in).
 10. **Write `lifecycle.go`** — just the `newHTTPServer` helper (the four
     timeouts) and, if you want it, `configureGinMode`. Reference:
     `packing-list-go/lifecycle.go:18-36` — but *not* `runTokenSweeper` or
