@@ -20,9 +20,15 @@ func setRequiredEnv(t *testing.T) {
 func unsetEnv(t *testing.T, key string) {
 	t.Helper()
 	orig, existed := os.LookupEnv(key)
-	os.Unsetenv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("failed to unset %s: %v", key, err)
+	}
 	if existed {
-		t.Cleanup(func() { os.Setenv(key, orig) })
+		t.Cleanup(func() {
+			if err := os.Setenv(key, orig); err != nil {
+				t.Errorf("failed to restore %s: %v", key, err)
+			}
+		})
 	}
 }
 
