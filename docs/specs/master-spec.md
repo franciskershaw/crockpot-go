@@ -194,6 +194,24 @@ revisit if/when a "trash" UX is wanted for recipes or menus.
   generate+validate, Bearer extraction, 401 on missing/invalid). *AC:
   mirrors `packing-list-go`'s `internal/auth/jwt.go` +
   `internal/middleware/auth.go` design.*
+- **CROC-003a** — CI checks pipeline: GitHub Actions running `gofmt`,
+  `go vet`, `golangci-lint` (uncapped flags, matching this project's own
+  local convention), `govulncheck`, and `go test ./...` on every push/PR
+  — mirrors `packing-list-go/.github/workflows/ci.yml`'s `checks` job
+  (lines 20-55) only, not its `build`/`deploy` job (Docker, DigitalOcean
+  droplet, nginx, SSL) — that's a separate later ticket once crockpot has
+  a droplet port/domain decided, per `CLAUDE.md`'s existing deploy-pipeline
+  note. Needs a `DEV_DATABASE_URL` (or equivalent) GitHub Actions secret,
+  since `go test ./...` includes repository-layer tests that hit the real
+  Neon dev DB, same as running it locally. Added retroactively (after
+  `CROC-003`'s handoff doc, before its implementation) — `packing-list-go`
+  didn't get CI wired up until well after several tickets had landed,
+  which let lint/vulnerability issues accumulate silently in the
+  meantime; doing this early in Epic 1 instead of at the end is a
+  deliberate correction, not a default. *AC: a PR with a deliberately
+  unformatted file, a `go vet` issue, a known-vulnerable dependency, and a
+  failing test each independently fail CI; a clean PR passes all four
+  checks.*
 
 ### Epic 2: Authentication
 - **CROC-004** — Google OAuth login flow (`/auth/google/login`,
