@@ -130,6 +130,17 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   rules, an extra table) for a convenience this app's scale doesn't need
   yet. Revisit only if a real product need for one person to use both
   methods on one account shows up.
+  **Access-token claims embed `role`** — decided at `CROC-003`
+  (`docs/handoffs/CROC-003.md`): `Epic 7`'s tier-gating middleware checks
+  `claims.Role` directly, no DB round-trip on gated requests. Rejected:
+  fetching `role` from the DB per gated request (always fresh, but a
+  lookup on every tier-gated endpoint, and gating middleware would need
+  a `UserRepository` it otherwise wouldn't). Accepted trade-off: a role
+  change takes up to 15 minutes (one access-token cycle) to take effect,
+  matching `PACK-027`'s "no compliance driver for this personal app"
+  reasoning for a similar staleness call. Revisit only if a real
+  instant-revocation requirement shows up — which would need a bigger
+  fix (session invalidation) than switching this decision alone solves.
 - **Ownership model**: reference data (`item_categories`, `items`, `units`,
   `recipe_categories`) is system-level, visible to everyone, admin-managed
   only — no per-user copies (unlike `packing-list-go`, which let users
@@ -208,6 +219,10 @@ revisit if/when a "trash" UX is wanted for recipes or menus.
 - **CROC-008** — Refresh + logout (`POST /auth/refresh`, `POST
   /auth/logout`), rotation + reuse-detection per the design above.
 - **CROC-009** — `GET /me` profile endpoint (id, email, name, image, role).
+  First real protected route — also owns proving `CROC-003`'s
+  `AuthMiddleware` works end-to-end against a live request (that ticket
+  added no protected route of its own to test it against — see
+  `docs/handoffs/CROC-003.md`).
 
 ### Epic 3: Reference Data
 - **CROC-010** — Item categories CRUD (admin-only writes, public reads).
