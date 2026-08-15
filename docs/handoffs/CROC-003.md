@@ -93,29 +93,35 @@ rediscovered as a surprise (same "first real consumer proves it" pattern
 
 ## Acceptance criteria
 
-- [ ] `github.com/golang-jwt/jwt/v5@v5.3.1` and `github.com/google/uuid@v1.6.0`
-      added to `go.mod`, matching `packing-list-go`'s pins.
-- [ ] `internal/auth/jwt.go`: `CustomClaims{Email, UserID, Role string;
+- [x] `github.com/golang-jwt/jwt/v5@v5.3.1` and `github.com/google/uuid@v1.6.0`
+      added to `go.mod`, matching `packing-list-go`'s pins. (Both landed
+      as `// indirect` mid-ticket since nothing had imported them yet at
+      that point; `go mod tidy` corrected this once `jwt.go` was written
+      and importing both directly — caught during the AC pass, not
+      missed.)
+- [x] `internal/auth/jwt.go`: `CustomClaims{Email, UserID, Role string;
       jwt.RegisteredClaims}`, `RefreshClaims{FamilyID string;
       jwt.RegisteredClaims}` — structurally identical to
       `packing-list-go/internal/auth/jwt.go` except `Role`.
-- [ ] `GenerateAccessToken(email, userID, role, secret string) (string,
+- [x] `GenerateAccessToken(email, userID, role, secret string) (string,
       error)` — HS256, 15-min expiry, empty secret returns an error
       (never panics).
-- [ ] `GenerateRefreshToken(userID, familyID, secret string) (string,
+- [x] `GenerateRefreshToken(userID, familyID, secret string) (string,
       error)` — HS256, 7-day expiry, `familyID` embedded as the
       `familyId` claim, empty secret returns an error.
-- [ ] `ValidateAccessToken(tokenString, secret string) (*CustomClaims,
+- [x] `ValidateAccessToken(tokenString, secret string) (*CustomClaims,
       error)` / `ValidateRefreshToken(tokenString, secret string)
       (*RefreshClaims, error)` — reject wrong signing method, wrong
       secret, expired token, tampered token; empty secret returns an
       error.
-- [ ] `internal/middleware/auth.go`: `AuthMiddleware(secret string)
+- [x] `internal/middleware/auth.go`: `AuthMiddleware(secret string)
       gin.HandlerFunc` — missing `Authorization` header → `401`;
       malformed header (no `Bearer` prefix, wrong part count) → `401`;
       invalid/expired token → `401`; valid token → sets `userID`/`email`
-      in Gin context, calls `c.Next()`.
-- [ ] `internal/auth/jwt_test.go`: `TestGenerateAccessToken` (round-trip,
+      in Gin context, calls `c.Next()`. (Also sets `role` in context —
+      not in this AC, added ahead of `Epic 7`'s tier-gating middleware
+      that will need it; harmless superset, not a deviation.)
+- [x] `internal/auth/jwt_test.go`: `TestGenerateAccessToken` (round-trip,
       including asserting `claims.Role`), `TestGenerateRefreshToken`
       (round-trip incl. `FamilyID`), `TestGenerateAccessToken_EmptySecret`,
       `TestGenerateRefreshToken_EmptySecret`,
@@ -125,12 +131,18 @@ rediscovered as a surprise (same "first real consumer proves it" pattern
       `TestValidateAccessToken_TamperedSignature`,
       `TestValidateRefreshToken_ExpiredToken`,
       `TestValidateRefreshToken_TamperedSignature`.
-- [ ] `internal/middleware/auth_test.go` (new — no reference file to
-      copy from): `TestAuthMiddleware_MissingHeader`,
-      `TestAuthMiddleware_MalformedHeader`,
-      `TestAuthMiddleware_InvalidToken`, `TestAuthMiddleware_ExpiredToken`,
-      `TestAuthMiddleware_ValidToken_SetsContext`.
-- [ ] `go test ./internal/auth/... ./internal/middleware/...` passes,
+- [x] `internal/middleware/auth_test.go` (new — no reference file to
+      copy from): one `TestAuthMiddleware`, table-driven over the four
+      rejection cases (`missing header`, `malformed header`,
+      `invalid token`, `expired token`) plus a standalone
+      `valid token sets context` subtest — five cases via `t.Run`, not
+      five top-level functions as originally drafted here. Chosen once
+      the founder was mid-implementation: the four rejection cases share
+      an identical shape (build a request, assert `401` + handler not
+      called), which is exactly the case `t.Run` tables are for; the
+      valid-token case stayed separate since it asserts `200` +
+      context values, a genuinely different shape.
+- [x] `go test ./internal/auth/... ./internal/middleware/...` passes,
       every test failing for the right reason before implementation
       (confirmed red), then passing (confirmed green).
 
