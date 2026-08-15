@@ -8,47 +8,17 @@ import (
 
 	"github.com/franciskershaw/crockpot-go/internal/auth"
 	"github.com/franciskershaw/crockpot-go/internal/middleware"
+	"github.com/franciskershaw/crockpot-go/internal/testutil"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-const (
-	testAuthSecret = "test-secret-access"
-	testEmail      = "test@example.com"
-	testUserID     = "user-123"
-	testRole       = "FREE"
-)
-
-func newBaseRouter(secret string) *gin.Engine {
+func newAuthRouter(secret string, handler gin.HandlerFunc) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(middleware.AuthMiddleware(secret))
+	r.GET("/protected", handler)
 	return r
-}
-
-func newAuthRouter(secret string, handlerCalled *bool) *gin.Engine {
-	r := newBaseRouter(secret)
-	r.GET("/protected", func(c *gin.Context) {
-		*handlerCalled = true
-		c.Status(http.StatusOK)
-	})
-	return r
-}
-
-// Separate from newAuthRouter because this is the only case that needs to read back context values, not just whether the handler ran.
-func newAuthRouterCapturingContext(secret string) (router *gin.Engine, gotUserID *string, gotEmail *string) {
-	r := newBaseRouter(secret)
-	var userID, email string
-	r.GET("/protected", func(c *gin.Context) {
-		if v, ok := c.Get("userID"); ok {
-			userID, _ = v.(string)
-		}
-		if v, ok := c.Get("email"); ok {
-			email, _ = v.(string)
-		}
-		c.Status(http.StatusOK)
-	})
-	return r, &userID, &email
 }
 
 func doRequest(r *gin.Engine, authHeader string) *httptest.ResponseRecorder {
@@ -64,9 +34,9 @@ func doRequest(r *gin.Engine, authHeader string) *httptest.ResponseRecorder {
 func expiredAccessToken(t *testing.T, secret string) string {
 	t.Helper()
 	claims := auth.CustomClaims{
-		Email:  testEmail,
-		UserID: testUserID,
-		Role:   testRole,
+		Email:  testutil.TestEmail,
+		UserID: testutil.TestUserID,
+		Role:   testutil.TestRole,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-2 * time.Hour)),
@@ -87,13 +57,16 @@ func TestAuthMiddleware(t *testing.T) {
 		{"missing header", ""},
 		{"malformed header", "Basic sometoken"},
 		{"invalid token", "Bearer not-a-valid-token"},
-		{"expired token", "Bearer " + expiredAccessToken(t, testAuthSecret)},
+		{"expired token", "Bearer " + expiredAccessToken(t, testutil.TestAccessSecret)},
 	}
 
 	for _, tc := range rejectCases {
 		t.Run(tc.name, func(t *testing.T) {
 			var called bool
-			r := newAuthRouter(testAuthSecret, &called)
+			r := newAuthRouter(testutil.TestAccessSecret, func(c *gin.Context) {
+				called = true
+				c.Status(http.StatusOK)
+			})
 
 			w := doRequest(r, tc.authHeader)
 
@@ -107,23 +80,38 @@ func TestAuthMiddleware(t *testing.T) {
 	}
 
 	t.Run("valid token sets context", func(t *testing.T) {
-		token, err := auth.GenerateAccessToken(testEmail, testUserID, testRole, testAuthSecret)
+		token, err := auth.GenerateAccessToken(testutil.TestEmail, testutil.TestUserID, testutil.TestRole, testutil.TestAccessSecret)
 		if err != nil {
 			t.Fatalf("failed to generate token: %v", err)
 		}
 
-		r, gotUserID, gotEmail := newAuthRouterCapturingContext(testAuthSecret)
+		var gotUserID, gotEmail, gotRole string
+		r := newAuthRouter(testutil.TestAccessSecret, func(c *gin.Context) {
+			if v, ok := c.Get("userID"); ok {
+				gotUserID, _ = v.(string)
+			}
+			if v, ok := c.Get("email"); ok {
+				gotEmail, _ = v.(string)
+			}
+			if v, ok := c.Get("role"); ok {
+				gotRole, _ = v.(string)
+			}
+			c.Status(http.StatusOK)
+		})
 
 		w := doRequest(r, "Bearer "+token)
 
 		if w.Code != http.StatusOK {
 			t.Errorf("expected status %d, got %d", http.StatusOK, w.Code)
 		}
-		if *gotUserID != testUserID {
-			t.Errorf("expected userID %s in context, got %s", testUserID, *gotUserID)
+		if gotUserID != testutil.TestUserID {
+			t.Errorf("expected userID %s in context, got %s", testutil.TestUserID, gotUserID)
 		}
-		if *gotEmail != testEmail {
-			t.Errorf("expected email %s in context, got %s", testEmail, *gotEmail)
+		if gotEmail != testutil.TestEmail {
+			t.Errorf("expected email %s in context, got %s", testutil.TestEmail, gotEmail)
+		}
+		if gotRole != testutil.TestRole {
+			t.Errorf("expected role %s in context, got %s", testutil.TestRole, gotRole)
 		}
 	})
 }

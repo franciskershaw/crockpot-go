@@ -118,9 +118,18 @@ rediscovered as a surprise (same "first real consumer proves it" pattern
       gin.HandlerFunc` — missing `Authorization` header → `401`;
       malformed header (no `Bearer` prefix, wrong part count) → `401`;
       invalid/expired token → `401`; valid token → sets `userID`/`email`
-      in Gin context, calls `c.Next()`. (Also sets `role` in context —
-      not in this AC, added ahead of `Epic 7`'s tier-gating middleware
-      that will need it; harmless superset, not a deviation.)
+      in Gin context, calls `c.Next()`. (Also sets and asserts `role` in
+      context — not in this AC, added ahead of `Epic 7`'s tier-gating
+      middleware that will need it; harmless superset, not a deviation.)
+      `code-review` caught two real bugs inherited verbatim from
+      `packing-list-go`'s reference (a double-space `Authorization`
+      header rejecting a valid token; a case-sensitive `"Bearer"` check
+      rejecting the RFC-7235-legal lowercase scheme) — despite this
+      AC's original "direct port, no deltas" framing, both were fixed
+      here (`strings.Fields` + `strings.EqualFold`), along with
+      switching the three `c.JSON`+`c.Abort()` pairs to
+      `c.AbortWithStatusJSON`. No existing test needed to change; all
+      still pass.
 - [x] `internal/auth/jwt_test.go`: `TestGenerateAccessToken` (round-trip,
       including asserting `claims.Role`), `TestGenerateRefreshToken`
       (round-trip incl. `FamilyID`), `TestGenerateAccessToken_EmptySecret`,
