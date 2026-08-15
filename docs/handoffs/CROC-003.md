@@ -1,5 +1,7 @@
 # CROC-003 — JWT helpers + auth middleware
 
+Completed 2026-08-15.
+
 **Implementation mode: hand-written.** This ticket is being implemented
 by the founder directly, referencing `packing-list-go`'s actual files
 (`internal/auth/jwt.go`, `internal/middleware/auth.go`) plus this doc —

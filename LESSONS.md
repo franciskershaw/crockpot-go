@@ -62,3 +62,18 @@ implementation quality until CROC-001 lands.
 - **Pattern**: write a decision into the doc in the same turn it's
   agreed — don't let the conversation carry it and expect it to land in
   the AC checklist later from memory.
+
+## 2026-08-15 — CROC-003 — JWT helpers + auth middleware landed
+
+- `go.mod`'s indirect/direct flags went stale a second time (`godotenv`
+  in CROC-001, `golang-jwt`/`uuid` here) — `go mod tidy` catches it, but
+  nothing runs it automatically; addressed by adding `go mod tidy -diff`
+  to `CROC-003a`'s CI scope before that ticket gets built.
+- `/code-review` found two real bugs (a valid token could get wrongly
+  rejected) in code inherited verbatim from `packing-list-go` under an
+  explicit "no deltas" decision; left unfixed at first out of
+  over-deference to that decision, until the founder pushed back.
+- **Pattern**: "match the reference" from `grill-me` is a starting
+  point, not a freeze against later `/code-review` findings — ported
+  code gets fixed like any other finding unless there's a real reason to
+  preserve behavioral parity.

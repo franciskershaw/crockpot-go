@@ -190,15 +190,18 @@ revisit if/when a "trash" UX is wanted for recipes or menus.
 ### Epic 1: Foundations
 - **CROC-001** — Project scaffold. **Done.**
 - **CROC-002** — Initial schema migration. **Done.**
-- **CROC-003** — JWT helpers + auth middleware (access/refresh
-  generate+validate, Bearer extraction, 401 on missing/invalid). *AC:
-  mirrors `packing-list-go`'s `internal/auth/jwt.go` +
-  `internal/middleware/auth.go` design.*
+- **CROC-003** — JWT helpers + auth middleware. **Done.**
 - **CROC-003a** — CI checks pipeline: GitHub Actions running `gofmt`,
   `go vet`, `golangci-lint` (uncapped flags, matching this project's own
-  local convention), `govulncheck`, and `go test ./...` on every push/PR
-  — mirrors `packing-list-go/.github/workflows/ci.yml`'s `checks` job
-  (lines 20-55) only, not its `build`/`deploy` job (Docker, DigitalOcean
+  local convention), `govulncheck`, `go mod tidy -diff` (fails if
+  `go.mod`/`go.sum` aren't already tidy — added after `go.mod`'s
+  indirect/direct flags went stale twice, silently, in CROC-001 and
+  CROC-003, caught only by manually running `go mod tidy` well after the
+  fact each time; none of the other four checks would have caught
+  either occurrence, since they don't inspect the indirect-flag
+  bookkeeping at all), and `go test ./...` on every push/PR — mirrors
+  `packing-list-go/.github/workflows/ci.yml`'s `checks` job (lines
+  20-55) only, not its `build`/`deploy` job (Docker, DigitalOcean
   droplet, nginx, SSL) — that's a separate later ticket once crockpot has
   a droplet port/domain decided, per `CLAUDE.md`'s existing deploy-pipeline
   note. Needs a `DEV_DATABASE_URL` (or equivalent) GitHub Actions secret,
@@ -209,8 +212,9 @@ revisit if/when a "trash" UX is wanted for recipes or menus.
   which let lint/vulnerability issues accumulate silently in the
   meantime; doing this early in Epic 1 instead of at the end is a
   deliberate correction, not a default. *AC: a PR with a deliberately
-  unformatted file, a `go vet` issue, a known-vulnerable dependency, and a
-  failing test each independently fail CI; a clean PR passes all four
+  unformatted file, a `go vet` issue, a known-vulnerable dependency, a
+  stale `go.mod` (a direct import wrongly left `// indirect`), and a
+  failing test each independently fail CI; a clean PR passes all five
   checks.*
 
 ### Epic 2: Authentication
