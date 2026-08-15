@@ -19,10 +19,15 @@ const (
 	testRole       = "FREE"
 )
 
-func newAuthRouter(secret string, handlerCalled *bool) *gin.Engine {
+func newBaseRouter(secret string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(middleware.AuthMiddleware(secret))
+	return r
+}
+
+func newAuthRouter(secret string, handlerCalled *bool) *gin.Engine {
+	r := newBaseRouter(secret)
 	r.GET("/protected", func(c *gin.Context) {
 		*handlerCalled = true
 		c.Status(http.StatusOK)
@@ -32,10 +37,7 @@ func newAuthRouter(secret string, handlerCalled *bool) *gin.Engine {
 
 // Separate from newAuthRouter because this is the only case that needs to read back context values, not just whether the handler ran.
 func newAuthRouterCapturingContext(secret string) (router *gin.Engine, gotUserID *string, gotEmail *string) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.Use(middleware.AuthMiddleware(secret))
-
+	r := newBaseRouter(secret)
 	var userID, email string
 	r.GET("/protected", func(c *gin.Context) {
 		if v, ok := c.Get("userID"); ok {
@@ -49,87 +51,60 @@ func newAuthRouterCapturingContext(secret string) (router *gin.Engine, gotUserID
 	return r, &userID, &email
 }
 
+func doRequest(r *gin.Engine, authHeader string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	if authHeader != "" {
+		req.Header.Set("Authorization", authHeader)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func expiredAccessToken(t *testing.T, secret string) string {
+	t.Helper()
+	claims := auth.CustomClaims{
+		Email:  testEmail,
+		UserID: testUserID,
+		Role:   testRole,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-2 * time.Hour)),
+		},
+	}
+	tokenString, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
+	if err != nil {
+		t.Fatalf("failed to sign token: %v", err)
+	}
+	return tokenString
+}
+
 func TestAuthMiddleware(t *testing.T) {
-	t.Run("missing header", func(t *testing.T) {
-		var called bool
-		r := newAuthRouter(testAuthSecret, &called)
+	rejectCases := []struct {
+		name       string
+		authHeader string
+	}{
+		{"missing header", ""},
+		{"malformed header", "Basic sometoken"},
+		{"invalid token", "Bearer not-a-valid-token"},
+		{"expired token", "Bearer " + expiredAccessToken(t, testAuthSecret)},
+	}
 
-		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
+	for _, tc := range rejectCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var called bool
+			r := newAuthRouter(testAuthSecret, &called)
 
-		if w.Code != http.StatusUnauthorized {
-			t.Errorf("expected status %d, got %d", http.StatusUnauthorized, w.Code)
-		}
-		if called {
-			t.Error("expected handler NOT to be called when the Authorization header is missing")
-		}
-	})
+			w := doRequest(r, tc.authHeader)
 
-	t.Run("malformed header", func(t *testing.T) {
-		var called bool
-		r := newAuthRouter(testAuthSecret, &called)
-
-		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
-		req.Header.Set("Authorization", "Basic sometoken")
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusUnauthorized {
-			t.Errorf("expected status %d, got %d", http.StatusUnauthorized, w.Code)
-		}
-		if called {
-			t.Error("expected handler NOT to be called for a malformed Authorization header")
-		}
-	})
-
-	t.Run("invalid token", func(t *testing.T) {
-		var called bool
-		r := newAuthRouter(testAuthSecret, &called)
-
-		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
-		req.Header.Set("Authorization", "Bearer not-a-valid-token")
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusUnauthorized {
-			t.Errorf("expected status %d, got %d", http.StatusUnauthorized, w.Code)
-		}
-		if called {
-			t.Error("expected handler NOT to be called for an invalid token")
-		}
-	})
-
-	t.Run("expired token", func(t *testing.T) {
-		claims := auth.CustomClaims{
-			Email:  testEmail,
-			UserID: testUserID,
-			Role:   testRole,
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Hour)),
-				IssuedAt:  jwt.NewNumericDate(time.Now().Add(-2 * time.Hour)),
-			},
-		}
-		tokenString, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(testAuthSecret))
-		if err != nil {
-			t.Fatalf("failed to sign token: %v", err)
-		}
-
-		var called bool
-		r := newAuthRouter(testAuthSecret, &called)
-
-		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
-		req.Header.Set("Authorization", "Bearer "+tokenString)
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusUnauthorized {
-			t.Errorf("expected status %d, got %d", http.StatusUnauthorized, w.Code)
-		}
-		if called {
-			t.Error("expected handler NOT to be called for an expired token")
-		}
-	})
+			if w.Code != http.StatusUnauthorized {
+				t.Errorf("expected status %d, got %d", http.StatusUnauthorized, w.Code)
+			}
+			if called {
+				t.Error("expected handler NOT to be called")
+			}
+		})
+	}
 
 	t.Run("valid token sets context", func(t *testing.T) {
 		token, err := auth.GenerateAccessToken(testEmail, testUserID, testRole, testAuthSecret)
@@ -139,10 +114,7 @@ func TestAuthMiddleware(t *testing.T) {
 
 		r, gotUserID, gotEmail := newAuthRouterCapturingContext(testAuthSecret)
 
-		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
+		w := doRequest(r, "Bearer "+token)
 
 		if w.Code != http.StatusOK {
 			t.Errorf("expected status %d, got %d", http.StatusOK, w.Code)
