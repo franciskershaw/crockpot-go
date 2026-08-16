@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -37,7 +38,7 @@ func (failingStore) Increment(ctx context.Context, key string, count int64, rate
 func newRateLimitedRouter(rate limiter.Rate) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(middleware.RateLimit(memory.NewStore(), rate))
+	r.Use(middleware.NewRateLimitMiddleware(memory.NewStore(), rate).Handler())
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "pong"})
 	})
@@ -78,8 +79,12 @@ func TestRateLimit_BlocksRequestsOverLimit(t *testing.T) {
 	if got := w.Body.String(); got != `{"error":"rate limit exceeded"}` {
 		t.Errorf("expected rate-limit-exceeded error body, got %s", got)
 	}
-	if w.Header().Get("Retry-After") == "" {
-		t.Error("expected Retry-After header to be set, got none")
+	retryAfter, err := strconv.Atoi(w.Header().Get("Retry-After"))
+	if err != nil {
+		t.Fatalf("expected Retry-After to be a number, got %q: %v", w.Header().Get("Retry-After"), err)
+	}
+	if retryAfter <= 0 || retryAfter > 60 {
+		t.Errorf("expected Retry-After within the 60s period, got %d", retryAfter)
 	}
 }
 
@@ -100,7 +105,7 @@ func TestRateLimit_TracksDifferentIPsSeparately(t *testing.T) {
 func TestRateLimit_StoreErrorReturnsCleanServerError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(middleware.RateLimit(failingStore{}, limiter.Rate{Period: time.Minute, Limit: 2}))
+	r.Use(middleware.NewRateLimitMiddleware(failingStore{}, limiter.Rate{Period: time.Minute, Limit: 2}).Handler())
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "pong"})
 	})

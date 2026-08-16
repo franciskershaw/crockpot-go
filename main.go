@@ -71,7 +71,11 @@ func main() {
 	// Initialize Gin server
 	gin.SetMode(configureGinMode(string(cfg.Environment)))
 	server := gin.Default()
-	server.Use(middleware.RateLimit(memory.NewStore(), globalRateLimit))
+	if err := server.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		fmt.Fprintf(os.Stderr, "SetTrustedProxies failed: %v\n", err)
+		os.Exit(1)
+	}
+	server.Use(middleware.NewRateLimitMiddleware(memory.NewStore(), globalRateLimit).Handler())
 
 	server.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -83,7 +87,7 @@ func main() {
 	server.GET("/auth/google/callback", authHandler.GoogleCallback)
 
 	authTight := server.Group("/auth")
-	authTight.Use(middleware.RateLimit(memory.NewStore(), authRateLimit))
+	authTight.Use(middleware.NewRateLimitMiddleware(memory.NewStore(), authRateLimit).Handler())
 	{
 		authTight.POST("/register", authHandler.Register)
 		authTight.POST("/confirm", authHandler.ConfirmEmail)

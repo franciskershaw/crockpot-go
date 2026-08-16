@@ -87,7 +87,7 @@ func (c *ResendClient) SendConfirmationCode(ctx context.Context, toEmail, code s
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 		return fmt.Errorf("resend: unexpected status %d: %s", resp.StatusCode, body)
 	}
 	return nil

@@ -82,18 +82,6 @@ func (r *PostgresUserRepository) CreateUnconfirmedUser(ctx context.Context, emai
 	return toModelUser(created), nil
 }
 
-func (r *PostgresUserRepository) UpdatePasswordAndClearConfirmation(ctx context.Context, email, passwordHash, name string) (*models.User, error) {
-	updated, err := r.q.UpdateUserPasswordAndName(ctx, sqlc.UpdateUserPasswordAndNameParams{
-		Email:        email,
-		PasswordHash: textParam(passwordHash),
-		Name:         textParam(name),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to update password for unconfirmed user: %w", err)
-	}
-	return toModelUser(updated), nil
-}
-
 func (r *PostgresUserRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
 	found, err := r.q.GetUserByEmail(ctx, email)
 	if err != nil {

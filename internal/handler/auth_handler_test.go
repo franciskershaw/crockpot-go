@@ -408,18 +408,37 @@ func TestRegister_Success(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code)
 }
 
+// A failed send must not leave a token behind that blocks the next attempt behind the resend cooldown.
+func TestRegister_EmailSendFailureMarksTokenUsedInstead(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	newUser := &models.User{ID: uuid.MustParse("22222222-2222-2222-2222-222222222222"), Email: "new@example.com"}
+	createdToken := &models.EmailVerificationToken{ID: uuid.MustParse("88888888-8888-8888-8888-888888888888")}
+
+	m.userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, "new@example.com", mock.AnythingOfType("string"), "New User").Return(newUser, nil)
+	m.emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, newUser.ID.String()).Return(nil, models.ErrNoActiveEmailVerificationToken)
+	m.emailTokenRepo.EXPECT().DeleteActiveForUser(mock.Anything, newUser.ID.String()).Return(nil)
+	m.emailTokenRepo.EXPECT().Create(mock.Anything, newUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(createdToken, nil)
+	m.emailSender.EXPECT().SendConfirmationCode(mock.Anything, "new@example.com", mock.AnythingOfType("string")).Return(errors.New("resend unreachable"))
+	m.emailTokenRepo.EXPECT().MarkUsed(mock.Anything, createdToken.ID.String()).Return(nil)
+
+	w := doRegister(m.router, map[string]string{"email": "new@example.com", "password": "correcthorse", "name": "New User"})
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// No password-mutating mock is set up here on purpose — case (c) must never touch the existing password.
 func TestRegister_UnconfirmedRetry_Succeeds(t *testing.T) {
 	m := newMocks(t, config.EnvDevelopment)
-	existingUser := &models.User{ID: uuid.MustParse("33333333-3333-3333-3333-333333333333"), Email: "retry@example.com"}
+	existingUser := &models.User{ID: uuid.MustParse("33333333-3333-3333-3333-333333333333"), Email: "retry@example.com", PasswordHash: ptr("original-hash-untouched")}
 
 	m.userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, "retry@example.com", mock.AnythingOfType("string"), "New Name").Return(nil, models.ErrEmailUnconfirmed)
-	m.userRepo.EXPECT().UpdatePasswordAndClearConfirmation(mock.Anything, "retry@example.com", mock.AnythingOfType("string"), "New Name").Return(existingUser, nil)
+	m.userRepo.EXPECT().FindByEmail(mock.Anything, "retry@example.com").Return(existingUser, nil)
 	m.emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, existingUser.ID.String()).Return(nil, models.ErrNoActiveEmailVerificationToken)
 	m.emailTokenRepo.EXPECT().DeleteActiveForUser(mock.Anything, existingUser.ID.String()).Return(nil)
 	m.emailTokenRepo.EXPECT().Create(mock.Anything, existingUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(&models.EmailVerificationToken{}, nil)
 	m.emailSender.EXPECT().SendConfirmationCode(mock.Anything, "retry@example.com", mock.AnythingOfType("string")).Return(nil)
 
-	w := doRegister(m.router, map[string]string{"email": "retry@example.com", "password": "correcthorse", "name": "New Name"})
+	w := doRegister(m.router, map[string]string{"email": "retry@example.com", "password": "attacker-chosen-password", "name": "New Name"})
 
 	assert.Equal(t, http.StatusCreated, w.Code)
 }
@@ -429,7 +448,7 @@ func TestRegister_UnconfirmedRetry_WithinCooldown(t *testing.T) {
 	existingUser := &models.User{ID: uuid.MustParse("33333333-3333-3333-3333-333333333333"), Email: "retry@example.com"}
 
 	m.userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, "retry@example.com", mock.AnythingOfType("string"), "New Name").Return(nil, models.ErrEmailUnconfirmed)
-	m.userRepo.EXPECT().UpdatePasswordAndClearConfirmation(mock.Anything, "retry@example.com", mock.AnythingOfType("string"), "New Name").Return(existingUser, nil)
+	m.userRepo.EXPECT().FindByEmail(mock.Anything, "retry@example.com").Return(existingUser, nil)
 	m.emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, existingUser.ID.String()).Return(&models.EmailVerificationToken{
 		ID: uuid.New(), UserID: existingUser.ID, ExpiresAt: time.Now().Add(5 * time.Minute),
 		CreatedAt: time.Now().Add(-10 * time.Second),

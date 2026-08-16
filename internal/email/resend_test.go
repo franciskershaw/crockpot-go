@@ -25,14 +25,13 @@ func newTestResendClient(t *testing.T, handler http.HandlerFunc) *ResendClient {
 func TestSendConfirmationCode_SendsExpectedRequest(t *testing.T) {
 	var gotMethod, gotAuth, gotContentType string
 	var gotBody map[string]string
+	var decodeErr error
 
 	client := newTestResendClient(t, func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotAuth = r.Header.Get("Authorization")
 		gotContentType = r.Header.Get("Content-Type")
-		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-			t.Fatalf("failed to decode request body: %v", err)
-		}
+		decodeErr = json.NewDecoder(r.Body).Decode(&gotBody)
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -40,6 +39,9 @@ func TestSendConfirmationCode_SendsExpectedRequest(t *testing.T) {
 		t.Fatalf("SendConfirmationCode returned unexpected error: %v", err)
 	}
 
+	if decodeErr != nil {
+		t.Fatalf("failed to decode request body: %v", decodeErr)
+	}
 	if gotMethod != http.MethodPost {
 		t.Errorf("method = %q, want %q", gotMethod, http.MethodPost)
 	}

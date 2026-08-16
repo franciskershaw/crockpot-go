@@ -187,35 +187,3 @@ func (q *Queries) UpdateUserLoginProfile(ctx context.Context, arg UpdateUserLogi
 	)
 	return i, err
 }
-
-const updateUserPasswordAndName = `-- name: UpdateUserPasswordAndName :one
-UPDATE users
-SET password_hash = $2, name = $3, updated_at = CURRENT_TIMESTAMP
-WHERE email = $1 AND email_verified_at IS NULL
-RETURNING id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at
-`
-
-type UpdateUserPasswordAndNameParams struct {
-	Email        string
-	PasswordHash pgtype.Text
-	Name         pgtype.Text
-}
-
-func (q *Queries) UpdateUserPasswordAndName(ctx context.Context, arg UpdateUserPasswordAndNameParams) (User, error) {
-	row := q.db.QueryRow(ctx, updateUserPasswordAndName, arg.Email, arg.PasswordHash, arg.Name)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.GoogleID,
-		&i.PasswordHash,
-		&i.Email,
-		&i.Name,
-		&i.Image,
-		&i.Role,
-		&i.EmailVerifiedAt,
-		&i.LastLoginAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}

@@ -12,22 +12,24 @@
 # Resend rejects @example.com recipients outright (reserved
 # documentation-only domain, RFC 2606) regardless of account/domain
 # verification status — replace REPLACE_WITH_YOUR_REAL_EMAIL below with
-# a real address you can check before running the ✅/409 sections, which
-# are the only two that actually reach Resend (the others fail
-# validation first). The password/invalid-email cases stay @example.com
-# on purpose — they never reach Resend.
+# a real address you can check before running the ✅ sections, which are
+# the only ones that actually reach Resend (the others fail validation
+# first). The password/invalid-email cases stay @example.com on purpose
+# — they never reach Resend.
 
 
 # ══════════════════════════════════════════
 #  POST /auth/register
 # ══════════════════════════════════════════
 
-### ✅ 201 — fresh registration, sends a real confirmation code by email
+### ✅ 201 — fresh registration, sends a real confirmation code by email.
+### Copy the code from that email into CODE_FROM_EMAIL in the confirm
+### section below before running it.
 POST http://localhost:{{$dotenv PORT}}/auth/register
 Content-Type: application/json
 
 {
-  "email": "email_here",
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
   "password": "correcthorsebattery",
   "name": "HTTP Test User"
 }
@@ -68,40 +70,20 @@ Content-Type: application/json
   "name": "HTTP Test User"
 }
 
-###
-
-### ✅ 201 — re-registers the same still-unconfirmed email above (case (c):
-### abandoned signup). NOT a 409 — clears the old code, issues a new one,
-### overwrites the password. A true 409 needs the account confirmed first.
-### Subject to the same 60s resend cooldown as /auth/resend-confirmation —
-### if run within 60s of the request above, expect 429 resend_too_soon
-### instead of 201 (wait, or just treat that as the cooldown demo).
-POST http://localhost:{{$dotenv PORT}}/auth/register
-Content-Type: application/json
-
-{
-  "email": "email_here",
-  "password": "correcthorsebattery",
-  "name": "HTTP Test User"
-}
-
 
 # ══════════════════════════════════════════
 #  POST /auth/confirm
 #
-#  Run the register section above first. Two codes get sent to the same
-#  inbox (the ✅ 201 and the re-register below it both issue one) — only
-#  the SECOND (latest) is still active, the first is dead the moment the
-#  second is issued. Paste the latest code into CODE_FROM_EMAIL below.
+#  Run the ✅ 201 register request above first.
 # ══════════════════════════════════════════
 
-### ✅ 200 — confirms with the real code from the second email above
+### ✅ 200 — confirms with the real code from the register email above
 POST http://localhost:{{$dotenv PORT}}/auth/confirm
 Content-Type: application/json
 
 {
-  "email": "email_here",
-  "code": "046196"
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "code": "CODE_FROM_EMAIL"
 }
 
 ###
@@ -126,13 +108,36 @@ POST http://localhost:{{$dotenv PORT}}/auth/confirm
 Content-Type: application/json
 
 {
-  "email": "email_here",
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
   "code": "000000"
+}
+
+###
+
+### 🔒 400 — expired code. Can't be triggered live (10-minute TTL) —
+### backdate the active token's expires_at first:
+#
+#   UPDATE email_verification_tokens SET expires_at = now() - interval '1 minute'
+#   WHERE user_id = (SELECT id FROM users WHERE email = 'REPLACE_WITH_YOUR_REAL_EMAIL')
+#   AND used_at IS NULL;
+#
+### Then run this with the same (now-expired) code from the register email.
+POST http://localhost:{{$dotenv PORT}}/auth/confirm
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "code": "CODE_FROM_EMAIL"
 }
 
 
 # ══════════════════════════════════════════
 #  POST /auth/resend-confirmation
+#
+#  Also covers Register's case-(c) behavior (re-registering a still-
+#  unconfirmed email): that path now delegates to the exact same
+#  issueConfirmationCode logic as this endpoint — same cooldown, same
+#  "clear old code, issue new one" — so it isn't demonstrated separately.
 # ══════════════════════════════════════════
 
 ### ✅ 200 — issues a fresh code, sends a real email. Also the recovery
@@ -142,7 +147,7 @@ POST http://localhost:{{$dotenv PORT}}/auth/resend-confirmation
 Content-Type: application/json
 
 {
-  "email": "email_here"
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL"
 }
 
 ###
@@ -152,7 +157,7 @@ POST http://localhost:{{$dotenv PORT}}/auth/resend-confirmation
 Content-Type: application/json
 
 {
-  "email": "email_here"
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL"
 }
 
 ###
@@ -172,7 +177,7 @@ POST http://localhost:{{$dotenv PORT}}/auth/resend-confirmation
 Content-Type: application/json
 
 {
-  "email": "email_here"
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL"
 }
 
 
@@ -180,10 +185,9 @@ Content-Type: application/json
 #  Cleanup
 # ══════════════════════════════════════════
 
-### Only the ✅ 201 request actually inserts a row — every other section
-### fails before reaching the DB (validation errors, or the 409 case
-### re-hitting the same existing row). Connect via psql/a DB client and
-### run manually (no DELETE endpoint exists for this):
+### Only the ✅ 201 register request actually inserts a row — every other
+### section fails before reaching the DB (validation errors) or acts on
+### that same existing row. Connect via psql/a DB client and run manually
+### (no DELETE endpoint exists for this):
 #
-#   DELETE FROM users WHERE email = 'email_here';
-#   -- use whatever you actually swapped that placeholder for above
+#   DELETE FROM users WHERE email = 'REPLACE_WITH_YOUR_REAL_EMAIL';

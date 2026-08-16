@@ -120,14 +120,25 @@ actually needs it).
     user to guess what happened), and `CROC-004` already set the
     precedent of surfacing this exact collision explicitly.
   - Unconfirmed password account exists (abandoned signup) → **silently
-    treated as a resend**: overwrite `password_hash`, clear the old
-    token/attempts, issue a new code, same `201` response as a fresh
-    register. Traced the apparent risk (attacker overwrites a stranger's
-    password) and it's not real: confirmation still only ever reaches the
-    real inbox, so nobody can complete the account takeover this looks
-    like at first glance regardless of how many times register is called
-    in between. Purely a UX improvement (no dead end for someone who
-    abandoned signup) with no security cost.
+    treated as a resend**: clear the old token/attempts, issue a new
+    code, same `201` response as a fresh register. **Correction, caught
+    by CodeRabbit's review of this ticket's diff**: the original version
+    of this decision also overwrote `password_hash` here, reasoned as
+    safe because "confirmation still only ever reaches the real inbox, so
+    nobody can complete the account takeover this looks like." That
+    reasoning was wrong — it only considered whether the *attacker* could
+    complete confirmation, not what happens when the *legitimate owner*
+    does. The real owner already has a valid code in their inbox from
+    their own earlier registration; if an attacker re-registers the same
+    unconfirmed email with a chosen password in between, the owner's own
+    confirmation activates the attacker's password, not theirs. Fixed:
+    case (c) never touches `password_hash` at all now — it's identical to
+    calling `POST /auth/resend-confirmation`, nothing more.
+    `UpdatePasswordAndClearConfirmation` (repository method, interface
+    method, sqlc query, and its tests) is deleted as a result — no longer
+    has any caller, and no future one: `CROC-007`'s reset flow will be
+    gated on a proven reset token, not email-alone, so it doesn't revive
+    this method's use case.
 - **Rate-limiting middleware is built in this ticket**, not split into a
   separate foundational ticket, since nothing in the backlog previously
   owned it and this ticket is the first real consumer. Ports
@@ -194,11 +205,12 @@ actually needs it).
       `PostgresEmailVerificationTokenRepository` — `Create`,
       `FindActiveByUserID`, `IncrementAttempts`, `MarkUsed`,
       `DeleteActiveForUser` (the "clear before insert" op).
-- [ ] `internal/repository/user.go`: `CreateUnconfirmedUser`,
-      `UpdatePasswordAndClearConfirmation` (case (c)'s overwrite path),
+- [ ] `internal/repository/user.go`: `CreateUnconfirmedUser`, `FindByEmail`,
       `MarkEmailConfirmed`. Duplicate-email detection via
       `pgconn.PgError.Code == "23505"` on `users.email`, distinguishing
       Google vs. password existing rows to pick the right typed error.
+      Case (c) (abandoned unconfirmed signup) reuses `FindByEmail` —
+      never a password-mutating method, see the correction above.
 - [ ] `internal/handler/auth_handler.go`: `Register`, `ConfirmEmail`,
       `ResendConfirmation` — behaviour per the Decisions section above,
       including the 60s per-email resend cooldown and the 5-attempt

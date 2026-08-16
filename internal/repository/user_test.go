@@ -191,30 +191,6 @@ func TestCreateUnconfirmedUser_EmailHasUnconfirmedPasswordAccount(t *testing.T) 
 	assert.ErrorIs(t, err, models.ErrEmailUnconfirmed)
 }
 
-func TestUpdatePasswordAndClearConfirmation_OverwritesUnconfirmedAccount(t *testing.T) {
-	ctx := context.Background()
-	email := "repo-test-" + uuid.NewString() + "@example.com"
-	existingID := uuid.New()
-
-	_, err := db.DB.Exec(ctx,
-		`INSERT INTO users (id, password_hash, name, email) VALUES ($1, $2, $3, $4)`,
-		existingID, "old-hash", "Old Name", email,
-	)
-	require.NoError(t, err)
-	cleanupExec(t, `DELETE FROM users WHERE id = $1`, existingID)
-
-	updated, err := userRepo.UpdatePasswordAndClearConfirmation(ctx, email, "new-hash", "New Name")
-	require.NoError(t, err)
-	require.NotNil(t, updated)
-
-	assert.Equal(t, existingID, updated.ID, "should update the existing row, not create a new one")
-	require.NotNil(t, updated.PasswordHash)
-	assert.Equal(t, "new-hash", *updated.PasswordHash)
-	require.NotNil(t, updated.Name)
-	assert.Equal(t, "New Name", *updated.Name)
-	assert.Nil(t, updated.EmailVerifiedAt)
-}
-
 func TestFindByEmail_ReturnsUser(t *testing.T) {
 	ctx := context.Background()
 	email := "repo-test-" + uuid.NewString() + "@example.com"

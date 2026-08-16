@@ -264,67 +264,6 @@ func (_c *MockUserRepository_MarkEmailConfirmed_Call) RunAndReturn(run func(cont
 	return _c
 }
 
-// UpdatePasswordAndClearConfirmation provides a mock function with given fields: ctx, email, passwordHash, name
-func (_m *MockUserRepository) UpdatePasswordAndClearConfirmation(ctx context.Context, email string, passwordHash string, name string) (*models.User, error) {
-	ret := _m.Called(ctx, email, passwordHash, name)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdatePasswordAndClearConfirmation")
-	}
-
-	var r0 *models.User
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (*models.User, error)); ok {
-		return rf(ctx, email, passwordHash, name)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) *models.User); ok {
-		r0 = rf(ctx, email, passwordHash, name)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*models.User)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
-		r1 = rf(ctx, email, passwordHash, name)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockUserRepository_UpdatePasswordAndClearConfirmation_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdatePasswordAndClearConfirmation'
-type MockUserRepository_UpdatePasswordAndClearConfirmation_Call struct {
-	*mock.Call
-}
-
-// UpdatePasswordAndClearConfirmation is a helper method to define mock.On call
-//   - ctx context.Context
-//   - email string
-//   - passwordHash string
-//   - name string
-func (_e *MockUserRepository_Expecter) UpdatePasswordAndClearConfirmation(ctx interface{}, email interface{}, passwordHash interface{}, name interface{}) *MockUserRepository_UpdatePasswordAndClearConfirmation_Call {
-	return &MockUserRepository_UpdatePasswordAndClearConfirmation_Call{Call: _e.mock.On("UpdatePasswordAndClearConfirmation", ctx, email, passwordHash, name)}
-}
-
-func (_c *MockUserRepository_UpdatePasswordAndClearConfirmation_Call) Run(run func(ctx context.Context, email string, passwordHash string, name string)) *MockUserRepository_UpdatePasswordAndClearConfirmation_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
-	})
-	return _c
-}
-
-func (_c *MockUserRepository_UpdatePasswordAndClearConfirmation_Call) Return(_a0 *models.User, _a1 error) *MockUserRepository_UpdatePasswordAndClearConfirmation_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockUserRepository_UpdatePasswordAndClearConfirmation_Call) RunAndReturn(run func(context.Context, string, string, string) (*models.User, error)) *MockUserRepository_UpdatePasswordAndClearConfirmation_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // NewMockUserRepository creates a new instance of MockUserRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockUserRepository(t interface {

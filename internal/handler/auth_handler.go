@@ -30,7 +30,6 @@ const (
 type UserRepository interface {
 	GetOrCreateUser(ctx context.Context, email, googleID, displayName, avatarURL string) (*models.User, error)
 	CreateUnconfirmedUser(ctx context.Context, email, passwordHash, name string) (*models.User, error)
-	UpdatePasswordAndClearConfirmation(ctx context.Context, email, passwordHash, name string) (*models.User, error)
 	MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error)
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
 }
@@ -248,9 +247,11 @@ func (h *AuthHandler) Register(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"error": "email_already_registered"})
 			return
 		case errors.Is(err, models.ErrEmailUnconfirmed):
-			user, err = h.userRepo.UpdatePasswordAndClearConfirmation(ctx, req.Email, string(hash), req.Name)
+			// Never overwrite the password here — the legitimate owner, not whoever last called
+			// register, is the one who'll complete confirmation with their already-delivered code.
+			user, err = h.userRepo.FindByEmail(ctx, req.Email)
 			if err != nil {
-				_ = c.Error(fmt.Errorf("failed to update unconfirmed user: %w", err))
+				_ = c.Error(fmt.Errorf("failed to look up unconfirmed user: %w", err))
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
 				return
 			}
@@ -306,11 +307,16 @@ func (h *AuthHandler) issueConfirmationCode(ctx context.Context, user *models.Us
 		return fmt.Errorf("failed to generate confirmation code: %w", err)
 	}
 
-	if _, err := h.emailVerificationTokenRepo.Create(ctx, user.ID.String(), auth.HashToken(code), time.Now().Add(confirmationCodeTTL)); err != nil {
+	token, err := h.emailVerificationTokenRepo.Create(ctx, user.ID.String(), auth.HashToken(code), time.Now().Add(confirmationCodeTTL))
+	if err != nil {
 		return fmt.Errorf("failed to persist confirmation code: %w", err)
 	}
 
 	if err := h.emailSender.SendConfirmationCode(ctx, user.Email, code); err != nil {
+		// Never delivered — mark it used so it doesn't block the next attempt behind a cooldown for a code the user never received.
+		if markErr := h.emailVerificationTokenRepo.MarkUsed(ctx, token.ID.String()); markErr != nil {
+			return fmt.Errorf("failed to send confirmation email (%w) and failed to clean up undelivered code: %w", err, markErr)
+		}
 		return fmt.Errorf("failed to send confirmation email: %w", err)
 	}
 	return nil
@@ -368,10 +374,10 @@ func (h *AuthHandler) ConfirmEmail(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
 		return
 	}
+	// Confirmation itself already succeeded — a failure here just leaves an inert token that
+	// self-expires within confirmationCodeTTL, not worth failing a successful confirmation over.
 	if err := h.emailVerificationTokenRepo.MarkUsed(ctx, token.ID.String()); err != nil {
-		_ = c.Error(fmt.Errorf("failed to mark confirmation code used: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
-		return
+		_ = c.Error(fmt.Errorf("email confirmed but failed to mark code used: %w", err))
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "email confirmed"})
