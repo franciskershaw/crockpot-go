@@ -141,6 +141,27 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   reasoning for a similar staleness call. Revisit only if a real
   instant-revocation requirement shows up — which would need a bigger
   fix (session invalidation) than switching this decision alone solves.
+  **Google sign-in verifies an OIDC `id_token`** (`coreos/go-oidc`,
+  signature checked locally against Google's cached JWKS), not a call to
+  Google's userinfo endpoint — decided at `CROC-004`
+  (`docs/handoffs/CROC-004.md`) after finding `packing-list-go`'s
+  `cfg.GoogleOAuth2Config` (copied into this project at `CROC-001`) is
+  dead code there, never consumed outside its own construction; the real
+  precedent is `internal/auth/google.go`'s independently-built OIDC
+  manager. **The Google callback issues and persists only the refresh
+  token** — no access token is minted or returned at that step; the
+  frontend mints its own via `POST /auth/refresh` on load, matching
+  `crockpot-react`'s master-spec commitment. `RefreshTokenRepository` is
+  one interface split across two tickets: `CROC-004` builds
+  `CreateFamily`/`DeleteStaleFamiliesForUser` only; `CROC-008` adds
+  `RotateFamily`/`FindFamilyByID`/`RevokeFamily` to the same
+  interface/struct. **A Google sign-in against an email already
+  registered via password fails explicitly** (`ErrEmailRegisteredWithPassword`,
+  detected as a Postgres unique-violation on `users.email`), redirecting
+  the browser to `${FRONTEND_URL}/auth/callback?error=...` rather than
+  either merging accounts or surfacing a raw 500 — the direct, foreseeable
+  consequence of the "mutually exclusive, no linking" decision above, not
+  a hypothetical deferred until password auth ships.
 - **Ownership model**: reference data (`item_categories`, `items`, `units`,
   `recipe_categories`) is system-level, visible to everyone, admin-managed
   only — no per-user copies (unlike `packing-list-go`, which let users
@@ -194,13 +215,21 @@ revisit if/when a "trash" UX is wanted for recipes or menus.
 - **CROC-003a** — CI checks pipeline + branch protection on `main`. **Done.**
 
 ### Epic 2: Authentication
+*Planned implementation order departs from ticket numbering: CROC-004 →
+CROC-008 (Refresh + logout) → crockpot-react's initial auth wiring
+(CFE-002) → CROC-005/006/007 (password auth) — Google login + refresh +
+logout is a complete, testable session on its own, and doesn't need
+password auth to prove out. See `docs/handoffs/CROC-004.md`.*
 - **CROC-004** — Google OAuth login flow (`/auth/google/login`,
-  `/auth/google/callback`), get-or-create user, issue token pair. First
-  ticket with a real repository query against the new schema — also owns
-  proving `sqlc generate` exits 0 against it (standing rule, not pinned
-  to a ticket number: whichever ticket first adds a real query owns this
-  proof, so it can't need a second correction later — see
-  `docs/handoffs/CROC-002.md`).
+  `/auth/google/callback`), get-or-create user, issue and persist a
+  refresh token (access-token minting deferred to `CROC-008` — see
+  `docs/handoffs/CROC-004.md`). First ticket with a real repository query
+  against the new schema — also owns proving `sqlc generate` exits 0
+  against it (standing rule, not pinned to a ticket number: whichever
+  ticket first adds a real query owns this proof, so it can't need a
+  second correction later — see `docs/handoffs/CROC-002.md`). Also adds
+  `users.last_login_at TIMESTAMPTZ` as a schema addendum to `CROC-002`'s
+  migration.
 - **CROC-005** — Email/password registration + confirmation
   (`POST /auth/register` creates unverified user + sends confirmation
   email via Resend; `GET /auth/confirm?token=` verifies). Resending a
