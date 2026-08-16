@@ -2,6 +2,27 @@
 SELECT * FROM users
 WHERE google_id = $1;
 
+-- name: GetUserByEmail :one
+SELECT * FROM users
+WHERE email = $1;
+
+-- name: CreateUnconfirmedUser :one
+INSERT INTO users (email, password_hash, name)
+VALUES ($1, $2, $3)
+RETURNING *;
+
+-- name: UpdateUserPasswordAndName :one
+UPDATE users
+SET password_hash = $2, name = $3, updated_at = CURRENT_TIMESTAMP
+WHERE email = $1 AND email_verified_at IS NULL
+RETURNING *;
+
+-- name: MarkUserEmailConfirmed :one
+UPDATE users
+SET email_verified_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+RETURNING *;
+
 -- name: CreateGoogleUser :one
 INSERT INTO users (email, google_id, name, image, email_verified_at, last_login_at)
 VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)

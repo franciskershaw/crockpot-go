@@ -54,6 +54,18 @@ func (r *PostgresUserRepository) GetOrCreateUser(ctx context.Context, email, goo
 	return toModelUser(created), nil
 }
 
+func (r *PostgresUserRepository) CreateUnconfirmedUser(ctx context.Context, email, passwordHash, name string) (*models.User, error) {
+	return &models.User{}, nil
+}
+
+func (r *PostgresUserRepository) UpdatePasswordAndClearConfirmation(ctx context.Context, email, passwordHash, name string) (*models.User, error) {
+	return &models.User{}, nil
+}
+
+func (r *PostgresUserRepository) MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error) {
+	return &models.User{}, nil
+}
+
 func (r *PostgresUserRepository) refreshLoginProfile(ctx context.Context, id pgtype.UUID, displayName, avatarURL string) (*models.User, error) {
 	updated, err := r.q.UpdateUserLoginProfile(ctx, sqlc.UpdateUserLoginProfileParams{
 		ID:          id,
