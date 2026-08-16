@@ -52,6 +52,8 @@ func loadFromEnv() *Config {
 		GoogleRedirectURL:   os.Getenv("GOOGLE_REDIRECT_URI"),
 		FrontendURL:         os.Getenv("FRONTEND_URL"),
 		TrustedProxies:      getEnvAsSlice("TRUSTED_PROXIES"),
+		ResendAPIKey:        os.Getenv("RESEND_API_KEY"),
+		EmailFrom:           os.Getenv("EMAIL_FROM"),
 	}
 }
 
@@ -68,6 +70,8 @@ func validate(cfg *Config) error {
 		{"GOOGLE_CLIENT_SECRET", cfg.GoogleClientSecret},
 		{"GOOGLE_REDIRECT_URI", cfg.GoogleRedirectURL},
 		{"FRONTEND_URL", cfg.FrontendURL},
+		{"RESEND_API_KEY", cfg.ResendAPIKey},
+		{"EMAIL_FROM", cfg.EmailFrom},
 	}
 
 	var missing []string
