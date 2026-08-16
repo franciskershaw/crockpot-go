@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/franciskershaw/crockpot-go/config"
 	"github.com/franciskershaw/crockpot-go/internal/auth"
@@ -79,6 +80,7 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 	m.router.GET("/auth/google/login", h.LoginWithGoogle)
 	m.router.GET("/auth/google/callback", h.GoogleCallback)
 	m.router.POST("/auth/register", h.Register)
+	m.router.POST("/auth/confirm", h.ConfirmEmail)
 	return m
 }
 
@@ -468,6 +470,117 @@ func TestRegister_Fails(t *testing.T) {
 			}
 
 			w := doRegister(m.router, tc.body)
+
+			assert.Equal(t, tc.wantCode, w.Code)
+			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])
+		})
+	}
+}
+
+// --- ConfirmEmail ---
+
+func doConfirm(r *gin.Engine, body any) *httptest.ResponseRecorder {
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/auth/confirm", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestConfirmEmail_Success(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	confirmUser := &models.User{ID: uuid.MustParse("44444444-4444-4444-4444-444444444444"), Email: "confirm@example.com"}
+	token := &models.EmailVerificationToken{
+		ID:        uuid.MustParse("55555555-5555-5555-5555-555555555555"),
+		UserID:    confirmUser.ID,
+		TokenHash: auth.HashToken("482913"),
+		Attempts:  0,
+		ExpiresAt: time.Now().Add(5 * time.Minute),
+	}
+
+	m.userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(confirmUser, nil)
+	m.emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, confirmUser.ID.String()).Return(token, nil)
+	m.userRepo.EXPECT().MarkEmailConfirmed(mock.Anything, confirmUser.ID.String()).Return(confirmUser, nil)
+	m.emailTokenRepo.EXPECT().MarkUsed(mock.Anything, token.ID.String()).Return(nil)
+
+	w := doConfirm(m.router, map[string]string{"email": "confirm@example.com", "code": "482913"})
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestConfirmEmail_Fails(t *testing.T) {
+	confirmUser := &models.User{ID: uuid.MustParse("44444444-4444-4444-4444-444444444444"), Email: "confirm@example.com"}
+
+	cases := []struct {
+		name      string
+		setup     func(userRepo *handler.MockUserRepository, emailTokenRepo *handler.MockEmailVerificationTokenRepository)
+		wantCode  int
+		wantError string
+	}{
+		{
+			name: "unknown email",
+			setup: func(userRepo *handler.MockUserRepository, _ *handler.MockEmailVerificationTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(nil, models.ErrUserNotFound)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "code_invalid",
+		},
+		{
+			name: "no active token",
+			setup: func(userRepo *handler.MockUserRepository, emailTokenRepo *handler.MockEmailVerificationTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(confirmUser, nil)
+				emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, confirmUser.ID.String()).Return(nil, models.ErrNoActiveEmailVerificationToken)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "code_invalid",
+		},
+		{
+			name: "expired token",
+			setup: func(userRepo *handler.MockUserRepository, emailTokenRepo *handler.MockEmailVerificationTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(confirmUser, nil)
+				emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, confirmUser.ID.String()).Return(&models.EmailVerificationToken{
+					ID: uuid.New(), UserID: confirmUser.ID, TokenHash: auth.HashToken("482913"),
+					Attempts: 0, ExpiresAt: time.Now().Add(-time.Minute),
+				}, nil)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "code_expired",
+		},
+		{
+			name: "wrong code increments attempts",
+			setup: func(userRepo *handler.MockUserRepository, emailTokenRepo *handler.MockEmailVerificationTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(confirmUser, nil)
+				tokenID := uuid.New()
+				emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, confirmUser.ID.String()).Return(&models.EmailVerificationToken{
+					ID: tokenID, UserID: confirmUser.ID, TokenHash: auth.HashToken("482913"),
+					Attempts: 0, ExpiresAt: time.Now().Add(5 * time.Minute),
+				}, nil)
+				emailTokenRepo.EXPECT().IncrementAttempts(mock.Anything, tokenID.String()).Return(&models.EmailVerificationToken{ID: tokenID, Attempts: 1}, nil)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "code_invalid",
+		},
+		{
+			name: "already locked out",
+			setup: func(userRepo *handler.MockUserRepository, emailTokenRepo *handler.MockEmailVerificationTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(confirmUser, nil)
+				emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, confirmUser.ID.String()).Return(&models.EmailVerificationToken{
+					ID: uuid.New(), UserID: confirmUser.ID, TokenHash: auth.HashToken("482913"),
+					Attempts: 5, ExpiresAt: time.Now().Add(5 * time.Minute),
+				}, nil)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "too_many_attempts",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMocks(t, config.EnvDevelopment)
+			tc.setup(m.userRepo, m.emailTokenRepo)
+
+			w := doConfirm(m.router, map[string]string{"email": "confirm@example.com", "code": "000000"})
 
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])

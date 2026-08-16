@@ -17,12 +17,13 @@ import (
 )
 
 const (
-	refreshTokenTTL        = 7 * 24 * time.Hour
-	oauthStateCookieMaxAge = 10 * time.Minute
-	oauthExchangeTimeout   = 10 * time.Second
-	confirmationCodeTTL    = 10 * time.Minute
-	minPasswordLength      = 8
-	maxPasswordBytes       = 72
+	refreshTokenTTL         = 7 * 24 * time.Hour
+	oauthStateCookieMaxAge  = 10 * time.Minute
+	oauthExchangeTimeout    = 10 * time.Second
+	confirmationCodeTTL     = 10 * time.Minute
+	maxConfirmationAttempts = 5
+	minPasswordLength       = 8
+	maxPasswordBytes        = 72
 )
 
 type UserRepository interface {
@@ -30,6 +31,7 @@ type UserRepository interface {
 	CreateUnconfirmedUser(ctx context.Context, email, passwordHash, name string) (*models.User, error)
 	UpdatePasswordAndClearConfirmation(ctx context.Context, email, passwordHash, name string) (*models.User, error)
 	MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error)
+	FindByEmail(ctx context.Context, email string) (*models.User, error)
 }
 
 type RefreshTokenRepository interface {
@@ -286,4 +288,13 @@ func (h *AuthHandler) issueConfirmationCode(ctx context.Context, user *models.Us
 		return fmt.Errorf("failed to send confirmation email: %w", err)
 	}
 	return nil
+}
+
+type confirmRequest struct {
+	Email string `json:"email" binding:"required,email"`
+	Code  string `json:"code" binding:"required"`
+}
+
+func (h *AuthHandler) ConfirmEmail(c *gin.Context) {
+	c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented"})
 }

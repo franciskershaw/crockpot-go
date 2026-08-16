@@ -83,6 +83,65 @@ func (_c *MockUserRepository_CreateUnconfirmedUser_Call) RunAndReturn(run func(c
 	return _c
 }
 
+// FindByEmail provides a mock function with given fields: ctx, email
+func (_m *MockUserRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
+	ret := _m.Called(ctx, email)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FindByEmail")
+	}
+
+	var r0 *models.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*models.User, error)); ok {
+		return rf(ctx, email)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *models.User); ok {
+		r0 = rf(ctx, email)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, email)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockUserRepository_FindByEmail_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FindByEmail'
+type MockUserRepository_FindByEmail_Call struct {
+	*mock.Call
+}
+
+// FindByEmail is a helper method to define mock.On call
+//   - ctx context.Context
+//   - email string
+func (_e *MockUserRepository_Expecter) FindByEmail(ctx interface{}, email interface{}) *MockUserRepository_FindByEmail_Call {
+	return &MockUserRepository_FindByEmail_Call{Call: _e.mock.On("FindByEmail", ctx, email)}
+}
+
+func (_c *MockUserRepository_FindByEmail_Call) Run(run func(ctx context.Context, email string)) *MockUserRepository_FindByEmail_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockUserRepository_FindByEmail_Call) Return(_a0 *models.User, _a1 error) *MockUserRepository_FindByEmail_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockUserRepository_FindByEmail_Call) RunAndReturn(run func(context.Context, string) (*models.User, error)) *MockUserRepository_FindByEmail_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetOrCreateUser provides a mock function with given fields: ctx, email, googleID, displayName, avatarURL
 func (_m *MockUserRepository) GetOrCreateUser(ctx context.Context, email string, googleID string, displayName string, avatarURL string) (*models.User, error) {
 	ret := _m.Called(ctx, email, googleID, displayName, avatarURL)
