@@ -136,3 +136,17 @@ implementation quality until CROC-001 lands.
   answer captured here in the same pass, even a quick one — otherwise it
   re-litigates from scratch next time with no memory of already being
   raised.
+
+## 2026-08-16 — CROC-006 — Email/password login shipped; CodeRabbit caught a session-ordering bug my own fix-round got backwards
+
+- The hand-written-mode roadmap wrongly stated "tests after" a second
+  time, contradicting `CLAUDE.md`'s own already-stated rule — fixed the
+  wording at the source instead of relying on prose alone to hold.
+- My own reorder of `Login`'s side effects protected against the wrong
+  failure mode (a stale `last_login_at`) instead of the worse one (a
+  live session issued despite a reported failure) — CodeRabbit caught
+  it, not the grill or my own review.
+- **Pattern**: when ordering non-transactional side effects around a
+  possible failure, the one that grants access goes last — protect
+  against a working session existing when the response says it failed,
+  not against stale metadata.

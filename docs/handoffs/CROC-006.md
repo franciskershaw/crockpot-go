@@ -254,3 +254,5 @@ whatever triggers the refresh-retry behavior.
   mode) — ask before running rather than auto-launching. A PR should
   still be opened to get CodeRabbit's pass regardless, per
   `crockpot-go/CLAUDE.md`.
+
+Completed 2026-08-16.
