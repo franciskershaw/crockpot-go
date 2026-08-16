@@ -144,6 +144,19 @@ actually needs it).
   unauthenticated by definition. The CLAUDE.md line assumed the old
   sequencing (CROC-008 directly after CROC-004); fixed as part of this
   ticket's own scope, see below.
+- **API error response shape formalized as a project-wide convention**,
+  not just this ticket's own choice — flagged when the founder noticed
+  `Register`'s `invalid_request` response was undifferentiated and asked
+  whether it was deliberate. It wasn't, explicitly, until now: every
+  JSON-responding endpoint returns `{"error": "snake_case_code"}` on
+  failure, `{"message": "..."}` on non-resource success.
+  `GoogleCallback`'s redirect-based `?error=code` shape stays the
+  deliberate exception (browser navigation target, not a JSON consumer).
+  Binding validation failures stay one generic `invalid_request`, no
+  field-level detail — `crockpot-react`'s forms validate client-side
+  first, so a real `invalid_request` is an edge case, not a normal
+  user path worth building precision for. Recorded in full at
+  `master-spec.md`'s "API error response shape" bullet.
 
 ## Acceptance criteria
 

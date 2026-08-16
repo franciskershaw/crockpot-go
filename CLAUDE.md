@@ -41,7 +41,14 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
 - Images: Cloudinary, uploaded client-side by the frontend — the API only
   ever stores the resulting URL, never proxies image bytes
 - Testing: stdlib `testing` + `testify/mock` for handler-layer repository
-  mocks (same override as `packing-list-go` — see its `CLAUDE.md`)
+  mocks. **Diverges from `packing-list-go`** (hand-written mocks there):
+  mocks are generated via `mockery` (`go tool mockery`, config in
+  `.mockery.yaml`, output alongside each interface as `mock_*_test.go`,
+  `with-expecter: true` — `.EXPECT().Method(args).Return(...)`, not raw
+  `.On("Method", ...)`). Adopted at `CROC-005` once the mock surface grew
+  past the first couple of interfaces and hand-written duplication became
+  a real maintenance cost, not a hypothetical one; re-run `go tool
+  mockery` after changing any interface in `internal/handler`.
 - Deployment: Docker (multi-stage to distroless), behind nginx, on the
   same DigitalOcean droplet as `packing-list-go`
 
@@ -217,5 +224,5 @@ no token at all, so there's no reason to wait).
 - `docs/specs/master-spec.md` — living spec + ticket backlog
 - `docs/handoffs/CROC-NNN.md` — one per ticket
 - `LESSONS.md` — retro log, reviewed each kickoff/grill-me
-- `requests/README.md` — once `CROC-008` creates it, the `.http`
-  regression suite's setup/running instructions
+- `requests/README.md` — the `.http` regression suite's setup/running
+  instructions, created at `CROC-005`

@@ -189,6 +189,22 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   Keeps the 1 MB JSON body cap (below) meaningful.
 - **Email**: Resend, for verification and password-reset emails (matching
   the old app's provider choice).
+- **API error response shape**: locked in at `CROC-005` (previously
+  implicit, consistent-by-coincidence across CROC-004's redirect-based
+  errors and CROC-005's JSON ones, never actually decided). Applies to
+  every future JSON-responding endpoint: failures return
+  `{"error": "snake_case_code"}`, successes that aren't just the created/
+  updated resource return `{"message": "human-readable text"}`.
+  Validation failures (malformed/missing JSON fields) collapse to one
+  generic `invalid_request` code, no field-level detail — deliberate:
+  `crockpot-react`'s forms do their own client-side validation (required
+  fields, email format) before ever submitting, so a real
+  `invalid_request` from the API is an edge case (dev tools, a non-browser
+  client), not a normal user-facing path worth building field-level
+  precision for. Revisit if a real client ever needs to distinguish which
+  field failed. `GoogleCallback`'s browser-redirect error shape
+  (`?error=code`) stays the deliberate exception — it's a top-level
+  navigation target, not a JSON API consumer.
 
 ## Non-functional expectations
 

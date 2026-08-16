@@ -1,12 +1,13 @@
 package handler_test
 
 import (
-	"context"
+	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/franciskershaw/crockpot-go/config"
 	"github.com/franciskershaw/crockpot-go/internal/auth"
@@ -23,72 +24,6 @@ import (
 
 func init() {
 	gin.SetMode(gin.TestMode)
-}
-
-// --- Mocks ---
-
-type MockUserRepository struct {
-	mock.Mock
-}
-
-func (m *MockUserRepository) GetOrCreateUser(ctx context.Context, email, googleID, displayName, avatarURL string) (*models.User, error) {
-	args := m.Called(ctx, email, googleID, displayName, avatarURL)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*models.User), args.Error(1)
-}
-
-type MockOAuthManager struct {
-	mock.Mock
-}
-
-func (m *MockOAuthManager) GenerateState() (string, error) {
-	args := m.Called()
-	return args.String(0), args.Error(1)
-}
-
-func (m *MockOAuthManager) ValidateState(state string) bool {
-	args := m.Called(state)
-	return args.Bool(0)
-}
-
-func (m *MockOAuthManager) GetAuthURL(state string) string {
-	args := m.Called(state)
-	return args.String(0)
-}
-
-func (m *MockOAuthManager) ExchangeCodeForToken(ctx context.Context, code string) (*oauth2.Token, error) {
-	args := m.Called(ctx, code)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*oauth2.Token), args.Error(1)
-}
-
-func (m *MockOAuthManager) VerifyIDToken(ctx context.Context, token *oauth2.Token) (*auth.IDTokenClaims, error) {
-	args := m.Called(ctx, token)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*auth.IDTokenClaims), args.Error(1)
-}
-
-type MockRefreshTokenRepository struct {
-	mock.Mock
-}
-
-func (m *MockRefreshTokenRepository) CreateFamily(ctx context.Context, id, userID, tokenHash string, expiresAt time.Time) (*models.RefreshTokenFamily, error) {
-	args := m.Called(ctx, id, userID, tokenHash, expiresAt)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*models.RefreshTokenFamily), args.Error(1)
-}
-
-func (m *MockRefreshTokenRepository) DeleteStaleFamiliesForUser(ctx context.Context, userID string) error {
-	args := m.Called(ctx, userID)
-	return args.Error(0)
 }
 
 // --- Shared fixtures ---
@@ -116,22 +51,25 @@ func ptr[T any](v T) *T { return &v }
 
 // --- Helpers ---
 
-// mocks bundles the three collaborator mocks plus a router wired to a
-// handler built from them, so each test only names what it needs.
+// mocks bundles the collaborator mocks (generated via `go tool mockery`, see mock_*_test.go) plus a router wired to a handler built from them.
 type mocks struct {
-	userRepo         *MockUserRepository
-	oauthMgr         *MockOAuthManager
-	refreshTokenRepo *MockRefreshTokenRepository
+	userRepo         *handler.MockUserRepository
+	oauthMgr         *handler.MockOAuthManager
+	refreshTokenRepo *handler.MockRefreshTokenRepository
+	emailTokenRepo   *handler.MockEmailVerificationTokenRepository
+	emailSender      *handler.MockEmailSender
 	router           *gin.Engine
 }
 
-func newMocks(env config.Environment) *mocks {
+func newMocks(t *testing.T, env config.Environment) *mocks {
 	m := &mocks{
-		userRepo:         &MockUserRepository{},
-		oauthMgr:         &MockOAuthManager{},
-		refreshTokenRepo: &MockRefreshTokenRepository{},
+		userRepo:         handler.NewMockUserRepository(t),
+		oauthMgr:         handler.NewMockOAuthManager(t),
+		refreshTokenRepo: handler.NewMockRefreshTokenRepository(t),
+		emailTokenRepo:   handler.NewMockEmailVerificationTokenRepository(t),
+		emailSender:      handler.NewMockEmailSender(t),
 	}
-	h := handler.NewAuthHandler(m.userRepo, m.oauthMgr, m.refreshTokenRepo, &config.Config{
+	h := handler.NewAuthHandler(m.userRepo, m.oauthMgr, m.refreshTokenRepo, m.emailTokenRepo, m.emailSender, &config.Config{
 		Environment:         env,
 		JWTSecretRefresh:    testutil.TestRefreshSecret,
 		JWTSecretOAuthState: testutil.TestOAuthStateSecret,
@@ -140,28 +78,22 @@ func newMocks(env config.Environment) *mocks {
 	m.router = gin.New()
 	m.router.GET("/auth/google/login", h.LoginWithGoogle)
 	m.router.GET("/auth/google/callback", h.GoogleCallback)
+	m.router.POST("/auth/register", h.Register)
 	return m
 }
 
-func (m *mocks) assertExpectations(t *testing.T) {
-	t.Helper()
-	m.userRepo.AssertExpectations(t)
-	m.oauthMgr.AssertExpectations(t)
-	m.refreshTokenRepo.AssertExpectations(t)
-}
-
 // mockSuccessfulExchange wires the state-valid/exchange/verify chain to succeed.
-func mockSuccessfulExchange(oauthMgr *MockOAuthManager) {
-	oauthMgr.On("ValidateState", "valid-state").Return(true)
-	oauthMgr.On("ExchangeCodeForToken", mock.Anything, "auth-code").Return(fakeToken, nil)
-	oauthMgr.On("VerifyIDToken", mock.Anything, fakeToken).Return(fakeClaims, nil)
+func mockSuccessfulExchange(oauthMgr *handler.MockOAuthManager) {
+	oauthMgr.EXPECT().ValidateState("valid-state").Return(true)
+	oauthMgr.EXPECT().ExchangeCodeForToken(mock.Anything, "auth-code").Return(fakeToken, nil)
+	oauthMgr.EXPECT().VerifyIDToken(mock.Anything, fakeToken).Return(fakeClaims, nil)
 }
 
 // mockSuccessfulUserAndFamily wires GetOrCreateUser/DeleteStaleFamiliesForUser/CreateFamily to all succeed.
-func mockSuccessfulUserAndFamily(userRepo *MockUserRepository, refreshTokenRepo *MockRefreshTokenRepository) {
-	userRepo.On("GetOrCreateUser", mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).Return(fakeUser, nil)
-	refreshTokenRepo.On("DeleteStaleFamiliesForUser", mock.Anything, fakeUser.ID.String()).Return(nil)
-	refreshTokenRepo.On("CreateFamily", mock.Anything, mock.AnythingOfType("string"), fakeUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).
+func mockSuccessfulUserAndFamily(userRepo *handler.MockUserRepository, refreshTokenRepo *handler.MockRefreshTokenRepository) {
+	userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).Return(fakeUser, nil)
+	refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, fakeUser.ID.String()).Return(nil)
+	refreshTokenRepo.EXPECT().CreateFamily(mock.Anything, mock.AnythingOfType("string"), fakeUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).
 		Return(&models.RefreshTokenFamily{ID: uuid.New(), UserID: fakeUser.ID}, nil)
 }
 
@@ -175,6 +107,22 @@ func doCallback(r *gin.Engine, code, state string, cookieValue *string) *httptes
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
+}
+
+func doRegister(r *gin.Engine, body any) *httptest.ResponseRecorder {
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func decodeJSONBody(t *testing.T, w *httptest.ResponseRecorder) map[string]string {
+	t.Helper()
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	return body
 }
 
 func refreshCookieFrom(w *httptest.ResponseRecorder) *http.Cookie {
@@ -216,7 +164,7 @@ func TestGoogleCallback_HappyPath(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(string(tc.env), func(t *testing.T) {
-			m := newMocks(tc.env)
+			m := newMocks(t, tc.env)
 			mockSuccessfulExchange(m.oauthMgr)
 			mockSuccessfulUserAndFamily(m.userRepo, m.refreshTokenRepo)
 
@@ -231,8 +179,6 @@ func TestGoogleCallback_HappyPath(t *testing.T) {
 			assert.True(t, refreshCookie.HttpOnly)
 			assert.Equal(t, tc.wantSecure, refreshCookie.Secure)
 			assert.Equal(t, tc.wantSameSite, refreshCookie.SameSite)
-
-			m.assertExpectations(t)
 		})
 	}
 }
@@ -245,7 +191,7 @@ func TestGoogleCallback_RejectedAtStateValidation(t *testing.T) {
 		code        string
 		state       string
 		cookieValue *string
-		setup       func(oauthMgr *MockOAuthManager)
+		setup       func(oauthMgr *handler.MockOAuthManager)
 		wantError   string
 	}{
 		{
@@ -281,8 +227,8 @@ func TestGoogleCallback_RejectedAtStateValidation(t *testing.T) {
 			code:        "auth-code",
 			state:       "bad-state",
 			cookieValue: ptr("bad-state"),
-			setup: func(oauthMgr *MockOAuthManager) {
-				oauthMgr.On("ValidateState", "bad-state").Return(false)
+			setup: func(oauthMgr *handler.MockOAuthManager) {
+				oauthMgr.EXPECT().ValidateState("bad-state").Return(false)
 			},
 			wantError: "invalid_state",
 		},
@@ -290,7 +236,7 @@ func TestGoogleCallback_RejectedAtStateValidation(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newMocks(config.EnvDevelopment)
+			m := newMocks(t, config.EnvDevelopment)
 			if tc.setup != nil {
 				tc.setup(m.oauthMgr)
 			}
@@ -300,7 +246,6 @@ func TestGoogleCallback_RejectedAtStateValidation(t *testing.T) {
 			assert.Equal(t, http.StatusTemporaryRedirect, w.Code)
 			assert.Equal(t, tc.wantError, errorFromLocation(t, w))
 			assert.True(t, oauthStateCookieCleared(w), "expected oauthState cookie to be cleared on every rejection path")
-			m.assertExpectations(t)
 		})
 	}
 }
@@ -310,73 +255,73 @@ func TestGoogleCallback_RejectedAtStateValidation(t *testing.T) {
 func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 	cases := []struct {
 		name      string
-		setup     func(oauthMgr *MockOAuthManager, userRepo *MockUserRepository, refreshTokenRepo *MockRefreshTokenRepository)
+		setup     func(oauthMgr *handler.MockOAuthManager, userRepo *handler.MockUserRepository, refreshTokenRepo *handler.MockRefreshTokenRepository)
 		wantError string
 	}{
 		{
 			name: "exchange fails",
-			setup: func(oauthMgr *MockOAuthManager, _ *MockUserRepository, _ *MockRefreshTokenRepository) {
-				oauthMgr.On("ValidateState", "valid-state").Return(true)
-				oauthMgr.On("ExchangeCodeForToken", mock.Anything, "auth-code").Return(nil, errors.New("exchange failed"))
+			setup: func(oauthMgr *handler.MockOAuthManager, _ *handler.MockUserRepository, _ *handler.MockRefreshTokenRepository) {
+				oauthMgr.EXPECT().ValidateState("valid-state").Return(true)
+				oauthMgr.EXPECT().ExchangeCodeForToken(mock.Anything, "auth-code").Return(nil, errors.New("exchange failed"))
 			},
 			wantError: "exchange_failed",
 		},
 		{
 			name: "verify fails",
-			setup: func(oauthMgr *MockOAuthManager, _ *MockUserRepository, _ *MockRefreshTokenRepository) {
-				oauthMgr.On("ValidateState", "valid-state").Return(true)
-				oauthMgr.On("ExchangeCodeForToken", mock.Anything, "auth-code").Return(fakeToken, nil)
-				oauthMgr.On("VerifyIDToken", mock.Anything, fakeToken).Return(nil, errors.New("verify failed"))
+			setup: func(oauthMgr *handler.MockOAuthManager, _ *handler.MockUserRepository, _ *handler.MockRefreshTokenRepository) {
+				oauthMgr.EXPECT().ValidateState("valid-state").Return(true)
+				oauthMgr.EXPECT().ExchangeCodeForToken(mock.Anything, "auth-code").Return(fakeToken, nil)
+				oauthMgr.EXPECT().VerifyIDToken(mock.Anything, fakeToken).Return(nil, errors.New("verify failed"))
 			},
 			wantError: "verify_failed",
 		},
 		{
 			name: "email not verified",
-			setup: func(oauthMgr *MockOAuthManager, _ *MockUserRepository, _ *MockRefreshTokenRepository) {
-				oauthMgr.On("ValidateState", "valid-state").Return(true)
-				oauthMgr.On("ExchangeCodeForToken", mock.Anything, "auth-code").Return(fakeToken, nil)
+			setup: func(oauthMgr *handler.MockOAuthManager, _ *handler.MockUserRepository, _ *handler.MockRefreshTokenRepository) {
+				oauthMgr.EXPECT().ValidateState("valid-state").Return(true)
+				oauthMgr.EXPECT().ExchangeCodeForToken(mock.Anything, "auth-code").Return(fakeToken, nil)
 				unverifiedClaims := &auth.IDTokenClaims{
 					Email: fakeClaims.Email, EmailVerified: false,
 					GoogleID: fakeClaims.GoogleID, DisplayName: fakeClaims.DisplayName, AvatarURL: fakeClaims.AvatarURL,
 				}
-				oauthMgr.On("VerifyIDToken", mock.Anything, fakeToken).Return(unverifiedClaims, nil)
+				oauthMgr.EXPECT().VerifyIDToken(mock.Anything, fakeToken).Return(unverifiedClaims, nil)
 			},
 			wantError: "email_not_verified",
 		},
 		{
 			name: "email already registered with password",
-			setup: func(oauthMgr *MockOAuthManager, userRepo *MockUserRepository, _ *MockRefreshTokenRepository) {
+			setup: func(oauthMgr *handler.MockOAuthManager, userRepo *handler.MockUserRepository, _ *handler.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
-				userRepo.On("GetOrCreateUser", mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).
+				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).
 					Return(nil, models.ErrEmailRegisteredWithPassword)
 			},
 			wantError: "email_registered_with_password",
 		},
 		{
 			name: "GetOrCreateUser generic error",
-			setup: func(oauthMgr *MockOAuthManager, userRepo *MockUserRepository, _ *MockRefreshTokenRepository) {
+			setup: func(oauthMgr *handler.MockOAuthManager, userRepo *handler.MockUserRepository, _ *handler.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
-				userRepo.On("GetOrCreateUser", mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).
+				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).
 					Return(nil, errors.New("db exploded"))
 			},
 			wantError: "server_error",
 		},
 		{
 			name: "DeleteStaleFamiliesForUser fails",
-			setup: func(oauthMgr *MockOAuthManager, userRepo *MockUserRepository, refreshTokenRepo *MockRefreshTokenRepository) {
+			setup: func(oauthMgr *handler.MockOAuthManager, userRepo *handler.MockUserRepository, refreshTokenRepo *handler.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
-				userRepo.On("GetOrCreateUser", mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).Return(fakeUser, nil)
-				refreshTokenRepo.On("DeleteStaleFamiliesForUser", mock.Anything, fakeUser.ID.String()).Return(errors.New("delete failed"))
+				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).Return(fakeUser, nil)
+				refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, fakeUser.ID.String()).Return(errors.New("delete failed"))
 			},
 			wantError: "server_error",
 		},
 		{
 			name: "CreateFamily fails",
-			setup: func(oauthMgr *MockOAuthManager, userRepo *MockUserRepository, refreshTokenRepo *MockRefreshTokenRepository) {
+			setup: func(oauthMgr *handler.MockOAuthManager, userRepo *handler.MockUserRepository, refreshTokenRepo *handler.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
-				userRepo.On("GetOrCreateUser", mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).Return(fakeUser, nil)
-				refreshTokenRepo.On("DeleteStaleFamiliesForUser", mock.Anything, fakeUser.ID.String()).Return(nil)
-				refreshTokenRepo.On("CreateFamily", mock.Anything, mock.AnythingOfType("string"), fakeUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).
+				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).Return(fakeUser, nil)
+				refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, fakeUser.ID.String()).Return(nil)
+				refreshTokenRepo.EXPECT().CreateFamily(mock.Anything, mock.AnythingOfType("string"), fakeUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).
 					Return(nil, errors.New("insert failed"))
 			},
 			wantError: "server_error",
@@ -385,7 +330,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newMocks(config.EnvDevelopment)
+			m := newMocks(t, config.EnvDevelopment)
 			tc.setup(m.oauthMgr, m.userRepo, m.refreshTokenRepo)
 
 			cookie := "valid-state"
@@ -394,7 +339,6 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 			assert.Equal(t, http.StatusTemporaryRedirect, w.Code)
 			assert.Equal(t, tc.wantError, errorFromLocation(t, w))
 			assert.Nil(t, refreshCookieFrom(w), "no refresh cookie must be set on a failed callback")
-			m.assertExpectations(t)
 		})
 	}
 }
@@ -402,9 +346,9 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 // --- LoginWithGoogle ---
 
 func TestLoginWithGoogle_RedirectsToGoogleAuthURL(t *testing.T) {
-	m := newMocks(config.EnvDevelopment)
-	m.oauthMgr.On("GenerateState").Return("generated-state", nil)
-	m.oauthMgr.On("GetAuthURL", "generated-state").Return("https://accounts.google.com/o/oauth2/v2/auth?state=generated-state")
+	m := newMocks(t, config.EnvDevelopment)
+	m.oauthMgr.EXPECT().GenerateState().Return("generated-state", nil)
+	m.oauthMgr.EXPECT().GetAuthURL("generated-state").Return("https://accounts.google.com/o/oauth2/v2/auth?state=generated-state")
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/google/login", nil)
 	w := httptest.NewRecorder()
@@ -421,13 +365,11 @@ func TestLoginWithGoogle_RedirectsToGoogleAuthURL(t *testing.T) {
 	}
 	require.NotNil(t, stateCookie, "expected oauthState cookie to be set")
 	assert.Equal(t, "generated-state", stateCookie.Value)
-
-	m.assertExpectations(t)
 }
 
 func TestLoginWithGoogle_GenerateStateError(t *testing.T) {
-	m := newMocks(config.EnvDevelopment)
-	m.oauthMgr.On("GenerateState").Return("", errors.New("signing failed"))
+	m := newMocks(t, config.EnvDevelopment)
+	m.oauthMgr.EXPECT().GenerateState().Return("", errors.New("signing failed"))
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/google/login", nil)
 	w := httptest.NewRecorder()
@@ -435,5 +377,100 @@ func TestLoginWithGoogle_GenerateStateError(t *testing.T) {
 
 	assert.Equal(t, http.StatusTemporaryRedirect, w.Code)
 	assert.Equal(t, "server_error", errorFromLocation(t, w))
-	m.assertExpectations(t)
+}
+
+// --- Register: succeeds ---
+
+func TestRegister_Success(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	newUser := &models.User{ID: uuid.MustParse("22222222-2222-2222-2222-222222222222"), Email: "new@example.com"}
+
+	m.userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, "new@example.com", mock.AnythingOfType("string"), "New User").Return(newUser, nil)
+	m.emailTokenRepo.EXPECT().DeleteActiveForUser(mock.Anything, newUser.ID.String()).Return(nil)
+	m.emailTokenRepo.EXPECT().Create(mock.Anything, newUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(&models.EmailVerificationToken{}, nil)
+	m.emailSender.EXPECT().SendConfirmationCode(mock.Anything, "new@example.com", mock.AnythingOfType("string")).Return(nil)
+
+	w := doRegister(m.router, map[string]string{"email": "new@example.com", "password": "correcthorse", "name": "New User"})
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+func TestRegister_UnconfirmedRetry_Succeeds(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	existingUser := &models.User{ID: uuid.MustParse("33333333-3333-3333-3333-333333333333"), Email: "retry@example.com"}
+
+	m.userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, "retry@example.com", mock.AnythingOfType("string"), "New Name").Return(nil, models.ErrEmailUnconfirmed)
+	m.userRepo.EXPECT().UpdatePasswordAndClearConfirmation(mock.Anything, "retry@example.com", mock.AnythingOfType("string"), "New Name").Return(existingUser, nil)
+	m.emailTokenRepo.EXPECT().DeleteActiveForUser(mock.Anything, existingUser.ID.String()).Return(nil)
+	m.emailTokenRepo.EXPECT().Create(mock.Anything, existingUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(&models.EmailVerificationToken{}, nil)
+	m.emailSender.EXPECT().SendConfirmationCode(mock.Anything, "retry@example.com", mock.AnythingOfType("string")).Return(nil)
+
+	w := doRegister(m.router, map[string]string{"email": "retry@example.com", "password": "correcthorse", "name": "New Name"})
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+// --- Register: fails ---
+
+func TestRegister_Fails(t *testing.T) {
+	cases := []struct {
+		name      string
+		body      map[string]string
+		setup     func(userRepo *handler.MockUserRepository)
+		wantCode  int
+		wantError string
+	}{
+		{
+			name:      "password too short",
+			body:      map[string]string{"email": "new@example.com", "password": "short", "name": "New User"},
+			wantCode:  http.StatusBadRequest,
+			wantError: "password_too_short",
+		},
+		{
+			name:      "password too long",
+			body:      map[string]string{"email": "new@example.com", "password": strings.Repeat("a", 73), "name": "New User"},
+			wantCode:  http.StatusBadRequest,
+			wantError: "password_too_long",
+		},
+		{
+			name:      "invalid email",
+			body:      map[string]string{"email": "not-an-email", "password": "correcthorse", "name": "New User"},
+			wantCode:  http.StatusBadRequest,
+			wantError: "invalid_request",
+		},
+		{
+			name: "email already registered with google",
+			body: map[string]string{"email": "taken@example.com", "password": "correcthorse", "name": "New User"},
+			setup: func(userRepo *handler.MockUserRepository) {
+				userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, "taken@example.com", mock.AnythingOfType("string"), "New User").
+					Return(nil, models.ErrEmailRegisteredWithGoogle)
+			},
+			wantCode:  http.StatusConflict,
+			wantError: "email_registered_with_google",
+		},
+		{
+			name: "email already registered with password",
+			body: map[string]string{"email": "taken@example.com", "password": "correcthorse", "name": "New User"},
+			setup: func(userRepo *handler.MockUserRepository) {
+				userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, "taken@example.com", mock.AnythingOfType("string"), "New User").
+					Return(nil, models.ErrEmailRegisteredWithPassword)
+			},
+			wantCode:  http.StatusConflict,
+			wantError: "email_already_registered",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMocks(t, config.EnvDevelopment)
+			if tc.setup != nil {
+				tc.setup(m.userRepo)
+			}
+
+			w := doRegister(m.router, tc.body)
+
+			assert.Equal(t, tc.wantCode, w.Code)
+			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])
+		})
+	}
 }

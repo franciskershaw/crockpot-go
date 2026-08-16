@@ -65,12 +65,16 @@ func TestSendConfirmationCode_SendsExpectedRequest(t *testing.T) {
 
 func TestSendConfirmationCode_ReturnsErrorOnNonSuccessStatus(t *testing.T) {
 	client := newTestResendClient(t, func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"statusCode":422,"message":"domain is not verified","name":"validation_error"}`))
 	})
 
 	err := client.SendConfirmationCode(context.Background(), "user@example.com", "482913")
 	if err == nil {
 		t.Fatal("expected an error for a non-2xx response, got nil")
+	}
+	if !strings.Contains(err.Error(), "domain is not verified") {
+		t.Errorf("expected error to include Resend's response body, got: %v", err)
 	}
 }
 

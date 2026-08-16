@@ -1,0 +1,16 @@
+with-expecter: true
+inpackage: true
+dir: "{{.InterfaceDir}}"
+filename: "mock_{{.InterfaceName}}_test.go"
+mockname: "Mock{{.InterfaceName}}"
+resolve-type-alias: false
+disable-version-string: true
+issue-845-fix: true
+packages:
+  github.com/franciskershaw/crockpot-go/internal/handler:
+    interfaces:
+      UserRepository:
+      OAuthManager:
+      RefreshTokenRepository:
+      EmailVerificationTokenRepository:
+      EmailSender:

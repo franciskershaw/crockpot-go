@@ -1,0 +1,97 @@
+# Crockpot API — Auth Endpoints
+#
+# Run top-to-bottom, once per session, in VS Code with the REST Client
+# extension. See requests/README.md for setup. Register/confirm/resend
+# need no token — see CLAUDE.md's ".http" note for why this file starts
+# here rather than at CROC-008.
+#
+# Uses a real Resend send and a real Neon dev DB row — check your inbox
+# for the register requests below, and run the Cleanup section at the
+# end before re-running this file.
+#
+# Resend rejects @example.com recipients outright (reserved
+# documentation-only domain, RFC 2606) regardless of account/domain
+# verification status — replace REPLACE_WITH_YOUR_REAL_EMAIL below with
+# a real address you can check before running the ✅/409 sections, which
+# are the only two that actually reach Resend (the others fail
+# validation first). The password/invalid-email cases stay @example.com
+# on purpose — they never reach Resend.
+
+
+# ══════════════════════════════════════════
+#  POST /auth/register
+# ══════════════════════════════════════════
+
+### ✅ 201 — fresh registration, sends a real confirmation code by email
+POST http://localhost:{{$dotenv PORT}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "franciskershaw.dev@gmail.com",
+  "password": "correcthorsebattery",
+  "name": "HTTP Test User"
+}
+
+###
+
+### 🔒 400 — password too short
+POST http://localhost:{{$dotenv PORT}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "crockpot-http-test-2@example.com",
+  "password": "short",
+  "name": "HTTP Test User"
+}
+
+###
+
+### 🔒 400 — password too long (>72 bytes)
+POST http://localhost:{{$dotenv PORT}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "crockpot-http-test-3@example.com",
+  "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "name": "HTTP Test User"
+}
+
+###
+
+### 🔒 400 — invalid email format
+POST http://localhost:{{$dotenv PORT}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "not-an-email",
+  "password": "correcthorsebattery",
+  "name": "HTTP Test User"
+}
+
+###
+
+### ✅ 201 — re-registers the same still-unconfirmed email above (case (c):
+### abandoned signup). NOT a 409 — clears the old code, issues a new one,
+### overwrites the password. A true 409 needs the account confirmed
+### first, which needs ConfirmEmail (next piece) to exist.
+POST http://localhost:{{$dotenv PORT}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "franciskershaw.dev@gmail.com",
+  "password": "correcthorsebattery",
+  "name": "HTTP Test User"
+}
+
+
+# ══════════════════════════════════════════
+#  Cleanup
+# ══════════════════════════════════════════
+
+### Only the ✅ 201 request actually inserts a row — every other section
+### fails before reaching the DB (validation errors, or the 409 case
+### re-hitting the same existing row). Connect via psql/a DB client and
+### run manually (no DELETE endpoint exists for this):
+#
+#   DELETE FROM users WHERE email = 'REPLACE_WITH_YOUR_REAL_EMAIL';
+#   -- use whatever you actually swapped that placeholder for above

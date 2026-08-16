@@ -36,7 +36,9 @@ func TestGenerateConfirmationCode_IsRandom(t *testing.T) {
 }
 
 func TestHashToken_IsDeterministic(t *testing.T) {
-	if HashToken("abc123") != HashToken("abc123") {
+	first := HashToken("abc123")
+	second := HashToken("abc123")
+	if first != second {
 		t.Error("expected HashToken to return the same hash for the same input")
 	}
 }

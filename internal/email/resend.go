@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	htmltemplate "html/template"
+	"io"
 	"net/http"
 	texttemplate "text/template"
 	"time"
@@ -83,10 +84,11 @@ func (c *ResendClient) SendConfirmationCode(ctx context.Context, toEmail, code s
 	if err != nil {
 		return fmt.Errorf("resend: send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("resend: unexpected status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("resend: unexpected status %d: %s", resp.StatusCode, body)
 	}
 	return nil
 }
