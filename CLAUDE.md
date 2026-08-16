@@ -174,7 +174,11 @@ requests/         Manual .http regression suite, one file per resource
 
 - Handler tests (no DB): `go test ./internal/handler/...`
 - Repository tests (integration, real Neon dev DB — never Docker/local
-  Postgres): `DATABASE_URL=$DATABASE_URL go test ./internal/repository/...`
+  Postgres): `./scripts/test-repo.sh` (sources `.env` itself, so it works
+  from any shell — pass through `go test` flags, e.g. `./scripts/test-repo.sh
+  -run TestUpdateLastLogin`). Older form `DATABASE_URL=$DATABASE_URL go test
+  ./internal/repository/...` silently no-ops if `DATABASE_URL` isn't already
+  exported in that exact shell — don't use it.
 - Lint (uncapped, matches CI):
   `golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`
 - Format: `gofmt` — canonical, no formatter choice to make.
