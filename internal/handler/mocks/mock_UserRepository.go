@@ -264,6 +264,65 @@ func (_c *MockUserRepository_MarkEmailConfirmed_Call) RunAndReturn(run func(cont
 	return _c
 }
 
+// UpdateLastLogin provides a mock function with given fields: ctx, userID
+func (_m *MockUserRepository) UpdateLastLogin(ctx context.Context, userID string) (*models.User, error) {
+	ret := _m.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateLastLogin")
+	}
+
+	var r0 *models.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*models.User, error)); ok {
+		return rf(ctx, userID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *models.User); ok {
+		r0 = rf(ctx, userID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockUserRepository_UpdateLastLogin_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateLastLogin'
+type MockUserRepository_UpdateLastLogin_Call struct {
+	*mock.Call
+}
+
+// UpdateLastLogin is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+func (_e *MockUserRepository_Expecter) UpdateLastLogin(ctx interface{}, userID interface{}) *MockUserRepository_UpdateLastLogin_Call {
+	return &MockUserRepository_UpdateLastLogin_Call{Call: _e.mock.On("UpdateLastLogin", ctx, userID)}
+}
+
+func (_c *MockUserRepository_UpdateLastLogin_Call) Run(run func(ctx context.Context, userID string)) *MockUserRepository_UpdateLastLogin_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockUserRepository_UpdateLastLogin_Call) Return(_a0 *models.User, _a1 error) *MockUserRepository_UpdateLastLogin_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockUserRepository_UpdateLastLogin_Call) RunAndReturn(run func(context.Context, string) (*models.User, error)) *MockUserRepository_UpdateLastLogin_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockUserRepository creates a new instance of MockUserRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockUserRepository(t interface {

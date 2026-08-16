@@ -106,8 +106,13 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
 
 - **Hand-written tickets.** On a per-ticket basis (not a default), the
   founder may choose to implement a ticket by hand instead of Claude
-  doing it test-first — typically to build hands-on familiarity with a
-  new part of the stack (e.g. CROC-001's Go server/DB/sqlc scaffold).
+  writing the code — typically to build hands-on familiarity with a new
+  part of the stack (e.g. CROC-001's Go server/DB/sqlc scaffold). This
+  decides *who* writes the code, nothing about test order: the founder
+  still goes test-first whenever the ticket's verification mode normally
+  calls for it (see the roadmap note below) — hand-written is not a
+  synonym for "tests after". Two roadmaps have now stated the opposite
+  by mistake; don't repeat it a third time.
   When this is chosen: `grill-me` still runs and still produces the
   normal handoff doc, but Claude writes no code for that ticket — not
   even TDD stubs. The founder implements against the handoff doc plus
@@ -169,7 +174,12 @@ requests/         Manual .http regression suite, one file per resource
 
 - Handler tests (no DB): `go test ./internal/handler/...`
 - Repository tests (integration, real Neon dev DB — never Docker/local
-  Postgres): `DATABASE_URL=$DATABASE_URL go test ./internal/repository/...`
+  Postgres): `./scripts/test-repo.sh` (sources `.env` itself, so it works
+  from any shell — pass through `go test` flags, e.g. `./scripts/test-repo.sh
+  -run TestUpdateLastLogin`). Older form `DATABASE_URL=$DATABASE_URL go test
+  ./internal/repository/...` passes the shell variable's value through as-is
+  — silently empty, and the tests fail or skip, whenever `DATABASE_URL` is
+  unset or empty in that exact shell — don't use it.
 - Lint (uncapped, matches CI):
   `golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`
 - Format: `gofmt` — canonical, no formatter choice to make.

@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 )
 
@@ -51,6 +52,18 @@ var (
 
 func ptr[T any](v T) *T { return &v }
 
+func mustHash(password string) string {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		panic(err)
+	}
+	return string(hash)
+}
+
+const loginUserPassword = "correcthorse"
+
+var loginUserPasswordHash = mustHash(loginUserPassword)
+
 // --- Helpers ---
 
 // mocks bundles the collaborator mocks (generated via `go tool mockery`, see internal/handler/mocks/) plus a router wired to a handler built from them.
@@ -73,6 +86,7 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 	}
 	h := handler.NewAuthHandler(m.userRepo, m.oauthMgr, m.refreshTokenRepo, m.emailTokenRepo, m.emailSender, &config.Config{
 		Environment:         env,
+		JWTSecretAccess:     testutil.TestAccessSecret,
 		JWTSecretRefresh:    testutil.TestRefreshSecret,
 		JWTSecretOAuthState: testutil.TestOAuthStateSecret,
 		FrontendURL:         "http://localhost:5173",
@@ -83,6 +97,7 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 	m.router.POST("/auth/register", h.Register)
 	m.router.POST("/auth/confirm", h.ConfirmEmail)
 	m.router.POST("/auth/resend-confirmation", h.ResendConfirmation)
+	m.router.POST("/auth/login", h.Login)
 	return m
 }
 
@@ -575,6 +590,14 @@ func TestConfirmEmail_Fails(t *testing.T) {
 			wantError: "code_invalid",
 		},
 		{
+			name: "FindByEmail generic error",
+			setup: func(userRepo *genmocks.MockUserRepository, _ *genmocks.MockEmailVerificationTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(nil, errors.New("db exploded"))
+			},
+			wantCode:  http.StatusInternalServerError,
+			wantError: "server_error",
+		},
+		{
 			name: "no active token",
 			setup: func(userRepo *genmocks.MockUserRepository, emailTokenRepo *genmocks.MockEmailVerificationTokenRepository) {
 				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(confirmUser, nil)
@@ -701,6 +724,14 @@ func TestResendConfirmation_Fails(t *testing.T) {
 			wantError: "email_not_found",
 		},
 		{
+			name: "FindByEmail generic error",
+			setup: func(userRepo *genmocks.MockUserRepository, _ *genmocks.MockEmailVerificationTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "resend@example.com").Return(nil, errors.New("db exploded"))
+			},
+			wantCode:  http.StatusInternalServerError,
+			wantError: "server_error",
+		},
+		{
 			name: "already confirmed",
 			setup: func(userRepo *genmocks.MockUserRepository, _ *genmocks.MockEmailVerificationTokenRepository) {
 				userRepo.EXPECT().FindByEmail(mock.Anything, "resend@example.com").Return(confirmedUser, nil)
@@ -731,6 +762,142 @@ func TestResendConfirmation_Fails(t *testing.T) {
 
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.Equal(t, tc.wantError, decodeJSONBodyAny(t, w)["error"])
+		})
+	}
+}
+
+// --- Login ---
+
+func doLogin(r *gin.Engine, body any) *httptest.ResponseRecorder {
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+// success: FindByEmail -> password match -> confirmed -> UpdateLastLogin -> issue tokens.
+func TestLogin_Success(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	loginUser := &models.User{
+		ID:              uuid.MustParse("99999999-9999-9999-9999-999999999999"),
+		Email:           "login@example.com",
+		PasswordHash:    ptr(loginUserPasswordHash),
+		EmailVerifiedAt: ptr(time.Now()),
+	}
+
+	m.userRepo.EXPECT().FindByEmail(mock.Anything, "login@example.com").Return(loginUser, nil)
+	m.userRepo.EXPECT().UpdateLastLogin(mock.Anything, loginUser.ID.String()).Return(loginUser, nil)
+	m.refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, loginUser.ID.String()).Return(nil)
+	m.refreshTokenRepo.EXPECT().CreateFamily(mock.Anything, mock.AnythingOfType("string"), loginUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).
+		Return(&models.RefreshTokenFamily{ID: uuid.New(), UserID: loginUser.ID}, nil)
+
+	w := doLogin(m.router, map[string]string{"email": "login@example.com", "password": loginUserPassword})
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotEmpty(t, decodeJSONBody(t, w)["accessToken"])
+	require.NotNil(t, refreshCookieFrom(w), "expected refreshToken cookie to be set")
+}
+
+func TestLogin_Fails(t *testing.T) {
+	pwUser := &models.User{
+		ID: uuid.MustParse("99999999-9999-9999-9999-999999999999"), Email: "login@example.com",
+		PasswordHash: ptr(loginUserPasswordHash), EmailVerifiedAt: ptr(time.Now()),
+	}
+	unconfirmedUser := &models.User{
+		ID: uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), Email: "unconfirmed@example.com",
+		PasswordHash: ptr(loginUserPasswordHash),
+	}
+	googleOnlyUser := &models.User{
+		ID: uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"), Email: "google@example.com",
+		GoogleID: ptr("google-123"),
+	}
+
+	cases := []struct {
+		name      string
+		body      map[string]string
+		setup     func(userRepo *genmocks.MockUserRepository)
+		wantCode  int
+		wantError string
+	}{
+		{
+			name:      "malformed body",
+			body:      map[string]string{"email": "not-an-email", "password": "whatever"},
+			wantCode:  http.StatusBadRequest,
+			wantError: "invalid_request",
+		},
+		{
+			name: "unknown email",
+			body: map[string]string{"email": "ghost@example.com", "password": loginUserPassword},
+			setup: func(userRepo *genmocks.MockUserRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "ghost@example.com").Return(nil, models.ErrUserNotFound)
+			},
+			wantCode:  http.StatusUnauthorized,
+			wantError: "invalid_credentials",
+		},
+		{
+			name: "FindByEmail generic error",
+			body: map[string]string{"email": "ghost@example.com", "password": loginUserPassword},
+			setup: func(userRepo *genmocks.MockUserRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "ghost@example.com").Return(nil, errors.New("db exploded"))
+			},
+			wantCode:  http.StatusInternalServerError,
+			wantError: "server_error",
+		},
+		{
+			name: "google-only account has no password to check against",
+			body: map[string]string{"email": "google@example.com", "password": "whatever"},
+			setup: func(userRepo *genmocks.MockUserRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "google@example.com").Return(googleOnlyUser, nil)
+			},
+			wantCode:  http.StatusUnauthorized,
+			wantError: "google_account_no_password",
+		},
+		{
+			name: "wrong password",
+			body: map[string]string{"email": "login@example.com", "password": "wrong-password"},
+			setup: func(userRepo *genmocks.MockUserRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "login@example.com").Return(pwUser, nil)
+			},
+			wantCode:  http.StatusUnauthorized,
+			wantError: "invalid_credentials",
+		},
+		{
+			// Password matches but the account is unconfirmed — checked after password so an unauthenticated request can't probe account state for free.
+			name: "unconfirmed account, correct password",
+			body: map[string]string{"email": "unconfirmed@example.com", "password": loginUserPassword},
+			setup: func(userRepo *genmocks.MockUserRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "unconfirmed@example.com").Return(unconfirmedUser, nil)
+			},
+			wantCode:  http.StatusForbidden,
+			wantError: "email_not_confirmed",
+		},
+		{
+			// UpdateLastLogin runs before issueRefreshSession precisely so a failure here — asserted below — never leaves a live session behind.
+			name: "UpdateLastLogin fails",
+			body: map[string]string{"email": "login@example.com", "password": loginUserPassword},
+			setup: func(userRepo *genmocks.MockUserRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "login@example.com").Return(pwUser, nil)
+				userRepo.EXPECT().UpdateLastLogin(mock.Anything, pwUser.ID.String()).Return(nil, errors.New("db exploded"))
+			},
+			wantCode:  http.StatusInternalServerError,
+			wantError: "server_error",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMocks(t, config.EnvDevelopment)
+			if tc.setup != nil {
+				tc.setup(m.userRepo)
+			}
+
+			w := doLogin(m.router, tc.body)
+
+			assert.Equal(t, tc.wantCode, w.Code)
+			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])
+			assert.Nil(t, refreshCookieFrom(w), "no refresh cookie must be set on a failed login")
 		})
 	}
 }

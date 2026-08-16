@@ -256,8 +256,8 @@ session.*
   `docs/handoffs/CROC-004.md`.
 - **CROC-005** — Email/password registration + confirmation. **Done.**
   See `docs/handoffs/CROC-005.md`.
-- **CROC-006** — Email/password login (`POST /auth/login`, rejects
-  unverified accounts with a distinct error).
+- **CROC-006** — Email/password login. **Done.**
+  See `docs/handoffs/CROC-006.md`.
 - **CROC-007** — Forgot/reset password (`POST /auth/forgot-password` sends
   reset email; `POST /auth/reset-password` consumes the token). Same
   clear-before-insert requirement as CROC-005, against

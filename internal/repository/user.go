@@ -105,6 +105,18 @@ func (r *PostgresUserRepository) MarkEmailConfirmed(ctx context.Context, userID 
 	return toModelUser(updated), nil
 }
 
+func (r *PostgresUserRepository) UpdateLastLogin(ctx context.Context, userID string) (*models.User, error) {
+	userUUID, err := uuidParam(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	updated, err := r.q.UpdateUserLastLogin(ctx, userUUID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update last login: %w", err)
+	}
+	return toModelUser(updated), nil
+}
+
 func (r *PostgresUserRepository) refreshLoginProfile(ctx context.Context, id pgtype.UUID, displayName, avatarURL string) (*models.User, error) {
 	updated, err := r.q.UpdateUserLoginProfile(ctx, sqlc.UpdateUserLoginProfileParams{
 		ID:          id,

@@ -123,3 +123,30 @@ implementation quality until CROC-001 lands.
   roughly a fifth of a session's usage in about three minutes for one
   ticket's diff. `grill-me` now requires the reasoning alongside every
   recommendation, not just the recommendation.
+- The founder asked at close-out whether `auth_handler_test.go`'s size
+  was normal — the question went unanswered/unrecorded here, so it
+  resurfaced unresolved at `CROC-006`'s close-out. Checked against
+  `packing-list-go` then: its `auth_handler_test.go` is 1059 lines for a
+  291-line handler, larger than this project's equivalent at the time of
+  asking — auth is the widest-branching handler (OAuth + password +
+  email confirm + token issuance) in both codebases, and both already
+  split one test file per handler, so there's nothing left to
+  consolidate it with. Answered as "normal, checked against precedent,"
+  not left open. **Pattern**: a question asked at close-out needs an
+  answer captured here in the same pass, even a quick one — otherwise it
+  re-litigates from scratch next time with no memory of already being
+  raised.
+
+## 2026-08-16 — CROC-006 — Email/password login shipped; CodeRabbit caught a session-ordering bug my own fix-round got backwards
+
+- The hand-written-mode roadmap wrongly stated "tests after" a second
+  time, contradicting `CLAUDE.md`'s own already-stated rule — fixed the
+  wording at the source instead of relying on prose alone to hold.
+- My own reorder of `Login`'s side effects protected against the wrong
+  failure mode (a stale `last_login_at`) instead of the worse one (a
+  live session issued despite a reported failure) — CodeRabbit caught
+  it, not the grill or my own review.
+- **Pattern**: when ordering non-transactional side effects around a
+  possible failure, the one that grants access goes last — protect
+  against a working session existing when the response says it failed,
+  not against stale metadata.
