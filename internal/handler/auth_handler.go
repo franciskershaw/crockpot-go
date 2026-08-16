@@ -38,6 +38,10 @@ type OAuthManager interface {
 	VerifyIDToken(ctx context.Context, token *oauth2.Token) (*auth.IDTokenClaims, error)
 }
 
+type EmailSender interface {
+	SendConfirmationCode(ctx context.Context, toEmail, code string) error
+}
+
 type AuthHandler struct {
 	userRepo         UserRepository
 	oauthManager     OAuthManager

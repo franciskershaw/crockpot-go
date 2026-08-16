@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Confirm your email</title>
+    <!--[if !mso]><!-->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Newsreader:wght@600;700&family=Karla:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <!--<![endif]-->
+  </head>
+  <body
+    style="
+      margin: 0;
+      padding: 0;
+      background-color: #eae4d6;
+      font-family:
+        Karla,
+        -apple-system,
+        BlinkMacSystemFont,
+        'Segoe UI',
+        Helvetica,
+        Arial,
+        sans-serif;
+    "
+  >
+    <table
+      role="presentation"
+      width="100%"
+      cellpadding="0"
+      cellspacing="0"
+      style="background-color: #eae4d6"
+    >
+      <tr>
+        <td align="center" style="padding: 40px 20px">
+          <table
+            role="presentation"
+            width="480"
+            cellpadding="0"
+            cellspacing="0"
+            style="
+              max-width: 480px;
+              width: 100%;
+              background-color: #fffcf6;
+              border: 1px solid #e0d4bb;
+              border-radius: 12px;
+            "
+          >
+            <tr>
+              <td style="padding: 40px 40px 32px 40px; text-align: center">
+                <div
+                  style="
+                    font-family: Newsreader, Georgia, 'Times New Roman', serif;
+                    font-weight: 700;
+                    font-size: 20px;
+                    color: #23201b;
+                    margin-bottom: 32px;
+                  "
+                >
+                  Crockpot
+                </div>
+
+                <h1
+                  style="
+                    font-family: Newsreader, Georgia, 'Times New Roman', serif;
+                    font-weight: 600;
+                    font-size: 24px;
+                    color: #23201b;
+                    margin: 0 0 12px 0;
+                  "
+                >
+                  Confirm your email
+                </h1>
+
+                <p
+                  style="
+                    font-size: 15px;
+                    line-height: 1.5;
+                    color: #58513f;
+                    margin: 0 0 28px 0;
+                  "
+                >
+                  Enter this code to confirm your Crockpot account:
+                </p>
+
+                <div
+                  style="
+                    background-color: #fbf7ef;
+                    border: 1px solid #e0d4bb;
+                    border-top: 3px solid #3e5a33;
+                    border-radius: 10px;
+                    padding: 20px;
+                    margin: 0 0 28px 0;
+                  "
+                >
+                  <span
+                    style="
+                      font-size: 32px;
+                      font-weight: 700;
+                      letter-spacing: 8px;
+                      color: #23201b;
+                    "
+                    >{{.Code}}</span
+                  >
+                </div>
+
+                <p style="font-size: 13px; color: #8a8377; margin: 0">
+                  This code expires in 10 minutes. If you didn't request
+                  this, you can ignore this email.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
