@@ -1,6 +1,6 @@
 # CROC-005 — Email/password registration + confirmation
 
-Grilled 2026-08-16.
+Grilled 2026-08-16. Completed 2026-08-16.
 
 **Implementation mode: AI-driven / spec-driven.** Mostly composes patterns
 that already exist in this codebase (sha256 token hashing like refresh

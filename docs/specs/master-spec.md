@@ -254,20 +254,8 @@ starting frontend work is the whole auth epic being done, not a partial
 session.*
 - **CROC-004** — Google OAuth login flow. **Done.** See
   `docs/handoffs/CROC-004.md`.
-- **CROC-005** — Email/password registration + confirmation. No
-  functional precedent in either reference project — the old Next.js app
-  has no password field/flow at all (Google + passwordless magic-link
-  email only); designed first-principles, see `docs/handoffs/CROC-005.md`.
-  `POST /auth/register` creates an unconfirmed user and sends a 6-digit
-  OTP code via Resend (**not** a clickable link — reads as spam/phishing
-  in the wrong context); `POST /auth/confirm` (`{email, code}`) verifies,
-  10-minute TTL, invalidated after 5 wrong attempts; `POST
-  /auth/resend-confirmation` (`{email}`) reissues, 60s per-email cooldown.
-  Resending must delete/clear any existing unconsumed
-  `email_verification_tokens` row for that user before inserting a new
-  one — the partial unique index (`docs/handoffs/CROC-002.md`) enforces
-  at most one active row but doesn't do this for you. Also the ticket that
-  builds the base rate-limiting middleware (no earlier ticket owned it).
+- **CROC-005** — Email/password registration + confirmation. **Done.**
+  See `docs/handoffs/CROC-005.md`.
 - **CROC-006** — Email/password login (`POST /auth/login`, rejects
   unverified accounts with a distinct error).
 - **CROC-007** — Forgot/reset password (`POST /auth/forgot-password` sends

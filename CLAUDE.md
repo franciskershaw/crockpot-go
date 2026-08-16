@@ -15,14 +15,25 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
   (Epic 9) and paste-a-link recipe import (Epic 10) feature shapes — check
   the actual PNGs before assuming a flow, same rule as any other claim.
 - **Architectural reference**: `../../packing-list/packing-list-go` — prior
-  Go/Postgres project by the same author. Its `CLAUDE.md`, `LESSONS.md`,
-  and `docs/specs/master-spec.md` are the source for the patterns this
-  project deliberately reuses (see below). Its CI workflow
-  (`.github/workflows/ci.yml`) is the template for this project's deploy
-  pipeline when that ticket comes up — reuses the same Neon + Docker +
-  nginx + DigitalOcean droplet pattern; pick an unused port (droplet
-  already runs `packing-list-api` on 5400, `events-api` on 5500,
-  `salary-split-api` on 5300).
+  Go/Postgres project by the same author, and the only other one, so it's
+  a real source for what a working Gin/pgx/golang-migrate REST API looks
+  like. Its `CLAUDE.md`, `LESSONS.md`, and `docs/specs/master-spec.md` are
+  worth checking for how it solved something — but "packing-list-go does
+  it this way" is a starting point to evaluate against this project's own
+  needs, not a mandate to match. A pattern earns reuse on its own merits,
+  checked here same as any other claim; a real weakness over there (a
+  convention that caused friction, a file that grew longer than it should
+  have) is a reason to diverge and say why, not a reason to copy it
+  forward. `mockery`-generated mocks instead of packing-list-go's
+  hand-written ones (`CROC-005`) is the first example of this in
+  practice, not an exception to the rule. The deploy pipeline is the one
+  place this stays a firm match, not just a starting point — its CI
+  workflow (`.github/workflows/ci.yml`) is the template when that ticket
+  comes up, reusing the same Neon + Docker + nginx + DigitalOcean droplet
+  pattern; pick an unused port (droplet already runs `packing-list-api`
+  on 5400, `events-api` on 5500, `salary-split-api` on 5300) — that's
+  operational fact (which ports are free, how the droplet's configured),
+  not a design judgment call to re-litigate per ticket.
 
 ## Stack
 
@@ -168,14 +179,25 @@ requests/         Manual .http regression suite, one file per resource
   would change anything), never rewrites `go.mod`/`go.sum` itself. Adding
   a dependency mid-ticket: use `go get <pkg>@<version>` alone, which
   updates precisely that dependency without a full-tree prune.
-- `/code-review`: default to `medium` effort for a per-ticket close-out
-  review (`/code-review medium`), never bare `/code-review` — bare
-  invocations reuse whichever effort last ran in the session, which can
-  silently escalate to an expensive multi-agent pass (8 finder
-  sub-agents plus verification) for a routine review. Reserve `high`/
-  `ultra` for the periodic security review + tech-debt pass
-  `~/.claude/CLAUDE.md` already schedules separately ("every few
-  units"), not every ticket.
+- **Per-ticket and periodic review is CodeRabbit's job, not `/code-review`,
+  for AI-driven tickets.** Once a ticket's code is done, open (or already
+  have open) a PR — that triggers CodeRabbit automatically (3 reviews/hour
+  on the current plan, each push spends one). Pull its comments (`gh api
+  repos/franciskershaw/crockpot-go/pulls/<n>/reviews` for the summary, the
+  `/comments` endpoint for inline per-finding detail), fix what's real in
+  one pass, verify, only then run close-out. This also covers what used
+  to be the periodic security review + tech-debt pass
+  `~/.claude/CLAUDE.md` schedules separately ("every few units") — that
+  moves to CodeRabbit too, not just the per-ticket gate. Decided at
+  `CROC-005`'s close-out: Claude's own `/code-review medium` burned a
+  large fraction of a session's usage in minutes for a single ticket's
+  diff, not sustainable at the pace this project moves.
+  For **hand-written tickets** (founder writes the code, Claude reviews
+  after — see "Overrides" below): `/code-review` stays available in
+  principle, since Claude isn't also spending tokens implementing — but
+  ask before running it rather than launching it automatically; the
+  founder may still want CodeRabbit there too depending on remaining
+  session budget at the time.
 
 ## Pre-commit hook
 
