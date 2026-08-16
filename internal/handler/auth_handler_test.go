@@ -13,6 +13,7 @@ import (
 	"github.com/franciskershaw/crockpot-go/config"
 	"github.com/franciskershaw/crockpot-go/internal/auth"
 	"github.com/franciskershaw/crockpot-go/internal/handler"
+	genmocks "github.com/franciskershaw/crockpot-go/internal/handler/mocks"
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/testutil"
 	"github.com/gin-gonic/gin"
@@ -52,23 +53,23 @@ func ptr[T any](v T) *T { return &v }
 
 // --- Helpers ---
 
-// mocks bundles the collaborator mocks (generated via `go tool mockery`, see mock_*_test.go) plus a router wired to a handler built from them.
+// mocks bundles the collaborator mocks (generated via `go tool mockery`, see internal/handler/mocks/) plus a router wired to a handler built from them.
 type mocks struct {
-	userRepo         *handler.MockUserRepository
-	oauthMgr         *handler.MockOAuthManager
-	refreshTokenRepo *handler.MockRefreshTokenRepository
-	emailTokenRepo   *handler.MockEmailVerificationTokenRepository
-	emailSender      *handler.MockEmailSender
+	userRepo         *genmocks.MockUserRepository
+	oauthMgr         *genmocks.MockOAuthManager
+	refreshTokenRepo *genmocks.MockRefreshTokenRepository
+	emailTokenRepo   *genmocks.MockEmailVerificationTokenRepository
+	emailSender      *genmocks.MockEmailSender
 	router           *gin.Engine
 }
 
 func newMocks(t *testing.T, env config.Environment) *mocks {
 	m := &mocks{
-		userRepo:         handler.NewMockUserRepository(t),
-		oauthMgr:         handler.NewMockOAuthManager(t),
-		refreshTokenRepo: handler.NewMockRefreshTokenRepository(t),
-		emailTokenRepo:   handler.NewMockEmailVerificationTokenRepository(t),
-		emailSender:      handler.NewMockEmailSender(t),
+		userRepo:         genmocks.NewMockUserRepository(t),
+		oauthMgr:         genmocks.NewMockOAuthManager(t),
+		refreshTokenRepo: genmocks.NewMockRefreshTokenRepository(t),
+		emailTokenRepo:   genmocks.NewMockEmailVerificationTokenRepository(t),
+		emailSender:      genmocks.NewMockEmailSender(t),
 	}
 	h := handler.NewAuthHandler(m.userRepo, m.oauthMgr, m.refreshTokenRepo, m.emailTokenRepo, m.emailSender, &config.Config{
 		Environment:         env,
@@ -85,14 +86,14 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 }
 
 // mockSuccessfulExchange wires the state-valid/exchange/verify chain to succeed.
-func mockSuccessfulExchange(oauthMgr *handler.MockOAuthManager) {
+func mockSuccessfulExchange(oauthMgr *genmocks.MockOAuthManager) {
 	oauthMgr.EXPECT().ValidateState("valid-state").Return(true)
 	oauthMgr.EXPECT().ExchangeCodeForToken(mock.Anything, "auth-code").Return(fakeToken, nil)
 	oauthMgr.EXPECT().VerifyIDToken(mock.Anything, fakeToken).Return(fakeClaims, nil)
 }
 
 // mockSuccessfulUserAndFamily wires GetOrCreateUser/DeleteStaleFamiliesForUser/CreateFamily to all succeed.
-func mockSuccessfulUserAndFamily(userRepo *handler.MockUserRepository, refreshTokenRepo *handler.MockRefreshTokenRepository) {
+func mockSuccessfulUserAndFamily(userRepo *genmocks.MockUserRepository, refreshTokenRepo *genmocks.MockRefreshTokenRepository) {
 	userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).Return(fakeUser, nil)
 	refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, fakeUser.ID.String()).Return(nil)
 	refreshTokenRepo.EXPECT().CreateFamily(mock.Anything, mock.AnythingOfType("string"), fakeUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).
@@ -193,7 +194,7 @@ func TestGoogleCallback_RejectedAtStateValidation(t *testing.T) {
 		code        string
 		state       string
 		cookieValue *string
-		setup       func(oauthMgr *handler.MockOAuthManager)
+		setup       func(oauthMgr *genmocks.MockOAuthManager)
 		wantError   string
 	}{
 		{
@@ -229,7 +230,7 @@ func TestGoogleCallback_RejectedAtStateValidation(t *testing.T) {
 			code:        "auth-code",
 			state:       "bad-state",
 			cookieValue: ptr("bad-state"),
-			setup: func(oauthMgr *handler.MockOAuthManager) {
+			setup: func(oauthMgr *genmocks.MockOAuthManager) {
 				oauthMgr.EXPECT().ValidateState("bad-state").Return(false)
 			},
 			wantError: "invalid_state",
@@ -257,12 +258,12 @@ func TestGoogleCallback_RejectedAtStateValidation(t *testing.T) {
 func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 	cases := []struct {
 		name      string
-		setup     func(oauthMgr *handler.MockOAuthManager, userRepo *handler.MockUserRepository, refreshTokenRepo *handler.MockRefreshTokenRepository)
+		setup     func(oauthMgr *genmocks.MockOAuthManager, userRepo *genmocks.MockUserRepository, refreshTokenRepo *genmocks.MockRefreshTokenRepository)
 		wantError string
 	}{
 		{
 			name: "exchange fails",
-			setup: func(oauthMgr *handler.MockOAuthManager, _ *handler.MockUserRepository, _ *handler.MockRefreshTokenRepository) {
+			setup: func(oauthMgr *genmocks.MockOAuthManager, _ *genmocks.MockUserRepository, _ *genmocks.MockRefreshTokenRepository) {
 				oauthMgr.EXPECT().ValidateState("valid-state").Return(true)
 				oauthMgr.EXPECT().ExchangeCodeForToken(mock.Anything, "auth-code").Return(nil, errors.New("exchange failed"))
 			},
@@ -270,7 +271,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 		},
 		{
 			name: "verify fails",
-			setup: func(oauthMgr *handler.MockOAuthManager, _ *handler.MockUserRepository, _ *handler.MockRefreshTokenRepository) {
+			setup: func(oauthMgr *genmocks.MockOAuthManager, _ *genmocks.MockUserRepository, _ *genmocks.MockRefreshTokenRepository) {
 				oauthMgr.EXPECT().ValidateState("valid-state").Return(true)
 				oauthMgr.EXPECT().ExchangeCodeForToken(mock.Anything, "auth-code").Return(fakeToken, nil)
 				oauthMgr.EXPECT().VerifyIDToken(mock.Anything, fakeToken).Return(nil, errors.New("verify failed"))
@@ -279,7 +280,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 		},
 		{
 			name: "email not verified",
-			setup: func(oauthMgr *handler.MockOAuthManager, _ *handler.MockUserRepository, _ *handler.MockRefreshTokenRepository) {
+			setup: func(oauthMgr *genmocks.MockOAuthManager, _ *genmocks.MockUserRepository, _ *genmocks.MockRefreshTokenRepository) {
 				oauthMgr.EXPECT().ValidateState("valid-state").Return(true)
 				oauthMgr.EXPECT().ExchangeCodeForToken(mock.Anything, "auth-code").Return(fakeToken, nil)
 				unverifiedClaims := &auth.IDTokenClaims{
@@ -292,7 +293,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 		},
 		{
 			name: "email already registered with password",
-			setup: func(oauthMgr *handler.MockOAuthManager, userRepo *handler.MockUserRepository, _ *handler.MockRefreshTokenRepository) {
+			setup: func(oauthMgr *genmocks.MockOAuthManager, userRepo *genmocks.MockUserRepository, _ *genmocks.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
 				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).
 					Return(nil, models.ErrEmailRegisteredWithPassword)
@@ -301,7 +302,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 		},
 		{
 			name: "GetOrCreateUser generic error",
-			setup: func(oauthMgr *handler.MockOAuthManager, userRepo *handler.MockUserRepository, _ *handler.MockRefreshTokenRepository) {
+			setup: func(oauthMgr *genmocks.MockOAuthManager, userRepo *genmocks.MockUserRepository, _ *genmocks.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
 				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).
 					Return(nil, errors.New("db exploded"))
@@ -310,7 +311,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 		},
 		{
 			name: "DeleteStaleFamiliesForUser fails",
-			setup: func(oauthMgr *handler.MockOAuthManager, userRepo *handler.MockUserRepository, refreshTokenRepo *handler.MockRefreshTokenRepository) {
+			setup: func(oauthMgr *genmocks.MockOAuthManager, userRepo *genmocks.MockUserRepository, refreshTokenRepo *genmocks.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
 				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).Return(fakeUser, nil)
 				refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, fakeUser.ID.String()).Return(errors.New("delete failed"))
@@ -319,7 +320,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 		},
 		{
 			name: "CreateFamily fails",
-			setup: func(oauthMgr *handler.MockOAuthManager, userRepo *handler.MockUserRepository, refreshTokenRepo *handler.MockRefreshTokenRepository) {
+			setup: func(oauthMgr *genmocks.MockOAuthManager, userRepo *genmocks.MockUserRepository, refreshTokenRepo *genmocks.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
 				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).Return(fakeUser, nil)
 				refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, fakeUser.ID.String()).Return(nil)
@@ -418,7 +419,7 @@ func TestRegister_Fails(t *testing.T) {
 	cases := []struct {
 		name      string
 		body      map[string]string
-		setup     func(userRepo *handler.MockUserRepository)
+		setup     func(userRepo *genmocks.MockUserRepository)
 		wantCode  int
 		wantError string
 	}{
@@ -443,7 +444,7 @@ func TestRegister_Fails(t *testing.T) {
 		{
 			name: "email already registered with google",
 			body: map[string]string{"email": "taken@example.com", "password": "correcthorse", "name": "New User"},
-			setup: func(userRepo *handler.MockUserRepository) {
+			setup: func(userRepo *genmocks.MockUserRepository) {
 				userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, "taken@example.com", mock.AnythingOfType("string"), "New User").
 					Return(nil, models.ErrEmailRegisteredWithGoogle)
 			},
@@ -453,7 +454,7 @@ func TestRegister_Fails(t *testing.T) {
 		{
 			name: "email already registered with password",
 			body: map[string]string{"email": "taken@example.com", "password": "correcthorse", "name": "New User"},
-			setup: func(userRepo *handler.MockUserRepository) {
+			setup: func(userRepo *genmocks.MockUserRepository) {
 				userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, "taken@example.com", mock.AnythingOfType("string"), "New User").
 					Return(nil, models.ErrEmailRegisteredWithPassword)
 			},
@@ -514,13 +515,13 @@ func TestConfirmEmail_Fails(t *testing.T) {
 
 	cases := []struct {
 		name      string
-		setup     func(userRepo *handler.MockUserRepository, emailTokenRepo *handler.MockEmailVerificationTokenRepository)
+		setup     func(userRepo *genmocks.MockUserRepository, emailTokenRepo *genmocks.MockEmailVerificationTokenRepository)
 		wantCode  int
 		wantError string
 	}{
 		{
 			name: "unknown email",
-			setup: func(userRepo *handler.MockUserRepository, _ *handler.MockEmailVerificationTokenRepository) {
+			setup: func(userRepo *genmocks.MockUserRepository, _ *genmocks.MockEmailVerificationTokenRepository) {
 				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(nil, models.ErrUserNotFound)
 			},
 			wantCode:  http.StatusBadRequest,
@@ -528,7 +529,7 @@ func TestConfirmEmail_Fails(t *testing.T) {
 		},
 		{
 			name: "no active token",
-			setup: func(userRepo *handler.MockUserRepository, emailTokenRepo *handler.MockEmailVerificationTokenRepository) {
+			setup: func(userRepo *genmocks.MockUserRepository, emailTokenRepo *genmocks.MockEmailVerificationTokenRepository) {
 				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(confirmUser, nil)
 				emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, confirmUser.ID.String()).Return(nil, models.ErrNoActiveEmailVerificationToken)
 			},
@@ -537,7 +538,7 @@ func TestConfirmEmail_Fails(t *testing.T) {
 		},
 		{
 			name: "expired token",
-			setup: func(userRepo *handler.MockUserRepository, emailTokenRepo *handler.MockEmailVerificationTokenRepository) {
+			setup: func(userRepo *genmocks.MockUserRepository, emailTokenRepo *genmocks.MockEmailVerificationTokenRepository) {
 				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(confirmUser, nil)
 				emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, confirmUser.ID.String()).Return(&models.EmailVerificationToken{
 					ID: uuid.New(), UserID: confirmUser.ID, TokenHash: auth.HashToken("482913"),
@@ -549,7 +550,7 @@ func TestConfirmEmail_Fails(t *testing.T) {
 		},
 		{
 			name: "wrong code increments attempts",
-			setup: func(userRepo *handler.MockUserRepository, emailTokenRepo *handler.MockEmailVerificationTokenRepository) {
+			setup: func(userRepo *genmocks.MockUserRepository, emailTokenRepo *genmocks.MockEmailVerificationTokenRepository) {
 				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(confirmUser, nil)
 				tokenID := uuid.New()
 				emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, confirmUser.ID.String()).Return(&models.EmailVerificationToken{
@@ -563,7 +564,7 @@ func TestConfirmEmail_Fails(t *testing.T) {
 		},
 		{
 			name: "already locked out",
-			setup: func(userRepo *handler.MockUserRepository, emailTokenRepo *handler.MockEmailVerificationTokenRepository) {
+			setup: func(userRepo *genmocks.MockUserRepository, emailTokenRepo *genmocks.MockEmailVerificationTokenRepository) {
 				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(confirmUser, nil)
 				emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, confirmUser.ID.String()).Return(&models.EmailVerificationToken{
 					ID: uuid.New(), UserID: confirmUser.ID, TokenHash: auth.HashToken("482913"),

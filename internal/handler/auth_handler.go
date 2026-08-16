@@ -296,5 +296,57 @@ type confirmRequest struct {
 }
 
 func (h *AuthHandler) ConfirmEmail(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented"})
+	var req confirmRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	user, err := h.userRepo.FindByEmail(ctx, req.Email)
+	if err != nil {
+		// Unknown email collapses into the same code_invalid as a wrong code — no second enumeration channel next to register's own.
+		c.JSON(http.StatusBadRequest, gin.H{"error": "code_invalid"})
+		return
+	}
+
+	token, err := h.emailVerificationTokenRepo.FindActiveByUserID(ctx, user.ID.String())
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "code_invalid"})
+		return
+	}
+
+	if token.Attempts >= maxConfirmationAttempts {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "too_many_attempts"})
+		return
+	}
+
+	if time.Now().After(token.ExpiresAt) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "code_expired"})
+		return
+	}
+
+	if auth.HashToken(req.Code) != token.TokenHash {
+		if _, err := h.emailVerificationTokenRepo.IncrementAttempts(ctx, token.ID.String()); err != nil {
+			_ = c.Error(fmt.Errorf("failed to record failed confirmation attempt: %w", err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "code_invalid"})
+		return
+	}
+
+	if _, err := h.userRepo.MarkEmailConfirmed(ctx, user.ID.String()); err != nil {
+		_ = c.Error(fmt.Errorf("failed to mark email confirmed: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+	if err := h.emailVerificationTokenRepo.MarkUsed(ctx, token.ID.String()); err != nil {
+		_ = c.Error(fmt.Errorf("failed to mark confirmation code used: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "email confirmed"})
 }

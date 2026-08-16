@@ -43,12 +43,27 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
 - Testing: stdlib `testing` + `testify/mock` for handler-layer repository
   mocks. **Diverges from `packing-list-go`** (hand-written mocks there):
   mocks are generated via `mockery` (`go tool mockery`, config in
-  `.mockery.yaml`, output alongside each interface as `mock_*_test.go`,
-  `with-expecter: true` — `.EXPECT().Method(args).Return(...)`, not raw
-  `.On("Method", ...)`). Adopted at `CROC-005` once the mock surface grew
-  past the first couple of interfaces and hand-written duplication became
-  a real maintenance cost, not a hypothetical one; re-run `go tool
-  mockery` after changing any interface in `internal/handler`.
+  `.mockery.yaml`), `with-expecter: true` — `.EXPECT().Method(args).Return(...)`,
+  not raw `.On("Method", ...)`. Adopted at `CROC-005` once the mock
+  surface grew past the first couple of interfaces and hand-written
+  duplication became a real maintenance cost, not a hypothetical one.
+  Output goes to **`internal/handler/mocks/`** (package `mocks`, plain
+  `.go` files, not `inpackage`/`_test.go`) rather than alongside each
+  interface — tried `_test.go` files colocated with the interface first,
+  reverted the same day once the founder flagged that every future
+  handler's mocks would land flat in `internal/handler/` alongside real
+  code with no separation. A dedicated subpackage was the fix; it has to
+  be plain `.go` (not `_test.go`) because Go's test-file exclusion is
+  per-package — a package containing only `_test.go` files can't be
+  imported from another package's tests at all, only compiled when
+  testing itself. Harmless: nothing in production code imports
+  `internal/handler/mocks`, so it never reaches the shipped binary
+  despite not being `_test.go`-suffixed. Every test file consuming it
+  aliases the import (`genmocks "github.com/franciskershaw/crockpot-go/internal/handler/mocks"`)
+  since `handler_test.go`'s own local `mocks` struct (bundling the
+  collaborator mocks for a test) would otherwise collide with the
+  package name. Re-run `go tool mockery` after changing any interface in
+  `internal/handler`.
 - Deployment: Docker (multi-stage to distroless), behind nginx, on the
   same DigitalOcean droplet as `packing-list-go`
 

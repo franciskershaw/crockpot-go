@@ -85,6 +85,51 @@ Content-Type: application/json
 
 
 # ══════════════════════════════════════════
+#  POST /auth/confirm
+#
+#  Run the register section above first. Two codes get sent to the same
+#  inbox (the ✅ 201 and the re-register below it both issue one) — only
+#  the SECOND (latest) is still active, the first is dead the moment the
+#  second is issued. Paste the latest code into CODE_FROM_EMAIL below.
+# ══════════════════════════════════════════
+
+### ✅ 200 — confirms with the real code from the second email above
+POST http://localhost:{{$dotenv PORT}}/auth/confirm
+Content-Type: application/json
+
+{
+  "email": "franciskershaw.dev@gmail.com",
+  "code": "634359"
+}
+
+###
+
+### 🔒 400 — unknown email (never reveals whether the email exists)
+POST http://localhost:{{$dotenv PORT}}/auth/confirm
+Content-Type: application/json
+
+{
+  "email": "crockpot-http-test-nobody@example.com",
+  "code": "000000"
+}
+
+###
+
+### 🔒 400 — wrong code. Run this block 5 times in a row (attempts 1-5,
+### each still code_invalid), then a 6th time to see the lockout flip to
+### too_many_attempts. Run the ✅ 200 request above again afterward to
+### confirm even the *real* code now fails until a resend reissues one
+### (once ResendConfirmation exists).
+POST http://localhost:{{$dotenv PORT}}/auth/confirm
+Content-Type: application/json
+
+{
+  "email": "franciskershaw.dev@gmail.com",
+  "code": "000000"
+}
+
+
+# ══════════════════════════════════════════
 #  Cleanup
 # ══════════════════════════════════════════
 

@@ -86,6 +86,7 @@ func main() {
 	authTight.Use(middleware.RateLimit(memory.NewStore(), authRateLimit))
 	{
 		authTight.POST("/register", authHandler.Register)
+		authTight.POST("/confirm", authHandler.ConfirmEmail)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
