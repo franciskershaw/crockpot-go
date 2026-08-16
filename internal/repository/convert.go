@@ -28,3 +28,11 @@ func timePtr(t pgtype.Timestamptz) *time.Time {
 func uuidValue(u pgtype.UUID) uuid.UUID {
 	return uuid.UUID(u.Bytes)
 }
+
+func uuidParam(s string) (pgtype.UUID, error) {
+	parsed, err := uuid.Parse(s)
+	if err != nil {
+		return pgtype.UUID{}, err
+	}
+	return pgtype.UUID{Bytes: parsed, Valid: true}, nil
+}
