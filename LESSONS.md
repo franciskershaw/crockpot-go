@@ -77,3 +77,14 @@ implementation quality until CROC-001 lands.
   point, not a freeze against later `/code-review` findings — ported
   code gets fixed like any other finding unless there's a real reason to
   preserve behavioral parity.
+
+## 2026-08-16 — CROC-003a — CI checks pipeline landed
+
+- No rework in the pipeline itself, but AC verification was partial: only
+  1 of the 5 "each independently fails CI" conditions was actually
+  exercised (a real `govulncheck` failure); the other four were accepted
+  on precedent (`packing-list-go`'s already-proven pipeline) rather than
+  deliberately triggered — a real, informed exception, not an oversight.
+- Paid off immediately: the first real PR caught a genuinely stale Go
+  version pin in `go.mod` (7 real stdlib CVEs) before it could sit silent
+  — exactly the failure mode this ticket existed to prevent.
