@@ -2,8 +2,6 @@ package handler
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -22,11 +20,6 @@ const (
 	oauthStateCookieMaxAge = 10 * time.Minute
 	oauthExchangeTimeout   = 10 * time.Second
 )
-
-func hashRefreshToken(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
-}
 
 type UserRepository interface {
 	GetOrCreateUser(ctx context.Context, email, googleID, displayName, avatarURL string) (*models.User, error)
@@ -172,7 +165,7 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 		h.redirectWithError(c, "server_error")
 		return
 	}
-	if _, err := h.refreshTokenRepo.CreateFamily(ctx, familyID, user.ID.String(), hashRefreshToken(refreshToken), time.Now().Add(refreshTokenTTL)); err != nil {
+	if _, err := h.refreshTokenRepo.CreateFamily(ctx, familyID, user.ID.String(), auth.HashToken(refreshToken), time.Now().Add(refreshTokenTTL)); err != nil {
 		_ = c.Error(fmt.Errorf("failed to persist refresh token: %w", err))
 		h.redirectWithError(c, "server_error")
 		return
