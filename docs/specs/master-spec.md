@@ -220,16 +220,8 @@ CROC-008 (Refresh + logout) → crockpot-react's initial auth wiring
 (CFE-002) → CROC-005/006/007 (password auth) — Google login + refresh +
 logout is a complete, testable session on its own, and doesn't need
 password auth to prove out. See `docs/handoffs/CROC-004.md`.*
-- **CROC-004** — Google OAuth login flow (`/auth/google/login`,
-  `/auth/google/callback`), get-or-create user, issue and persist a
-  refresh token (access-token minting deferred to `CROC-008` — see
-  `docs/handoffs/CROC-004.md`). First ticket with a real repository query
-  against the new schema — also owns proving `sqlc generate` exits 0
-  against it (standing rule, not pinned to a ticket number: whichever
-  ticket first adds a real query owns this proof, so it can't need a
-  second correction later — see `docs/handoffs/CROC-002.md`). Also adds
-  `users.last_login_at TIMESTAMPTZ` as a schema addendum to `CROC-002`'s
-  migration.
+- **CROC-004** — Google OAuth login flow. **Done.** See
+  `docs/handoffs/CROC-004.md`.
 - **CROC-005** — Email/password registration + confirmation
   (`POST /auth/register` creates unverified user + sends confirmation
   email via Resend; `GET /auth/confirm?token=` verifies). Resending a

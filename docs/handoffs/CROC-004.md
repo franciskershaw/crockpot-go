@@ -1,6 +1,6 @@
 # CROC-004 — Google OAuth login flow
 
-Grilled 2026-08-16, not yet implemented.
+Grilled 2026-08-16. Completed 2026-08-16.
 
 **Implementation mode: AI-driven / spec-driven.** Same mode as CROC-002.
 OAuth/`go-oidc` and `sqlc` are new to this stack, but the priority here is

@@ -88,3 +88,22 @@ implementation quality until CROC-001 lands.
 - Paid off immediately: the first real PR caught a genuinely stale Go
   version pin in `go.mod` (7 real stdlib CVEs) before it could sit silent
   — exactly the failure mode this ticket existed to prevent.
+
+## 2026-08-16 — CROC-004 — Google OAuth login flow landed
+
+- Auto Mode plus an unwritten "AI-driven ticket" cadence let ~9 pieces of
+  work chain together with no review checkpoint, including a live schema
+  change against the real Neon dev DB — caught only once the founder
+  stopped and asked to restart; fixed by writing the missing "test, stub,
+  confirm red, stop" cadence into `CLAUDE.md` for AI-driven mode
+  (previously only the hand-written-mode roadmap had it explicit).
+- `/code-review`'s default multi-agent effort (8 finder sub-agents) ran
+  for a routine per-ticket review, stalled on one sub-agent for 10+
+  minutes, and burned a large share of session budget before landing on
+  any findings — fixed by pinning per-ticket reviews to `medium` effort
+  in `CLAUDE.md`, reserving `high`/`ultra` for the periodic security/
+  tech-debt pass.
+- **Pattern**: a ticket-mode or tool-invocation default needs its
+  behaviour spelled out explicitly before the first ticket that actually
+  exercises it — both misses here were "assumed to carry over from
+  somewhere else" gaps, not new mistakes each time.

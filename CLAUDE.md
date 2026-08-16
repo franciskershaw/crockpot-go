@@ -128,6 +128,7 @@ internal/
 docs/
   specs/          Master spec + ticket backlog
   handoffs/       Per-ticket handoff docs written before implementation
+requests/         Manual .http regression suite, one file per resource
 ```
 
 ## Verification commands
@@ -144,9 +145,51 @@ docs/
   would change anything), never rewrites `go.mod`/`go.sum` itself. Adding
   a dependency mid-ticket: use `go get <pkg>@<version>` alone, which
   updates precisely that dependency without a full-tree prune.
+- `/code-review`: default to `medium` effort for a per-ticket close-out
+  review (`/code-review medium`), never bare `/code-review` — bare
+  invocations reuse whichever effort last ran in the session, which can
+  silently escalate to an expensive multi-agent pass (8 finder
+  sub-agents plus verification) for a routine review. Reserve `high`/
+  `ultra` for the periodic security review + tech-debt pass
+  `~/.claude/CLAUDE.md` already schedules separately ("every few
+  units"), not every ticket.
+
+## Manual `.http` regression suite
+
+Every ticket that adds or changes an HTTP-callable endpoint — regardless
+of whether Claude or the founder wrote the code — includes a
+corresponding `requests/<resource>.http` file (new or extended) as part
+of its own acceptance criteria, not a follow-up. Mirrors
+`packing-list-go`'s `requests/*.http` convention (one file per resource,
+run top-to-bottom in VS Code's REST Client extension, a Cleanup section
+per file — see `packing-list-go/requests/README.md` for the base
+pattern) — that convention isn't written into `packing-list-go/CLAUDE.md`
+either; it lives only in its own README, same as this one will.
+
+**Token acquisition doesn't need `packing-list-go`'s `scripts/gen_token.go`.**
+Once `CROC-005`/`CROC-006` (password register/login) exist,
+`requests/auth.http` logs in against a pre-created, already-confirmed
+test account and captures the access token directly via REST Client's
+response-variable syntax (e.g. `@authToken =
+{{login.response.body.accessToken}}`) — self-contained in the file, no
+separate script. Until then (the `CROC-004`/`CROC-008` window), seed
+`DEV_TOKEN`/`DEV_REFRESH_TOKEN` into `.env` manually, once, from a real
+browser Google login — already a required manual step for those
+tickets' own interactive verification — and requests pick them up via
+`{{$dotenv DEV_TOKEN}}`, same as `packing-list-go`'s files do.
+
+Google login/callback themselves stay out of `.http` coverage, same
+reasoning `packing-list-go/requests/README.md` documents: a real browser
+round-trip can't be driven by a plain HTTP request.
+
+First ticket this applies to: `CROC-008` (`/auth/refresh`,
+`/auth/logout` — the first endpoints past `CROC-004` that don't need a
+live browser).
 
 ## Docs
 
 - `docs/specs/master-spec.md` — living spec + ticket backlog
 - `docs/handoffs/CROC-NNN.md` — one per ticket
 - `LESSONS.md` — retro log, reviewed each kickoff/grill-me
+- `requests/README.md` — once `CROC-008` creates it, the `.http`
+  regression suite's setup/running instructions
