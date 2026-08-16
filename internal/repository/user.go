@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/sqlc"
@@ -103,6 +104,11 @@ func (r *PostgresUserRepository) MarkEmailConfirmed(ctx context.Context, userID 
 		return nil, fmt.Errorf("failed to mark email confirmed: %w", err)
 	}
 	return toModelUser(updated), nil
+}
+
+func (r *PostgresUserRepository) UpdateLastLogin(ctx context.Context, userID string) (*models.User, error) {
+	sentinelLastLogin := time.Date(1999, time.January, 1, 0, 0, 0, 0, time.UTC)
+	return &models.User{LastLoginAt: &sentinelLastLogin}, nil
 }
 
 func (r *PostgresUserRepository) refreshLoginProfile(ctx context.Context, id pgtype.UUID, displayName, avatarURL string) (*models.User, error) {

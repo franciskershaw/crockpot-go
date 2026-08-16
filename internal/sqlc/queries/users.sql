@@ -30,3 +30,9 @@ SET name = COALESCE(NULLIF(sqlc.arg(display_name)::text, ''), name),
     updated_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg(id)
 RETURNING *;
+
+-- name: UpdateUserLastLogin :one
+UPDATE users
+SET last_login_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+RETURNING *;

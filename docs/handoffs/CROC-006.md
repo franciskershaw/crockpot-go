@@ -164,15 +164,24 @@ whatever triggers the refresh-retry behavior.
    `last_login_at`/`updated_at`). Run `go tool sqlc generate`. No
    migration needed — `last_login_at` already exists on `users`
    (`db/migrations/000001_init.up.sql:13`).
-2. **Repository** — add `UpdateLastLogin` to `PostgresUserRepository` in
-   `internal/repository/user.go`, following `MarkEmailConfirmed`'s
-   exact shape (lines 96-106: `uuidParam` → generated query call →
-   `toModelUser`).
+2. **Repository, test-first** — write `TestUpdateLastLogin` in
+   `internal/repository/user_test.go` (real Neon dev DB) first: assert
+   `last_login_at` actually advances on a round-trip. Confirm it fails
+   for the right reason (`UpdateLastLogin` doesn't exist yet — a
+   compile failure, not a panic). Then add `UpdateLastLogin` to
+   `PostgresUserRepository` in `internal/repository/user.go`, following
+   `MarkEmailConfirmed`'s exact shape (lines 96-106: `uuidParam` →
+   generated query call → `toModelUser`). Confirm green.
 3. **Interface + mocks** — add `UpdateLastLogin` to the
    `UserRepository` interface in `internal/handler/auth_handler.go`
    (lines 30-35). Run `go tool mockery` to regenerate
    `internal/handler/mocks/mock_UserRepository.go`.
-4. **Handler** — add `loginRequest` and `Login` to
+4. **Handler, test-first** — write the table-driven cases in
+   `internal/handler/auth_handler_test.go` first (success, wrong
+   password, unknown email, unconfirmed account, Google-only account,
+   malformed body — see AC above for exact status/code per case).
+   Confirm they fail for the right reason (`Login`/`loginRequest` don't
+   exist yet). Then add `loginRequest` and `Login` to
    `internal/handler/auth_handler.go`, referencing:
    - `Register` (lines 216-280) for the request-binding /
      `invalid_request` pattern and the overall handler shape.
@@ -190,6 +199,7 @@ whatever triggers the refresh-retry behavior.
      mismatch (→ `401 invalid_credentials`) → `EmailVerifiedAt` nil
      check (→ `403 email_not_confirmed`) → `UpdateLastLogin` → issue
      tokens → `200`.
+   Confirm green.
 5. **Route wiring** — add `authTight.POST("/login", authHandler.Login)`
    in `main.go` alongside the existing three (around line 92-94).
 6. **`.http` suite** — extend `requests/auth.http` per the AC above.
@@ -201,17 +211,12 @@ whatever triggers the refresh-retry behavior.
    AC bullet's real trigger (success, wrong password, unknown email,
    unconfirmed, Google-only) actually returns the documented
    status/code, not just what the unit tests assert with mocks.
-8. **Tests** — write the handler and repository tests from the AC list.
-   Since this is hand-written mode, tests are written alongside/after
-   the real implementation rather than test-first — no red-stage
-   stubbing step required here (that requirement is specific to
-   AI-driven mode's cadence).
-9. **Lint/format/tidy** — `gofmt`, `golangci-lint run
+8. **Lint/format/tidy** — `gofmt`, `golangci-lint run
    --max-same-issues=0 --max-issues-per-linter=0 ./...`, `go mod tidy
    -diff`.
-10. **Open a PR** to trigger CodeRabbit (per `crockpot-go/CLAUDE.md`'s
-    per-ticket review convention) — pull and address real findings,
-    then close out.
+9. **Open a PR** to trigger CodeRabbit (per `crockpot-go/CLAUDE.md`'s
+   per-ticket review convention) — pull and address real findings, then
+   close out.
 
 ## Non-goals
 

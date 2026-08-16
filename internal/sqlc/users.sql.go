@@ -153,6 +153,32 @@ func (q *Queries) MarkUserEmailConfirmed(ctx context.Context, id pgtype.UUID) (U
 	return i, err
 }
 
+const updateUserLastLogin = `-- name: UpdateUserLastLogin :one
+UPDATE users
+SET last_login_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+RETURNING id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at
+`
+
+func (q *Queries) UpdateUserLastLogin(ctx context.Context, id pgtype.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserLastLogin, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.GoogleID,
+		&i.PasswordHash,
+		&i.Email,
+		&i.Name,
+		&i.Image,
+		&i.Role,
+		&i.EmailVerifiedAt,
+		&i.LastLoginAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateUserLoginProfile = `-- name: UpdateUserLoginProfile :one
 UPDATE users
 SET name = COALESCE(NULLIF($1::text, ''), name),

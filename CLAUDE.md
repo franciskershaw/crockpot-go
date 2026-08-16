@@ -106,8 +106,13 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
 
 - **Hand-written tickets.** On a per-ticket basis (not a default), the
   founder may choose to implement a ticket by hand instead of Claude
-  doing it test-first — typically to build hands-on familiarity with a
-  new part of the stack (e.g. CROC-001's Go server/DB/sqlc scaffold).
+  writing the code — typically to build hands-on familiarity with a new
+  part of the stack (e.g. CROC-001's Go server/DB/sqlc scaffold). This
+  decides *who* writes the code, nothing about test order: the founder
+  still goes test-first whenever the ticket's verification mode normally
+  calls for it (see the roadmap note below) — hand-written is not a
+  synonym for "tests after". Two roadmaps have now stated the opposite
+  by mistake; don't repeat it a third time.
   When this is chosen: `grill-me` still runs and still produces the
   normal handoff doc, but Claude writes no code for that ticket — not
   even TDD stubs. The founder implements against the handoff doc plus

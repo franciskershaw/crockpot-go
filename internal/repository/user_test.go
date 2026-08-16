@@ -235,3 +235,23 @@ func TestMarkEmailConfirmed_SetsEmailVerifiedAt(t *testing.T) {
 	require.NotNil(t, updated)
 	assert.NotNil(t, updated.EmailVerifiedAt)
 }
+
+func TestUpdateLastLogin_AdvancesLastLoginAt(t *testing.T) {
+	ctx := context.Background()
+	email := "repo-test-" + uuid.NewString() + "@example.com"
+	existingID := uuid.New()
+	staleLastLogin := time.Now().Add(-1 * time.Hour)
+
+	_, err := db.DB.Exec(ctx,
+		`INSERT INTO users (id, password_hash, email, last_login_at) VALUES ($1, $2, $3, $4)`,
+		existingID, "bcrypt-hash-placeholder", email, staleLastLogin,
+	)
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, existingID)
+
+	updated, err := userRepo.UpdateLastLogin(ctx, existingID.String())
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	require.NotNil(t, updated.LastLoginAt)
+	assert.True(t, updated.LastLoginAt.After(staleLastLogin), "expected last_login_at to advance past its stale value")
+}
