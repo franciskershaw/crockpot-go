@@ -32,6 +32,7 @@ type UserRepository interface {
 	CreateUnconfirmedUser(ctx context.Context, email, passwordHash, name string) (*models.User, error)
 	MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error)
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
+	UpdateLastLogin(ctx context.Context, userID string) (*models.User, error)
 }
 
 type RefreshTokenRepository interface {
@@ -101,6 +102,25 @@ func (h *AuthHandler) clearOAuthStateCookie(c *gin.Context) {
 // redirectWithError sends the browser back to the frontend's callback route with an error code, never a JSON body.
 func (h *AuthHandler) redirectWithError(c *gin.Context, code string) {
 	c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/auth/callback?error=%s", h.cfg.FrontendURL, code))
+}
+
+// issueRefreshSession clears any stale families for the user, creates a fresh one, and sets the refresh cookie — shared by every path that starts a new session (GoogleCallback, Login).
+func (h *AuthHandler) issueRefreshSession(ctx context.Context, c *gin.Context, userID string) error {
+	familyID := uuid.NewString()
+	refreshToken, err := auth.GenerateRefreshToken(userID, familyID, h.cfg.JWTSecretRefresh)
+	if err != nil {
+		return fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+
+	if err := h.refreshTokenRepo.DeleteStaleFamiliesForUser(ctx, userID); err != nil {
+		return fmt.Errorf("failed to clean up refresh tokens: %w", err)
+	}
+	if _, err := h.refreshTokenRepo.CreateFamily(ctx, familyID, userID, auth.HashToken(refreshToken), time.Now().Add(refreshTokenTTL)); err != nil {
+		return fmt.Errorf("failed to persist refresh token: %w", err)
+	}
+
+	h.setRefreshCookie(c, refreshToken, int(refreshTokenTTL.Seconds()))
+	return nil
 }
 
 func (h *AuthHandler) LoginWithGoogle(c *gin.Context) {
@@ -182,26 +202,11 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 		return
 	}
 
-	familyID := uuid.NewString()
-	refreshToken, err := auth.GenerateRefreshToken(user.ID.String(), familyID, h.cfg.JWTSecretRefresh)
-	if err != nil {
-		_ = c.Error(fmt.Errorf("failed to generate refresh token: %w", err))
+	if err := h.issueRefreshSession(ctx, c, user.ID.String()); err != nil {
+		_ = c.Error(err)
 		h.redirectWithError(c, "server_error")
 		return
 	}
-
-	if err := h.refreshTokenRepo.DeleteStaleFamiliesForUser(ctx, user.ID.String()); err != nil {
-		_ = c.Error(fmt.Errorf("failed to clean up refresh tokens: %w", err))
-		h.redirectWithError(c, "server_error")
-		return
-	}
-	if _, err := h.refreshTokenRepo.CreateFamily(ctx, familyID, user.ID.String(), auth.HashToken(refreshToken), time.Now().Add(refreshTokenTTL)); err != nil {
-		_ = c.Error(fmt.Errorf("failed to persist refresh token: %w", err))
-		h.redirectWithError(c, "server_error")
-		return
-	}
-
-	h.setRefreshCookie(c, refreshToken, int(refreshTokenTTL.Seconds()))
 
 	// No access token or user data in the redirect — the frontend mints its own via the refresh cookie just set.
 	c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/auth/callback", h.cfg.FrontendURL))
@@ -422,4 +427,61 @@ func (h *AuthHandler) ResendConfirmation(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "confirmation code resent"})
+}
+
+type loginRequest struct {
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required"`
+}
+
+func (h *AuthHandler) Login(c *gin.Context) {
+	var req loginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	user, err := h.userRepo.FindByEmail(ctx, req.Email)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_credentials"})
+		return
+	}
+
+	if user.PasswordHash == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "google_account_no_password"})
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.Password)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_credentials"})
+		return
+	}
+
+	if user.EmailVerifiedAt == nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "email_not_confirmed"})
+		return
+	}
+
+	if _, err := h.userRepo.UpdateLastLogin(ctx, user.ID.String()); err != nil {
+		_ = c.Error(fmt.Errorf("failed to update last login: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	if err := h.issueRefreshSession(ctx, c, user.ID.String()); err != nil {
+		_ = c.Error(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	accessToken, err := auth.GenerateAccessToken(user.Email, user.ID.String(), user.Role, h.cfg.JWTSecretAccess)
+	if err != nil {
+		_ = c.Error(fmt.Errorf("failed to generate access token: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"accessToken": accessToken})
 }
