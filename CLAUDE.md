@@ -95,6 +95,20 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
   `packing-list-go/CLAUDE.md`'s "TDD in Go" shape — CROC-001 itself
   skipped that step because this layer is test-exempt, not because the
   roadmap format omits it by default.
+- **AI-driven tickets.** Claude works one coherent piece at a time (roughly
+  file-sized, matching hand-written mode's roadmap granularity above):
+  write the failing test(s), write a minimal stub that fails for the
+  right reason (never a panic), confirm red, then **stop and report the
+  diff for review** — no real implementation until the founder gives the
+  go-ahead. On go-ahead: implement, confirm green, then stop again before
+  starting the next piece. Applies regardless of Auto Mode, which governs
+  whether Claude pauses to ask clarifying questions about ambiguous
+  requirements, not whether it pauses at these checkpoints. A test
+  confirmed red for the right reason is locked once that stop happens —
+  Claude implements to satisfy it, it does not edit the test's assertions
+  to fit whatever gets implemented afterward. If a locked test later turns
+  out to be wrong, that discovery is itself a stop-and-flag moment, not a
+  silent edit.
 
 ## Folder layout (once CROC-001 scaffolds it)
 
