@@ -9,3 +9,5 @@ var ErrEmailRegisteredWithGoogle = errors.New("email already registered with a g
 var ErrEmailUnconfirmed = errors.New("email has an existing unconfirmed registration")
 
 var ErrNoActiveEmailVerificationToken = errors.New("no active email verification token for user")
+
+var ErrUserNotFound = errors.New("user not found")

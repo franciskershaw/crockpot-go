@@ -215,6 +215,33 @@ func TestUpdatePasswordAndClearConfirmation_OverwritesUnconfirmedAccount(t *test
 	assert.Nil(t, updated.EmailVerifiedAt)
 }
 
+func TestFindByEmail_ReturnsUser(t *testing.T) {
+	ctx := context.Background()
+	email := "repo-test-" + uuid.NewString() + "@example.com"
+	existingID := uuid.New()
+
+	_, err := db.DB.Exec(ctx,
+		`INSERT INTO users (id, password_hash, email) VALUES ($1, $2, $3)`,
+		existingID, "bcrypt-hash-placeholder", email,
+	)
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, existingID)
+
+	user, err := userRepo.FindByEmail(ctx, email)
+	require.NoError(t, err)
+	require.NotNil(t, user)
+	assert.Equal(t, existingID, user.ID)
+	assert.Equal(t, email, user.Email)
+}
+
+func TestFindByEmail_ReturnsErrUserNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := userRepo.FindByEmail(ctx, "repo-test-nonexistent-"+uuid.NewString()+"@example.com")
+	assert.Nil(t, user)
+	assert.ErrorIs(t, err, models.ErrUserNotFound)
+}
+
 func TestMarkEmailConfirmed_SetsEmailVerifiedAt(t *testing.T) {
 	ctx := context.Background()
 	email := "repo-test-" + uuid.NewString() + "@example.com"

@@ -94,6 +94,17 @@ func (r *PostgresUserRepository) UpdatePasswordAndClearConfirmation(ctx context.
 	return toModelUser(updated), nil
 }
 
+func (r *PostgresUserRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
+	found, err := r.q.GetUserByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, models.ErrUserNotFound
+		}
+		return nil, fmt.Errorf("failed to find user by email: %w", err)
+	}
+	return toModelUser(found), nil
+}
+
 func (r *PostgresUserRepository) MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error) {
 	userUUID, err := uuidParam(userID)
 	if err != nil {
