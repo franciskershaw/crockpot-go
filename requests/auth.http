@@ -29,7 +29,7 @@ POST http://localhost:{{$dotenv PORT}}/auth/register
 Content-Type: application/json
 
 {
-  "email": "franciskershaw2004@hotmail.com",
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
   "password": "correcthorsebattery",
   "name": "HTTP Test User"
 }
@@ -200,7 +200,7 @@ POST http://localhost:{{$dotenv PORT}}/auth/login
 Content-Type: application/json
 
 {
-  "email": "franciskershaw2004@hotmail.com",
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
   "password": "correcthorsebattery"
 }
 

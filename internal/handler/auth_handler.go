@@ -479,12 +479,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	if err := h.issueRefreshSession(ctx, c, user.ID.String()); err != nil {
-		_ = c.Error(err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
-		return
-	}
-
 	accessToken, err := auth.GenerateAccessToken(user.Email, user.ID.String(), user.Role, h.cfg.JWTSecretAccess)
 	if err != nil {
 		_ = c.Error(fmt.Errorf("failed to generate access token: %w", err))
@@ -492,9 +486,15 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// Last write on the success path — every step that could still fail has already succeeded.
 	if _, err := h.userRepo.UpdateLastLogin(ctx, user.ID.String()); err != nil {
 		_ = c.Error(fmt.Errorf("failed to update last login: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	// Session issuance stays last — it's the one step that sets a live cookie.
+	if err := h.issueRefreshSession(ctx, c, user.ID.String()); err != nil {
+		_ = c.Error(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
 		return
 	}

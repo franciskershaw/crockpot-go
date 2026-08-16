@@ -873,6 +873,17 @@ func TestLogin_Fails(t *testing.T) {
 			wantCode:  http.StatusForbidden,
 			wantError: "email_not_confirmed",
 		},
+		{
+			// UpdateLastLogin runs before issueRefreshSession precisely so a failure here — asserted below — never leaves a live session behind.
+			name: "UpdateLastLogin fails",
+			body: map[string]string{"email": "login@example.com", "password": loginUserPassword},
+			setup: func(userRepo *genmocks.MockUserRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "login@example.com").Return(pwUser, nil)
+				userRepo.EXPECT().UpdateLastLogin(mock.Anything, pwUser.ID.String()).Return(nil, errors.New("db exploded"))
+			},
+			wantCode:  http.StatusInternalServerError,
+			wantError: "server_error",
+		},
 	}
 
 	for _, tc := range cases {
@@ -886,6 +897,7 @@ func TestLogin_Fails(t *testing.T) {
 
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])
+			assert.Nil(t, refreshCookieFrom(w), "no refresh cookie must be set on a failed login")
 		})
 	}
 }
