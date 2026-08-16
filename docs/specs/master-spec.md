@@ -117,10 +117,20 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   JWT pair as `packing-list-go` — 15 min access token (bearer header,
   stateless), 7-day sliding refresh token (httponly cookie, DB-backed,
   rotates on every use, reuse revokes the whole family). Password accounts
-  require email confirmation (signed token, expiring) before first login;
-  forgot-password issues a separate, single-use, expiring reset token.
-  Password hashing via bcrypt (matching the old Next.js app's
-  `bcryptjs` choice, Go equivalent `golang.org/x/crypto/bcrypt`).
+  require email confirmation before first login — a 6-digit OTP code (not
+  a link; decided at `CROC-005`, `docs/handoffs/CROC-005.md`, after the
+  founder flagged that a clickable confirmation link reads as
+  spam/phishing in the wrong context), 10-minute TTL, invalidated after 5
+  wrong attempts; forgot-password issues a separate, single-use, expiring
+  reset token (shape TBD at `CROC-007`'s own grill — not assumed to be the
+  same OTP pattern). Password hashing via `golang.org/x/crypto/bcrypt`
+  (max 72 bytes, rejected explicitly rather than silently truncated).
+  **Correction**: the original claim here that this "match[es] the old
+  Next.js app's `bcryptjs` choice" was checked and found false at
+  `CROC-005` — the old app has no password field or flow at all
+  (`bcryptjs` was an unused dependency, never imported); email/password
+  auth has no functional precedent in either reference project and was
+  designed first-principles.
   **Google and password login are mutually exclusive per user, not
   linkable** — decided at `CROC-002` (`docs/handoffs/CROC-002.md`):
   whichever method created the account is the account, no `accounts`
@@ -192,7 +202,10 @@ this a real concern (tracked as a tech-debt-pass item, not a v1 ticket).
 **Rate limiting & body caps**: reuse `packing-list-go`'s starting values —
 global 120 req/min/IP, tighter limits on auth endpoints (login-type routes
 10/min, refresh 30/min) — tuned per-route once real traffic patterns
-exist. JSON body cap 1 MB (images never transit the API body).
+exist. JSON body cap 1 MB (images never transit the API body). No ticket
+prior to `CROC-005` owned actually building this — the middleware itself
+(`ulule/limiter`, ported from `packing-list-go`) is first wired up there,
+being the first ticket that needs it (see `docs/handoffs/CROC-005.md`).
 
 **Session & revocation lifecycle**: access tokens 15 min, refresh tokens
 7-day sliding expiry, rotate-on-use with reuse-detection revoking the
@@ -215,20 +228,30 @@ revisit if/when a "trash" UX is wanted for recipes or menus.
 - **CROC-003a** — CI checks pipeline + branch protection on `main`. **Done.**
 
 ### Epic 2: Authentication
-*Planned implementation order departs from ticket numbering: CROC-004 →
-CROC-008 (Refresh + logout) → crockpot-react's initial auth wiring
-(CFE-002) → CROC-005/006/007 (password auth) — Google login + refresh +
-logout is a complete, testable session on its own, and doesn't need
-password auth to prove out. See `docs/handoffs/CROC-004.md`.*
+*Sequencing corrected at `CROC-005`'s grill (`docs/handoffs/CROC-005.md`):
+Epic 2 completes in full ticket order — CROC-004 (done) → 005 → 006 → 007
+→ 008 → 009 — before any `crockpot-react` work starts. Supersedes the
+plan noted at `CROC-004` (CROC-004 → CROC-008 → CFE-002 → CROC-005/006/007),
+which was a miscommunication of "004 and 008 are next up" as "do
+everything numbered between them later." The founder's actual bar for
+starting frontend work is the whole auth epic being done, not a partial
+session.*
 - **CROC-004** — Google OAuth login flow. **Done.** See
   `docs/handoffs/CROC-004.md`.
-- **CROC-005** — Email/password registration + confirmation
-  (`POST /auth/register` creates unverified user + sends confirmation
-  email via Resend; `GET /auth/confirm?token=` verifies). Resending a
-  confirmation email must delete/clear any existing unconsumed
+- **CROC-005** — Email/password registration + confirmation. No
+  functional precedent in either reference project — the old Next.js app
+  has no password field/flow at all (Google + passwordless magic-link
+  email only); designed first-principles, see `docs/handoffs/CROC-005.md`.
+  `POST /auth/register` creates an unconfirmed user and sends a 6-digit
+  OTP code via Resend (**not** a clickable link — reads as spam/phishing
+  in the wrong context); `POST /auth/confirm` (`{email, code}`) verifies,
+  10-minute TTL, invalidated after 5 wrong attempts; `POST
+  /auth/resend-confirmation` (`{email}`) reissues, 60s per-email cooldown.
+  Resending must delete/clear any existing unconsumed
   `email_verification_tokens` row for that user before inserting a new
   one — the partial unique index (`docs/handoffs/CROC-002.md`) enforces
-  at most one active row but doesn't do this for you.
+  at most one active row but doesn't do this for you. Also the ticket that
+  builds the base rate-limiting middleware (no earlier ticket owned it).
 - **CROC-006** — Email/password login (`POST /auth/login`, rejects
   unverified accounts with a distinct error).
 - **CROC-007** — Forgot/reset password (`POST /auth/forgot-password` sends

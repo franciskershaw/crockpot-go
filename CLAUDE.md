@@ -187,33 +187,30 @@ pattern) — that convention isn't written into `packing-list-go/CLAUDE.md`
 either; it lives only in its own README, same as this one will.
 
 **Token acquisition doesn't need `packing-list-go`'s `scripts/gen_token.go`.**
-`.http` coverage doesn't start until `CROC-008` (the first ticket with
-endpoints past `CROC-004`'s browser-only ones), by which point
-`/auth/refresh` already exists — so `DEV_TOKEN` (the access token) is
-never manually obtained at all, only `DEV_REFRESH_TOKEN` is: seed it
-into `.env` once, by hand, from the httponly `refreshToken` cookie a
-real browser Google login sets (already a required manual step for
-`CROC-004`'s own interactive verification — extract the cookie value
-from browser devtools). `requests/auth.http` then chains a
-`POST /auth/refresh` request off `{{$dotenv DEV_REFRESH_TOKEN}}` at the
-top of the file and captures the returned access token via REST
-Client's response-variable syntax (`@authToken =
-{{refresh.response.body.accessToken}}`) for every request below it — no
-step ever manually copies an access token, matching `packing-list-go`'s
-`{{$dotenv DEV_TOKEN}}` convention in spirit but not in mechanism. Once
-`CROC-005`/`CROC-006` (password register/login) exist, `requests/auth.http`
-gains an alternative chain: log in against a pre-created, already-confirmed
-test account and capture the token the same way
-(`@authToken = {{login.response.body.accessToken}}`), no manual seed
-needed at all.
+`requests/auth.http` starts at `CROC-005` (`register`/`confirm`/
+`resend-confirmation` — all unauthenticated by definition, no token
+needed at all for any of them). Once `CROC-006` (password login) lands,
+the same file gains a token-acquiring chain: log in against a
+pre-created, already-confirmed test account and capture the access token
+via REST Client's response-variable syntax (`@authToken =
+{{login.response.body.accessToken}}`). Once `CROC-008` (`/auth/refresh`)
+lands, an alternative chain covers the cookie-based refresh path: seed
+`DEV_REFRESH_TOKEN` into `.env` once, by hand, from the httponly
+`refreshToken` cookie a real browser Google login sets (already a
+required manual step for `CROC-004`'s own interactive verification —
+extract the cookie value from browser devtools), then chain a `POST
+/auth/refresh` off `{{$dotenv DEV_REFRESH_TOKEN}}` the same way — no step
+ever manually copies an access token, matching `packing-list-go`'s
+`{{$dotenv DEV_TOKEN}}` convention in spirit but not in mechanism.
 
 Google login/callback themselves stay out of `.http` coverage, same
 reasoning `packing-list-go/requests/README.md` documents: a real browser
 round-trip can't be driven by a plain HTTP request.
 
-First ticket this applies to: `CROC-008` (`/auth/refresh`,
-`/auth/logout` — the first endpoints past `CROC-004` that don't need a
-live browser).
+First ticket this applies to: `CROC-005` (corrected from an earlier draft
+that said `CROC-008` — that assumed the old CROC-004→CROC-008 sequencing;
+under the current plan CROC-005 comes first and its three endpoints need
+no token at all, so there's no reason to wait).
 
 ## Docs
 
