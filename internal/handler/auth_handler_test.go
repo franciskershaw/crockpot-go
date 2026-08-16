@@ -82,6 +82,7 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 	m.router.GET("/auth/google/callback", h.GoogleCallback)
 	m.router.POST("/auth/register", h.Register)
 	m.router.POST("/auth/confirm", h.ConfirmEmail)
+	m.router.POST("/auth/resend-confirmation", h.ResendConfirmation)
 	return m
 }
 
@@ -582,6 +583,105 @@ func TestConfirmEmail_Fails(t *testing.T) {
 			tc.setup(m.userRepo, m.emailTokenRepo)
 
 			w := doConfirm(m.router, map[string]string{"email": "confirm@example.com", "code": "000000"})
+
+			assert.Equal(t, tc.wantCode, w.Code)
+			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])
+		})
+	}
+}
+
+// --- ResendConfirmation ---
+
+func doResend(r *gin.Engine, body any) *httptest.ResponseRecorder {
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/auth/resend-confirmation", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestResendConfirmation_SuccessNoExistingToken(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	resendUser := &models.User{ID: uuid.MustParse("66666666-6666-6666-6666-666666666666"), Email: "resend@example.com"}
+
+	m.userRepo.EXPECT().FindByEmail(mock.Anything, "resend@example.com").Return(resendUser, nil)
+	m.emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, resendUser.ID.String()).Return(nil, models.ErrNoActiveEmailVerificationToken)
+	m.emailTokenRepo.EXPECT().DeleteActiveForUser(mock.Anything, resendUser.ID.String()).Return(nil)
+	m.emailTokenRepo.EXPECT().Create(mock.Anything, resendUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(&models.EmailVerificationToken{}, nil)
+	m.emailSender.EXPECT().SendConfirmationCode(mock.Anything, "resend@example.com", mock.AnythingOfType("string")).Return(nil)
+
+	w := doResend(m.router, map[string]string{"email": "resend@example.com"})
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "confirmation code resent", decodeJSONBody(t, w)["message"])
+}
+
+func TestResendConfirmation_SuccessPastCooldown(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	resendUser := &models.User{ID: uuid.MustParse("66666666-6666-6666-6666-666666666666"), Email: "resend@example.com"}
+	oldToken := &models.EmailVerificationToken{
+		ID: uuid.New(), UserID: resendUser.ID, ExpiresAt: time.Now().Add(5 * time.Minute),
+		CreatedAt: time.Now().Add(-90 * time.Second),
+	}
+
+	m.userRepo.EXPECT().FindByEmail(mock.Anything, "resend@example.com").Return(resendUser, nil)
+	m.emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, resendUser.ID.String()).Return(oldToken, nil)
+	m.emailTokenRepo.EXPECT().DeleteActiveForUser(mock.Anything, resendUser.ID.String()).Return(nil)
+	m.emailTokenRepo.EXPECT().Create(mock.Anything, resendUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(&models.EmailVerificationToken{}, nil)
+	m.emailSender.EXPECT().SendConfirmationCode(mock.Anything, "resend@example.com", mock.AnythingOfType("string")).Return(nil)
+
+	w := doResend(m.router, map[string]string{"email": "resend@example.com"})
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestResendConfirmation_Fails(t *testing.T) {
+	resendUser := &models.User{ID: uuid.MustParse("66666666-6666-6666-6666-666666666666"), Email: "resend@example.com"}
+	confirmedUser := &models.User{ID: uuid.MustParse("77777777-7777-7777-7777-777777777777"), Email: "resend@example.com", EmailVerifiedAt: ptr(time.Now())}
+
+	cases := []struct {
+		name      string
+		setup     func(userRepo *genmocks.MockUserRepository, emailTokenRepo *genmocks.MockEmailVerificationTokenRepository)
+		wantCode  int
+		wantError string
+	}{
+		{
+			name: "unknown email",
+			setup: func(userRepo *genmocks.MockUserRepository, _ *genmocks.MockEmailVerificationTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "resend@example.com").Return(nil, models.ErrUserNotFound)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "email_not_found",
+		},
+		{
+			name: "already confirmed",
+			setup: func(userRepo *genmocks.MockUserRepository, _ *genmocks.MockEmailVerificationTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "resend@example.com").Return(confirmedUser, nil)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "already_confirmed",
+		},
+		{
+			name: "within cooldown",
+			setup: func(userRepo *genmocks.MockUserRepository, emailTokenRepo *genmocks.MockEmailVerificationTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "resend@example.com").Return(resendUser, nil)
+				emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, resendUser.ID.String()).Return(&models.EmailVerificationToken{
+					ID: uuid.New(), UserID: resendUser.ID, ExpiresAt: time.Now().Add(5 * time.Minute),
+					CreatedAt: time.Now().Add(-10 * time.Second),
+				}, nil)
+			},
+			wantCode:  http.StatusTooManyRequests,
+			wantError: "resend_too_soon",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMocks(t, config.EnvDevelopment)
+			tc.setup(m.userRepo, m.emailTokenRepo)
+
+			w := doResend(m.router, map[string]string{"email": "resend@example.com"})
 
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])

@@ -350,3 +350,11 @@ func (h *AuthHandler) ConfirmEmail(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "email confirmed"})
 }
+
+type resendRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+func (h *AuthHandler) ResendConfirmation(c *gin.Context) {
+	c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented"})
+}
