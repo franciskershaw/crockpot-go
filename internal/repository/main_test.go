@@ -8,9 +8,14 @@ import (
 
 	"github.com/franciskershaw/crockpot-go/db"
 	"github.com/franciskershaw/crockpot-go/internal/repository"
+	"github.com/google/uuid"
 )
 
-var userRepo *repository.PostgresUserRepository
+var (
+	userRepo         *repository.PostgresUserRepository
+	refreshTokenRepo *repository.PostgresRefreshTokenRepository
+	repoUserID       uuid.UUID
+)
 
 func TestMain(m *testing.M) {
 	if os.Getenv("DATABASE_URL") == "" {
@@ -28,9 +33,24 @@ func TestMain(m *testing.M) {
 	}
 
 	userRepo = repository.NewPostgresUserRepository(db.DB)
+	refreshTokenRepo = repository.NewPostgresRefreshTokenRepository(db.DB)
+	repoUserID = uuid.New()
+
+	_, err := db.DB.Exec(context.Background(),
+		`INSERT INTO users (id, google_id, email) VALUES ($1, $2, $3)`,
+		repoUserID, "repo-test-google-"+repoUserID.String(), "repo-test-"+repoUserID.String()+"@example.com",
+	)
+	if err != nil {
+		fmt.Printf("failed to create test user: %v\n", err)
+		db.CloseDB()
+		os.Exit(1)
+	}
 
 	code := m.Run()
 
+	if _, err := db.DB.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, repoUserID); err != nil {
+		fmt.Printf("failed to delete test user: %v\n", err)
+	}
 	db.CloseDB()
 	os.Exit(code)
 }
