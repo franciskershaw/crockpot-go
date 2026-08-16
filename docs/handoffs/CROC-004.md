@@ -226,6 +226,12 @@ Claims checked against real source before any of this was decided:
   own precedent of leaving these two untested at the unit level). This is
   also the only real proof that the first `sqlc generate` works and that
   the refresh cookie actually gets set with the right attributes.
+  CodeRabbit's PR review flagged this gap independently (no deterministic
+  test covers issuer/audience/signature/claim-mapping for the OIDC
+  boundary) — a real point, but building an injectable-verifier or local
+  OIDC/JWKS fixture is real new test infrastructure for marginal gain
+  over what's already covered; tracked as a tech-debt-pass item, not a
+  v1 ticket.
 - **Limits/config**: N/A beyond what's already fixed (10-minute OAuth
   state TTL, matching `packing-list-go`) — not new numbers being tuned
   here.

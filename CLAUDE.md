@@ -115,6 +115,7 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
 Mirrors `packing-list-go`:
 
 ```
+.githooks/        Versioned git hooks (core.hooksPath) — pre-commit checks
 config/           Environment/config loading
 db/               DB connection setup, migrations, seed SQL
 internal/
@@ -154,6 +155,25 @@ requests/         Manual .http regression suite, one file per resource
   `~/.claude/CLAUDE.md` already schedules separately ("every few
   units"), not every ticket.
 
+## Pre-commit hook
+
+`.githooks/pre-commit` (versioned, wired via `git config core.hooksPath
+.githooks` — run that once per clone, it doesn't apply itself) runs the
+fast, local-only, no-external-dependency checks on every commit:
+`gofmt` and `go mod tidy` auto-fix and re-stage; `go vet`/`go build`
+block the commit on failure. Deliberately excludes `golangci-lint`
+(borderline — fast enough on this repo's current size, revisit if it
+ever isn't), `govulncheck` (slow — builds a full symbol graph) and the
+real-DB repository tests (need a live `DATABASE_URL`, wrong thing to gate
+a local commit on) — those stay CI-only, already enforced pre-merge via
+branch protection (`CROC-003a`). This narrows the same principle behind
+the `go mod tidy` deferral above (don't tidy before real code justifies
+a dependency) to the commit boundary instead of ticket-end: under the
+piece-by-piece AI-driven cadence, a commit only ever happens after the
+importing code is real, so there's nothing premature left to prune.
+Landed after CI caught a stale `quic-go` CVE pin and a leftover
+`go.sum` entry that a local commit-time check would have caught first.
+
 ## Manual `.http` regression suite
 
 Every ticket that adds or changes an HTTP-callable endpoint — regardless
@@ -167,16 +187,25 @@ pattern) — that convention isn't written into `packing-list-go/CLAUDE.md`
 either; it lives only in its own README, same as this one will.
 
 **Token acquisition doesn't need `packing-list-go`'s `scripts/gen_token.go`.**
-Once `CROC-005`/`CROC-006` (password register/login) exist,
-`requests/auth.http` logs in against a pre-created, already-confirmed
-test account and captures the access token directly via REST Client's
-response-variable syntax (e.g. `@authToken =
-{{login.response.body.accessToken}}`) — self-contained in the file, no
-separate script. Until then (the `CROC-004`/`CROC-008` window), seed
-`DEV_TOKEN`/`DEV_REFRESH_TOKEN` into `.env` manually, once, from a real
-browser Google login — already a required manual step for those
-tickets' own interactive verification — and requests pick them up via
-`{{$dotenv DEV_TOKEN}}`, same as `packing-list-go`'s files do.
+`.http` coverage doesn't start until `CROC-008` (the first ticket with
+endpoints past `CROC-004`'s browser-only ones), by which point
+`/auth/refresh` already exists — so `DEV_TOKEN` (the access token) is
+never manually obtained at all, only `DEV_REFRESH_TOKEN` is: seed it
+into `.env` once, by hand, from the httponly `refreshToken` cookie a
+real browser Google login sets (already a required manual step for
+`CROC-004`'s own interactive verification — extract the cookie value
+from browser devtools). `requests/auth.http` then chains a
+`POST /auth/refresh` request off `{{$dotenv DEV_REFRESH_TOKEN}}` at the
+top of the file and captures the returned access token via REST
+Client's response-variable syntax (`@authToken =
+{{refresh.response.body.accessToken}}`) for every request below it — no
+step ever manually copies an access token, matching `packing-list-go`'s
+`{{$dotenv DEV_TOKEN}}` convention in spirit but not in mechanism. Once
+`CROC-005`/`CROC-006` (password register/login) exist, `requests/auth.http`
+gains an alternative chain: log in against a pre-created, already-confirmed
+test account and capture the token the same way
+(`@authToken = {{login.response.body.accessToken}}`), no manual seed
+needed at all.
 
 Google login/callback themselves stay out of `.http` coverage, same
 reasoning `packing-list-go/requests/README.md` documents: a real browser

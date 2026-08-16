@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Fast, local-only checks — gofmt/tidy auto-fix and re-stage, vet/build
+# block the commit. Slower/DB-dependent checks (golangci-lint,
+# govulncheck, repository integration tests) stay CI-only — see
+# CLAUDE.md's "Pre-commit hook" section.
+set -euo pipefail
+
+echo "pre-commit: gofmt"
+fmt_files=$(gofmt -l .)
+if [ -n "$fmt_files" ]; then
+	echo "$fmt_files" | xargs gofmt -w
+	echo "$fmt_files" | xargs git add
+	echo "pre-commit: reformatted and re-staged:"
+	echo "$fmt_files"
+fi
+
+echo "pre-commit: go vet"
+go vet ./...
+
+echo "pre-commit: go build"
+go build ./...
+
+echo "pre-commit: go mod tidy"
+before_mod=$(git hash-object go.mod)
+before_sum=$(git hash-object go.sum)
+go mod tidy
+after_mod=$(git hash-object go.mod)
+after_sum=$(git hash-object go.sum)
+if [ "$before_mod" != "$after_mod" ] || [ "$before_sum" != "$after_sum" ]; then
+	git add go.mod go.sum
+	echo "pre-commit: go.mod/go.sum updated by tidy and re-staged"
+fi
+
+echo "pre-commit: all checks passed"

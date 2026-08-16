@@ -20,6 +20,7 @@ import (
 const (
 	refreshTokenTTL        = 7 * 24 * time.Hour
 	oauthStateCookieMaxAge = 10 * time.Minute
+	oauthExchangeTimeout   = 10 * time.Second
 )
 
 func hashRefreshToken(token string) string {
@@ -127,15 +128,18 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(c.Request.Context(), oauthExchangeTimeout)
+	defer cancel()
 	oauthToken, err := h.oauthManager.ExchangeCodeForToken(ctx, code)
 	if err != nil {
+		_ = c.Error(fmt.Errorf("failed to exchange oauth code: %w", err))
 		h.redirectWithError(c, "exchange_failed")
 		return
 	}
 
 	idTokenClaims, err := h.oauthManager.VerifyIDToken(ctx, oauthToken)
 	if err != nil {
+		_ = c.Error(fmt.Errorf("failed to verify id token: %w", err))
 		h.redirectWithError(c, "verify_failed")
 		return
 	}

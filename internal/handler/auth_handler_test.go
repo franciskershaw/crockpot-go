@@ -393,6 +393,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 
 			assert.Equal(t, http.StatusTemporaryRedirect, w.Code)
 			assert.Equal(t, tc.wantError, errorFromLocation(t, w))
+			assert.Nil(t, refreshCookieFrom(w), "no refresh cookie must be set on a failed callback")
 			m.assertExpectations(t)
 		})
 	}

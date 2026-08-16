@@ -143,6 +143,27 @@ func TestValidateAccessToken_ExpiredToken(t *testing.T) {
 	}
 }
 
+func TestValidateAccessToken_RejectsNonHS256Signature(t *testing.T) {
+	claims := CustomClaims{
+		Email:  testutil.TestEmail,
+		UserID: testutil.TestUserID,
+		Role:   testutil.TestRole,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS384, claims)
+	tokenString, err := token.SignedString([]byte(testutil.TestAccessSecret))
+	if err != nil {
+		t.Fatalf("failed to sign test token: %v", err)
+	}
+
+	_, err = ValidateAccessToken(tokenString, testutil.TestAccessSecret)
+	if err == nil {
+		t.Error("expected error for a token signed with HS384, got nil")
+	}
+}
+
 func TestValidateAccessToken_TamperedSignature(t *testing.T) {
 	token := mustGenerateAccessToken(t, testutil.TestAccessSecret)
 	tampered := tamperSignature(token)
