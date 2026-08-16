@@ -12,6 +12,7 @@ type EmailVerificationToken struct {
 	ID        pgtype.UUID
 	UserID    pgtype.UUID
 	TokenHash string
+	Attempts  int32
 	ExpiresAt pgtype.Timestamptz
 	UsedAt    pgtype.Timestamptz
 	CreatedAt pgtype.Timestamptz

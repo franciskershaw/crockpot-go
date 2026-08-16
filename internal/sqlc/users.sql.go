@@ -48,6 +48,61 @@ func (q *Queries) CreateGoogleUser(ctx context.Context, arg CreateGoogleUserPara
 	return i, err
 }
 
+const createUnconfirmedUser = `-- name: CreateUnconfirmedUser :one
+INSERT INTO users (email, password_hash, name)
+VALUES ($1, $2, $3)
+RETURNING id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at
+`
+
+type CreateUnconfirmedUserParams struct {
+	Email        string
+	PasswordHash pgtype.Text
+	Name         pgtype.Text
+}
+
+func (q *Queries) CreateUnconfirmedUser(ctx context.Context, arg CreateUnconfirmedUserParams) (User, error) {
+	row := q.db.QueryRow(ctx, createUnconfirmedUser, arg.Email, arg.PasswordHash, arg.Name)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.GoogleID,
+		&i.PasswordHash,
+		&i.Email,
+		&i.Name,
+		&i.Image,
+		&i.Role,
+		&i.EmailVerifiedAt,
+		&i.LastLoginAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserByEmail = `-- name: GetUserByEmail :one
+SELECT id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at FROM users
+WHERE email = $1
+`
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByEmail, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.GoogleID,
+		&i.PasswordHash,
+		&i.Email,
+		&i.Name,
+		&i.Image,
+		&i.Role,
+		&i.EmailVerifiedAt,
+		&i.LastLoginAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getUserByGoogleID = `-- name: GetUserByGoogleID :one
 SELECT id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at FROM users
 WHERE google_id = $1
@@ -55,6 +110,32 @@ WHERE google_id = $1
 
 func (q *Queries) GetUserByGoogleID(ctx context.Context, googleID pgtype.Text) (User, error) {
 	row := q.db.QueryRow(ctx, getUserByGoogleID, googleID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.GoogleID,
+		&i.PasswordHash,
+		&i.Email,
+		&i.Name,
+		&i.Image,
+		&i.Role,
+		&i.EmailVerifiedAt,
+		&i.LastLoginAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const markUserEmailConfirmed = `-- name: MarkUserEmailConfirmed :one
+UPDATE users
+SET email_verified_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+RETURNING id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at
+`
+
+func (q *Queries) MarkUserEmailConfirmed(ctx context.Context, id pgtype.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, markUserEmailConfirmed, id)
 	var i User
 	err := row.Scan(
 		&i.ID,

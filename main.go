@@ -14,15 +14,22 @@ import (
 	"github.com/franciskershaw/crockpot-go/config"
 	"github.com/franciskershaw/crockpot-go/db"
 	"github.com/franciskershaw/crockpot-go/internal/auth"
+	"github.com/franciskershaw/crockpot-go/internal/email"
 	"github.com/franciskershaw/crockpot-go/internal/handler"
+	"github.com/franciskershaw/crockpot-go/internal/middleware"
 	"github.com/franciskershaw/crockpot-go/internal/repository"
 	"github.com/gin-gonic/gin"
+	"github.com/ulule/limiter/v3"
+	"github.com/ulule/limiter/v3/drivers/store/memory"
 
 	_ "github.com/joho/godotenv/autoload"
 )
 
 // Must exceed newHTTPServer's WriteTimeout (15s) so in-flight requests within their own allowed timeout aren't cut off by shutdown first.
 const shutdownGracePeriod = 20 * time.Second
+
+var globalRateLimit = limiter.Rate{Period: time.Minute, Limit: 120}
+var authRateLimit = limiter.Rate{Period: time.Minute, Limit: 10}
 
 func main() {
 	// Match Gin's own default writer (os.Stdout) so log output interleaves in order.
@@ -57,11 +64,18 @@ func main() {
 
 	userRepo := repository.NewPostgresUserRepository(db.DB)
 	refreshTokenRepo := repository.NewPostgresRefreshTokenRepository(db.DB)
-	authHandler := handler.NewAuthHandler(userRepo, oauthManager, refreshTokenRepo, cfg)
+	emailVerificationTokenRepo := repository.NewPostgresEmailVerificationTokenRepository(db.DB)
+	emailSender := email.NewResendClient(cfg.ResendAPIKey, cfg.EmailFrom)
+	authHandler := handler.NewAuthHandler(userRepo, oauthManager, refreshTokenRepo, emailVerificationTokenRepo, emailSender, cfg)
 
 	// Initialize Gin server
 	gin.SetMode(configureGinMode(string(cfg.Environment)))
 	server := gin.Default()
+	if err := server.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		fmt.Fprintf(os.Stderr, "SetTrustedProxies failed: %v\n", err)
+		os.Exit(1)
+	}
+	server.Use(middleware.NewRateLimitMiddleware(memory.NewStore(), globalRateLimit).Handler())
 
 	server.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -71,6 +85,14 @@ func main() {
 
 	server.GET("/auth/google/login", authHandler.LoginWithGoogle)
 	server.GET("/auth/google/callback", authHandler.GoogleCallback)
+
+	authTight := server.Group("/auth")
+	authTight.Use(middleware.NewRateLimitMiddleware(memory.NewStore(), authRateLimit).Handler())
+	{
+		authTight.POST("/register", authHandler.Register)
+		authTight.POST("/confirm", authHandler.ConfirmEmail)
+		authTight.POST("/resend-confirmation", authHandler.ResendConfirmation)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -54,6 +54,57 @@ func (r *PostgresUserRepository) GetOrCreateUser(ctx context.Context, email, goo
 	return toModelUser(created), nil
 }
 
+// On an email collision, distinguishes a Google account, a confirmed password account, and an abandoned unconfirmed signup rather than one generic conflict error.
+func (r *PostgresUserRepository) CreateUnconfirmedUser(ctx context.Context, email, passwordHash, name string) (*models.User, error) {
+	created, err := r.q.CreateUnconfirmedUser(ctx, sqlc.CreateUnconfirmedUserParams{
+		Email:        email,
+		PasswordHash: textParam(passwordHash),
+		Name:         textParam(name),
+	})
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "users_email_key" {
+			existing, findErr := r.q.GetUserByEmail(ctx, email)
+			if findErr != nil {
+				return nil, fmt.Errorf("failed to look up existing user by email: %w", findErr)
+			}
+			switch {
+			case existing.GoogleID.Valid:
+				return nil, models.ErrEmailRegisteredWithGoogle
+			case existing.EmailVerifiedAt.Valid:
+				return nil, models.ErrEmailRegisteredWithPassword
+			default:
+				return nil, models.ErrEmailUnconfirmed
+			}
+		}
+		return nil, fmt.Errorf("failed to create user: %w", err)
+	}
+	return toModelUser(created), nil
+}
+
+func (r *PostgresUserRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
+	found, err := r.q.GetUserByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, models.ErrUserNotFound
+		}
+		return nil, fmt.Errorf("failed to find user by email: %w", err)
+	}
+	return toModelUser(found), nil
+}
+
+func (r *PostgresUserRepository) MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error) {
+	userUUID, err := uuidParam(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	updated, err := r.q.MarkUserEmailConfirmed(ctx, userUUID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to mark email confirmed: %w", err)
+	}
+	return toModelUser(updated), nil
+}
+
 func (r *PostgresUserRepository) refreshLoginProfile(ctx context.Context, id pgtype.UUID, displayName, avatarURL string) (*models.User, error) {
 	updated, err := r.q.UpdateUserLoginProfile(ctx, sqlc.UpdateUserLoginProfileParams{
 		ID:          id,

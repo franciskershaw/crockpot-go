@@ -17,6 +17,8 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("GOOGLE_CLIENT_SECRET", "test-client-secret")
 	t.Setenv("GOOGLE_REDIRECT_URI", "http://localhost:8080/callback")
 	t.Setenv("FRONTEND_URL", "http://localhost:5173")
+	t.Setenv("RESEND_API_KEY", "test-resend-key")
+	t.Setenv("EMAIL_FROM", "noreply@example.com")
 }
 
 // unsetEnv clears key for the test and restores its prior value after.
@@ -54,6 +56,8 @@ func TestLoad_RequiresEnvVar(t *testing.T) {
 		"GOOGLE_CLIENT_SECRET",
 		"GOOGLE_REDIRECT_URI",
 		"FRONTEND_URL",
+		"RESEND_API_KEY",
+		"EMAIL_FROM",
 	}
 
 	for _, key := range required {
@@ -162,5 +166,20 @@ func TestLoad_ReadsGoogleOAuthFields(t *testing.T) {
 	}
 	if cfg.GoogleRedirectURL != "http://localhost:8080/callback" {
 		t.Errorf("GoogleRedirectURL = %q, want %q", cfg.GoogleRedirectURL, "http://localhost:8080/callback")
+	}
+}
+
+func TestLoad_ReadsEmailFields(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("RESEND_API_KEY", "resend-key")
+	t.Setenv("EMAIL_FROM", "hello@crockpot.app")
+
+	cfg := mustLoad(t)
+
+	if cfg.ResendAPIKey != "resend-key" {
+		t.Errorf("ResendAPIKey = %q, want %q", cfg.ResendAPIKey, "resend-key")
+	}
+	if cfg.EmailFrom != "hello@crockpot.app" {
+		t.Errorf("EmailFrom = %q, want %q", cfg.EmailFrom, "hello@crockpot.app")
 	}
 }

@@ -1,0 +1,193 @@
+# Crockpot API — Auth Endpoints
+#
+# Run top-to-bottom, once per session, in VS Code with the REST Client
+# extension. See requests/README.md for setup. Register/confirm/resend
+# need no token — see CLAUDE.md's ".http" note for why this file starts
+# here rather than at CROC-008.
+#
+# Uses a real Resend send and a real Neon dev DB row — check your inbox
+# for the register requests below, and run the Cleanup section at the
+# end before re-running this file.
+#
+# Resend rejects @example.com recipients outright (reserved
+# documentation-only domain, RFC 2606) regardless of account/domain
+# verification status — replace REPLACE_WITH_YOUR_REAL_EMAIL below with
+# a real address you can check before running the ✅ sections, which are
+# the only ones that actually reach Resend (the others fail validation
+# first). The password/invalid-email cases stay @example.com on purpose
+# — they never reach Resend.
+
+
+# ══════════════════════════════════════════
+#  POST /auth/register
+# ══════════════════════════════════════════
+
+### ✅ 201 — fresh registration, sends a real confirmation code by email.
+### Copy the code from that email into CODE_FROM_EMAIL in the confirm
+### section below before running it.
+POST http://localhost:{{$dotenv PORT}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "password": "correcthorsebattery",
+  "name": "HTTP Test User"
+}
+
+###
+
+### 🔒 400 — password too short
+POST http://localhost:{{$dotenv PORT}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "crockpot-http-test-2@example.com",
+  "password": "short",
+  "name": "HTTP Test User"
+}
+
+###
+
+### 🔒 400 — password too long (>72 bytes)
+POST http://localhost:{{$dotenv PORT}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "crockpot-http-test-3@example.com",
+  "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "name": "HTTP Test User"
+}
+
+###
+
+### 🔒 400 — invalid email format
+POST http://localhost:{{$dotenv PORT}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "not-an-email",
+  "password": "correcthorsebattery",
+  "name": "HTTP Test User"
+}
+
+
+# ══════════════════════════════════════════
+#  POST /auth/confirm
+#
+#  Run the ✅ 201 register request above first.
+# ══════════════════════════════════════════
+
+### ✅ 200 — confirms with the real code from the register email above
+POST http://localhost:{{$dotenv PORT}}/auth/confirm
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "code": "CODE_FROM_EMAIL"
+}
+
+###
+
+### 🔒 400 — unknown email (never reveals whether the email exists)
+POST http://localhost:{{$dotenv PORT}}/auth/confirm
+Content-Type: application/json
+
+{
+  "email": "crockpot-http-test-nobody@example.com",
+  "code": "000000"
+}
+
+###
+
+### 🔒 400 — wrong code. Run this block 5 times in a row (attempts 1-5,
+### each still code_invalid), then a 6th time to see the lockout flip to
+### too_many_attempts. Run the ✅ 200 confirm request above again
+### afterward to confirm even the *real* code now fails — the
+### resend-confirmation section below is what recovers from this.
+POST http://localhost:{{$dotenv PORT}}/auth/confirm
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "code": "000000"
+}
+
+###
+
+### 🔒 400 — expired code. Can't be triggered live (10-minute TTL) —
+### backdate the active token's expires_at first:
+#
+#   UPDATE email_verification_tokens SET expires_at = now() - interval '1 minute'
+#   WHERE user_id = (SELECT id FROM users WHERE email = 'REPLACE_WITH_YOUR_REAL_EMAIL')
+#   AND used_at IS NULL;
+#
+### Then run this with the same (now-expired) code from the register email.
+POST http://localhost:{{$dotenv PORT}}/auth/confirm
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "code": "CODE_FROM_EMAIL"
+}
+
+
+# ══════════════════════════════════════════
+#  POST /auth/resend-confirmation
+#
+#  Also covers Register's case-(c) behavior (re-registering a still-
+#  unconfirmed email): that path now delegates to the exact same
+#  issueConfirmationCode logic as this endpoint — same cooldown, same
+#  "clear old code, issue new one" — so it isn't demonstrated separately.
+# ══════════════════════════════════════════
+
+### ✅ 200 — issues a fresh code, sends a real email. Also the recovery
+### path after the lockout block above — run this, then re-run the ✅ 200
+### confirm request with the newly emailed code.
+POST http://localhost:{{$dotenv PORT}}/auth/resend-confirmation
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL"
+}
+
+###
+
+### 🔒 429 — run the request above twice in a row within 60s to see this
+POST http://localhost:{{$dotenv PORT}}/auth/resend-confirmation
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL"
+}
+
+###
+
+### 🔒 400 — unknown email
+POST http://localhost:{{$dotenv PORT}}/auth/resend-confirmation
+Content-Type: application/json
+
+{
+  "email": "crockpot-http-test-nobody@example.com"
+}
+
+###
+
+### 🔒 400 — already confirmed (run after actually confirming above)
+POST http://localhost:{{$dotenv PORT}}/auth/resend-confirmation
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL"
+}
+
+
+# ══════════════════════════════════════════
+#  Cleanup
+# ══════════════════════════════════════════
+
+### Only the ✅ 201 register request actually inserts a row — every other
+### section fails before reaching the DB (validation errors) or acts on
+### that same existing row. Connect via psql/a DB client and run manually
+### (no DELETE endpoint exists for this):
+#
+#   DELETE FROM users WHERE email = 'REPLACE_WITH_YOUR_REAL_EMAIL';

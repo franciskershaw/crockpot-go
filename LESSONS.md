@@ -107,3 +107,19 @@ implementation quality until CROC-001 lands.
   behaviour spelled out explicitly before the first ticket that actually
   exercises it — both misses here were "assumed to carry over from
   somewhere else" gaps, not new mistakes each time.
+
+## 2026-08-16 — CROC-005 — Email/password auth shipped; CodeRabbit caught a real account-takeover bug in Claude's own design reasoning, not just implementation
+
+- TDD stop-discipline (confirm red, then wait for go-ahead) was skipped
+  twice mid-ticket despite `CROC-004`'s lesson above already naming this
+  exact failure — caught by the founder both times, not self-caught.
+- `Register`'s abandoned-signup retry path overwrote a stranger's
+  password before the grill-time "no account-takeover risk" reasoning
+  was actually checked against what happens when the legitimate owner
+  (not the attacker) completes confirmation — CodeRabbit's review caught
+  it, not the grill or Claude's own review.
+- **Pattern**: per-ticket (and periodic) code review moves to CodeRabbit
+  via PR, not `/code-review` — Claude's own `medium`-effort review burned
+  roughly a fifth of a session's usage in about three minutes for one
+  ticket's diff. `grill-me` now requires the reasoning alongside every
+  recommendation, not just the recommendation.

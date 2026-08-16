@@ -120,3 +120,118 @@ func TestGetOrCreateUser_EmailAlreadyRegisteredWithPassword(t *testing.T) {
 	assert.Nil(t, user)
 	assert.ErrorIs(t, err, models.ErrEmailRegisteredWithPassword)
 }
+
+func TestCreateUnconfirmedUser_CreatesNewUser(t *testing.T) {
+	ctx := context.Background()
+	email := "repo-test-" + uuid.NewString() + "@example.com"
+
+	user, err := userRepo.CreateUnconfirmedUser(ctx, email, "bcrypt-hash-placeholder", "Test User")
+	require.NoError(t, err)
+	require.NotNil(t, user)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, user.ID)
+
+	assert.Equal(t, email, user.Email)
+	require.NotNil(t, user.PasswordHash)
+	assert.Equal(t, "bcrypt-hash-placeholder", *user.PasswordHash)
+	require.NotNil(t, user.Name)
+	assert.Equal(t, "Test User", *user.Name)
+	assert.Nil(t, user.GoogleID)
+	assert.Nil(t, user.EmailVerifiedAt, "should not be confirmed until the OTP is verified")
+	assert.Equal(t, "FREE", user.Role)
+}
+
+func TestCreateUnconfirmedUser_EmailAlreadyRegisteredWithGoogle(t *testing.T) {
+	ctx := context.Background()
+	email := "repo-test-" + uuid.NewString() + "@example.com"
+	googleUserID := uuid.New()
+
+	_, err := db.DB.Exec(ctx,
+		`INSERT INTO users (id, google_id, email, email_verified_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
+		googleUserID, "repo-test-google-"+uuid.NewString(), email,
+	)
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, googleUserID)
+
+	user, err := userRepo.CreateUnconfirmedUser(ctx, email, "bcrypt-hash-placeholder", "Test User")
+	assert.Nil(t, user)
+	assert.ErrorIs(t, err, models.ErrEmailRegisteredWithGoogle)
+}
+
+func TestCreateUnconfirmedUser_EmailAlreadyRegisteredWithConfirmedPassword(t *testing.T) {
+	ctx := context.Background()
+	email := "repo-test-" + uuid.NewString() + "@example.com"
+	existingID := uuid.New()
+
+	_, err := db.DB.Exec(ctx,
+		`INSERT INTO users (id, password_hash, email, email_verified_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
+		existingID, "bcrypt-hash-placeholder", email,
+	)
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, existingID)
+
+	user, err := userRepo.CreateUnconfirmedUser(ctx, email, "bcrypt-hash-placeholder", "Test User")
+	assert.Nil(t, user)
+	assert.ErrorIs(t, err, models.ErrEmailRegisteredWithPassword)
+}
+
+func TestCreateUnconfirmedUser_EmailHasUnconfirmedPasswordAccount(t *testing.T) {
+	ctx := context.Background()
+	email := "repo-test-" + uuid.NewString() + "@example.com"
+	existingID := uuid.New()
+
+	_, err := db.DB.Exec(ctx,
+		`INSERT INTO users (id, password_hash, email) VALUES ($1, $2, $3)`,
+		existingID, "bcrypt-hash-placeholder", email,
+	)
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, existingID)
+
+	user, err := userRepo.CreateUnconfirmedUser(ctx, email, "bcrypt-hash-placeholder", "Test User")
+	assert.Nil(t, user)
+	assert.ErrorIs(t, err, models.ErrEmailUnconfirmed)
+}
+
+func TestFindByEmail_ReturnsUser(t *testing.T) {
+	ctx := context.Background()
+	email := "repo-test-" + uuid.NewString() + "@example.com"
+	existingID := uuid.New()
+
+	_, err := db.DB.Exec(ctx,
+		`INSERT INTO users (id, password_hash, email) VALUES ($1, $2, $3)`,
+		existingID, "bcrypt-hash-placeholder", email,
+	)
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, existingID)
+
+	user, err := userRepo.FindByEmail(ctx, email)
+	require.NoError(t, err)
+	require.NotNil(t, user)
+	assert.Equal(t, existingID, user.ID)
+	assert.Equal(t, email, user.Email)
+}
+
+func TestFindByEmail_ReturnsErrUserNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	user, err := userRepo.FindByEmail(ctx, "repo-test-nonexistent-"+uuid.NewString()+"@example.com")
+	assert.Nil(t, user)
+	assert.ErrorIs(t, err, models.ErrUserNotFound)
+}
+
+func TestMarkEmailConfirmed_SetsEmailVerifiedAt(t *testing.T) {
+	ctx := context.Background()
+	email := "repo-test-" + uuid.NewString() + "@example.com"
+	existingID := uuid.New()
+
+	_, err := db.DB.Exec(ctx,
+		`INSERT INTO users (id, password_hash, email) VALUES ($1, $2, $3)`,
+		existingID, "bcrypt-hash-placeholder", email,
+	)
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, existingID)
+
+	updated, err := userRepo.MarkEmailConfirmed(ctx, existingID.String())
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	assert.NotNil(t, updated.EmailVerifiedAt)
+}

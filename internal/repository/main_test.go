@@ -12,9 +12,10 @@ import (
 )
 
 var (
-	userRepo         *repository.PostgresUserRepository
-	refreshTokenRepo *repository.PostgresRefreshTokenRepository
-	repoUserID       uuid.UUID
+	userRepo                   *repository.PostgresUserRepository
+	refreshTokenRepo           *repository.PostgresRefreshTokenRepository
+	emailVerificationTokenRepo *repository.PostgresEmailVerificationTokenRepository
+	repoUserID                 uuid.UUID
 )
 
 func TestMain(m *testing.M) {
@@ -34,6 +35,7 @@ func TestMain(m *testing.M) {
 
 	userRepo = repository.NewPostgresUserRepository(db.DB)
 	refreshTokenRepo = repository.NewPostgresRefreshTokenRepository(db.DB)
+	emailVerificationTokenRepo = repository.NewPostgresEmailVerificationTokenRepository(db.DB)
 	repoUserID = uuid.New()
 
 	_, err := db.DB.Exec(context.Background(),

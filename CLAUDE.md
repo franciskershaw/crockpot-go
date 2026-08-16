@@ -15,14 +15,25 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
   (Epic 9) and paste-a-link recipe import (Epic 10) feature shapes — check
   the actual PNGs before assuming a flow, same rule as any other claim.
 - **Architectural reference**: `../../packing-list/packing-list-go` — prior
-  Go/Postgres project by the same author. Its `CLAUDE.md`, `LESSONS.md`,
-  and `docs/specs/master-spec.md` are the source for the patterns this
-  project deliberately reuses (see below). Its CI workflow
-  (`.github/workflows/ci.yml`) is the template for this project's deploy
-  pipeline when that ticket comes up — reuses the same Neon + Docker +
-  nginx + DigitalOcean droplet pattern; pick an unused port (droplet
-  already runs `packing-list-api` on 5400, `events-api` on 5500,
-  `salary-split-api` on 5300).
+  Go/Postgres project by the same author, and the only other one, so it's
+  a real source for what a working Gin/pgx/golang-migrate REST API looks
+  like. Its `CLAUDE.md`, `LESSONS.md`, and `docs/specs/master-spec.md` are
+  worth checking for how it solved something — but "packing-list-go does
+  it this way" is a starting point to evaluate against this project's own
+  needs, not a mandate to match. A pattern earns reuse on its own merits,
+  checked here same as any other claim; a real weakness over there (a
+  convention that caused friction, a file that grew longer than it should
+  have) is a reason to diverge and say why, not a reason to copy it
+  forward. `mockery`-generated mocks instead of packing-list-go's
+  hand-written ones (`CROC-005`) is the first example of this in
+  practice, not an exception to the rule. The deploy pipeline is the one
+  place this stays a firm match, not just a starting point — its CI
+  workflow (`.github/workflows/ci.yml`) is the template when that ticket
+  comes up, reusing the same Neon + Docker + nginx + DigitalOcean droplet
+  pattern; pick an unused port (droplet already runs `packing-list-api`
+  on 5400, `events-api` on 5500, `salary-split-api` on 5300) — that's
+  operational fact (which ports are free, how the droplet's configured),
+  not a design judgment call to re-litigate per ticket.
 
 ## Stack
 
@@ -41,7 +52,29 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
 - Images: Cloudinary, uploaded client-side by the frontend — the API only
   ever stores the resulting URL, never proxies image bytes
 - Testing: stdlib `testing` + `testify/mock` for handler-layer repository
-  mocks (same override as `packing-list-go` — see its `CLAUDE.md`)
+  mocks. **Diverges from `packing-list-go`** (hand-written mocks there):
+  mocks are generated via `mockery` (`go tool mockery`, config in
+  `.mockery.yaml`), `with-expecter: true` — `.EXPECT().Method(args).Return(...)`,
+  not raw `.On("Method", ...)`. Adopted at `CROC-005` once the mock
+  surface grew past the first couple of interfaces and hand-written
+  duplication became a real maintenance cost, not a hypothetical one.
+  Output goes to **`internal/handler/mocks/`** (package `mocks`, plain
+  `.go` files, not `inpackage`/`_test.go`) rather than alongside each
+  interface — tried `_test.go` files colocated with the interface first,
+  reverted the same day once the founder flagged that every future
+  handler's mocks would land flat in `internal/handler/` alongside real
+  code with no separation. A dedicated subpackage was the fix; it has to
+  be plain `.go` (not `_test.go`) because Go's test-file exclusion is
+  per-package — a package containing only `_test.go` files can't be
+  imported from another package's tests at all, only compiled when
+  testing itself. Harmless: nothing in production code imports
+  `internal/handler/mocks`, so it never reaches the shipped binary
+  despite not being `_test.go`-suffixed. Every test file consuming it
+  aliases the import (`genmocks "github.com/franciskershaw/crockpot-go/internal/handler/mocks"`)
+  since `handler_test.go`'s own local `mocks` struct (bundling the
+  collaborator mocks for a test) would otherwise collide with the
+  package name. Re-run `go tool mockery` after changing any interface in
+  `internal/handler`.
 - Deployment: Docker (multi-stage to distroless), behind nginx, on the
   same DigitalOcean droplet as `packing-list-go`
 
@@ -146,14 +179,25 @@ requests/         Manual .http regression suite, one file per resource
   would change anything), never rewrites `go.mod`/`go.sum` itself. Adding
   a dependency mid-ticket: use `go get <pkg>@<version>` alone, which
   updates precisely that dependency without a full-tree prune.
-- `/code-review`: default to `medium` effort for a per-ticket close-out
-  review (`/code-review medium`), never bare `/code-review` — bare
-  invocations reuse whichever effort last ran in the session, which can
-  silently escalate to an expensive multi-agent pass (8 finder
-  sub-agents plus verification) for a routine review. Reserve `high`/
-  `ultra` for the periodic security review + tech-debt pass
-  `~/.claude/CLAUDE.md` already schedules separately ("every few
-  units"), not every ticket.
+- **Per-ticket and periodic review is CodeRabbit's job, not `/code-review`,
+  for AI-driven tickets.** Once a ticket's code is done, open (or already
+  have open) a PR — that triggers CodeRabbit automatically (3 reviews/hour
+  on the current plan, each push spends one). Pull its comments (`gh api
+  repos/franciskershaw/crockpot-go/pulls/<n>/reviews` for the summary, the
+  `/comments` endpoint for inline per-finding detail), fix what's real in
+  one pass, verify, only then run close-out. This also covers what used
+  to be the periodic security review + tech-debt pass
+  `~/.claude/CLAUDE.md` schedules separately ("every few units") — that
+  moves to CodeRabbit too, not just the per-ticket gate. Decided at
+  `CROC-005`'s close-out: Claude's own `/code-review medium` burned a
+  large fraction of a session's usage in minutes for a single ticket's
+  diff, not sustainable at the pace this project moves.
+  For **hand-written tickets** (founder writes the code, Claude reviews
+  after — see "Overrides" below): `/code-review` stays available in
+  principle, since Claude isn't also spending tokens implementing — but
+  ask before running it rather than launching it automatically; the
+  founder may still want CodeRabbit there too depending on remaining
+  session budget at the time.
 
 ## Pre-commit hook
 
@@ -187,38 +231,35 @@ pattern) — that convention isn't written into `packing-list-go/CLAUDE.md`
 either; it lives only in its own README, same as this one will.
 
 **Token acquisition doesn't need `packing-list-go`'s `scripts/gen_token.go`.**
-`.http` coverage doesn't start until `CROC-008` (the first ticket with
-endpoints past `CROC-004`'s browser-only ones), by which point
-`/auth/refresh` already exists — so `DEV_TOKEN` (the access token) is
-never manually obtained at all, only `DEV_REFRESH_TOKEN` is: seed it
-into `.env` once, by hand, from the httponly `refreshToken` cookie a
-real browser Google login sets (already a required manual step for
-`CROC-004`'s own interactive verification — extract the cookie value
-from browser devtools). `requests/auth.http` then chains a
-`POST /auth/refresh` request off `{{$dotenv DEV_REFRESH_TOKEN}}` at the
-top of the file and captures the returned access token via REST
-Client's response-variable syntax (`@authToken =
-{{refresh.response.body.accessToken}}`) for every request below it — no
-step ever manually copies an access token, matching `packing-list-go`'s
-`{{$dotenv DEV_TOKEN}}` convention in spirit but not in mechanism. Once
-`CROC-005`/`CROC-006` (password register/login) exist, `requests/auth.http`
-gains an alternative chain: log in against a pre-created, already-confirmed
-test account and capture the token the same way
-(`@authToken = {{login.response.body.accessToken}}`), no manual seed
-needed at all.
+`requests/auth.http` starts at `CROC-005` (`register`/`confirm`/
+`resend-confirmation` — all unauthenticated by definition, no token
+needed at all for any of them). Once `CROC-006` (password login) lands,
+the same file gains a token-acquiring chain: log in against a
+pre-created, already-confirmed test account and capture the access token
+via REST Client's response-variable syntax (`@authToken =
+{{login.response.body.accessToken}}`). Once `CROC-008` (`/auth/refresh`)
+lands, an alternative chain covers the cookie-based refresh path: seed
+`DEV_REFRESH_TOKEN` into `.env` once, by hand, from the httponly
+`refreshToken` cookie a real browser Google login sets (already a
+required manual step for `CROC-004`'s own interactive verification —
+extract the cookie value from browser devtools), then chain a `POST
+/auth/refresh` off `{{$dotenv DEV_REFRESH_TOKEN}}` the same way — no step
+ever manually copies an access token, matching `packing-list-go`'s
+`{{$dotenv DEV_TOKEN}}` convention in spirit but not in mechanism.
 
 Google login/callback themselves stay out of `.http` coverage, same
 reasoning `packing-list-go/requests/README.md` documents: a real browser
 round-trip can't be driven by a plain HTTP request.
 
-First ticket this applies to: `CROC-008` (`/auth/refresh`,
-`/auth/logout` — the first endpoints past `CROC-004` that don't need a
-live browser).
+First ticket this applies to: `CROC-005` (corrected from an earlier draft
+that said `CROC-008` — that assumed the old CROC-004→CROC-008 sequencing;
+under the current plan CROC-005 comes first and its three endpoints need
+no token at all, so there's no reason to wait).
 
 ## Docs
 
 - `docs/specs/master-spec.md` — living spec + ticket backlog
 - `docs/handoffs/CROC-NNN.md` — one per ticket
 - `LESSONS.md` — retro log, reviewed each kickoff/grill-me
-- `requests/README.md` — once `CROC-008` creates it, the `.http`
-  regression suite's setup/running instructions
+- `requests/README.md` — the `.http` regression suite's setup/running
+  instructions, created at `CROC-005`

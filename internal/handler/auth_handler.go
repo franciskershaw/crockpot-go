@@ -2,8 +2,6 @@ package handler
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,27 +12,39 @@ import (
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 )
 
 const (
-	refreshTokenTTL        = 7 * 24 * time.Hour
-	oauthStateCookieMaxAge = 10 * time.Minute
-	oauthExchangeTimeout   = 10 * time.Second
+	refreshTokenTTL         = 7 * 24 * time.Hour
+	oauthStateCookieMaxAge  = 10 * time.Minute
+	oauthExchangeTimeout    = 10 * time.Second
+	confirmationCodeTTL     = 10 * time.Minute
+	maxConfirmationAttempts = 5
+	resendCooldown          = 60 * time.Second
+	minPasswordLength       = 8
+	maxPasswordBytes        = 72
 )
-
-func hashRefreshToken(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
-}
 
 type UserRepository interface {
 	GetOrCreateUser(ctx context.Context, email, googleID, displayName, avatarURL string) (*models.User, error)
+	CreateUnconfirmedUser(ctx context.Context, email, passwordHash, name string) (*models.User, error)
+	MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error)
+	FindByEmail(ctx context.Context, email string) (*models.User, error)
 }
 
 type RefreshTokenRepository interface {
 	CreateFamily(ctx context.Context, id, userID, tokenHash string, expiresAt time.Time) (*models.RefreshTokenFamily, error)
 	DeleteStaleFamiliesForUser(ctx context.Context, userID string) error
+}
+
+type EmailVerificationTokenRepository interface {
+	Create(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*models.EmailVerificationToken, error)
+	FindActiveByUserID(ctx context.Context, userID string) (*models.EmailVerificationToken, error)
+	IncrementAttempts(ctx context.Context, id string) (*models.EmailVerificationToken, error)
+	MarkUsed(ctx context.Context, id string) error
+	DeleteActiveForUser(ctx context.Context, userID string) error
 }
 
 type OAuthManager interface {
@@ -45,15 +55,28 @@ type OAuthManager interface {
 	VerifyIDToken(ctx context.Context, token *oauth2.Token) (*auth.IDTokenClaims, error)
 }
 
-type AuthHandler struct {
-	userRepo         UserRepository
-	oauthManager     OAuthManager
-	refreshTokenRepo RefreshTokenRepository
-	cfg              *config.Config
+type EmailSender interface {
+	SendConfirmationCode(ctx context.Context, toEmail, code string) error
 }
 
-func NewAuthHandler(userRepo UserRepository, oauthManager OAuthManager, refreshTokenRepo RefreshTokenRepository, cfg *config.Config) *AuthHandler {
-	return &AuthHandler{userRepo: userRepo, oauthManager: oauthManager, refreshTokenRepo: refreshTokenRepo, cfg: cfg}
+type AuthHandler struct {
+	userRepo                   UserRepository
+	oauthManager               OAuthManager
+	refreshTokenRepo           RefreshTokenRepository
+	emailVerificationTokenRepo EmailVerificationTokenRepository
+	emailSender                EmailSender
+	cfg                        *config.Config
+}
+
+func NewAuthHandler(userRepo UserRepository, oauthManager OAuthManager, refreshTokenRepo RefreshTokenRepository, emailVerificationTokenRepo EmailVerificationTokenRepository, emailSender EmailSender, cfg *config.Config) *AuthHandler {
+	return &AuthHandler{
+		userRepo:                   userRepo,
+		oauthManager:               oauthManager,
+		refreshTokenRepo:           refreshTokenRepo,
+		emailVerificationTokenRepo: emailVerificationTokenRepo,
+		emailSender:                emailSender,
+		cfg:                        cfg,
+	}
 }
 
 func (h *AuthHandler) setRefreshCookie(c *gin.Context, value string, maxAge int) {
@@ -172,7 +195,7 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 		h.redirectWithError(c, "server_error")
 		return
 	}
-	if _, err := h.refreshTokenRepo.CreateFamily(ctx, familyID, user.ID.String(), hashRefreshToken(refreshToken), time.Now().Add(refreshTokenTTL)); err != nil {
+	if _, err := h.refreshTokenRepo.CreateFamily(ctx, familyID, user.ID.String(), auth.HashToken(refreshToken), time.Now().Add(refreshTokenTTL)); err != nil {
 		_ = c.Error(fmt.Errorf("failed to persist refresh token: %w", err))
 		h.redirectWithError(c, "server_error")
 		return
@@ -182,4 +205,221 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 
 	// No access token or user data in the redirect — the frontend mints its own via the refresh cookie just set.
 	c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/auth/callback", h.cfg.FrontendURL))
+}
+
+type registerRequest struct {
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required"`
+	Name     string `json:"name" binding:"required"`
+}
+
+func (h *AuthHandler) Register(c *gin.Context) {
+	var req registerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		return
+	}
+
+	if len(req.Password) < minPasswordLength {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password_too_short"})
+		return
+	}
+	if len(req.Password) > maxPasswordBytes {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password_too_long"})
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		_ = c.Error(fmt.Errorf("failed to hash password: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	user, err := h.userRepo.CreateUnconfirmedUser(ctx, req.Email, string(hash), req.Name)
+	if err != nil {
+		switch {
+		case errors.Is(err, models.ErrEmailRegisteredWithGoogle):
+			c.JSON(http.StatusConflict, gin.H{"error": "email_registered_with_google"})
+			return
+		case errors.Is(err, models.ErrEmailRegisteredWithPassword):
+			c.JSON(http.StatusConflict, gin.H{"error": "email_already_registered"})
+			return
+		case errors.Is(err, models.ErrEmailUnconfirmed):
+			// Never overwrite the password here — the legitimate owner, not whoever last called
+			// register, is the one who'll complete confirmation with their already-delivered code.
+			user, err = h.userRepo.FindByEmail(ctx, req.Email)
+			if err != nil {
+				_ = c.Error(fmt.Errorf("failed to look up unconfirmed user: %w", err))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+				return
+			}
+		default:
+			_ = c.Error(fmt.Errorf("failed to create user: %w", err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			return
+		}
+	}
+
+	if err := h.issueConfirmationCode(ctx, user); err != nil {
+		var cooldown *errResendCooldown
+		if errors.As(err, &cooldown) {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error":             "resend_too_soon",
+				"retryAfterSeconds": int(cooldown.retryAfter.Seconds()),
+			})
+			return
+		}
+		_ = c.Error(fmt.Errorf("failed to issue confirmation code: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "check your email for a confirmation code"})
+}
+
+// errResendCooldown signals the 60s per-email cooldown is still active — every caller of issueConfirmationCode gets this protection, not just ResendConfirmation.
+type errResendCooldown struct {
+	retryAfter time.Duration
+}
+
+func (e *errResendCooldown) Error() string {
+	return fmt.Sprintf("resend cooldown active, retry after %s", e.retryAfter)
+}
+
+// issueConfirmationCode clears any prior unconsumed code before issuing and emailing a fresh one — shared by fresh registration, the abandoned-signup retry path, and ResendConfirmation.
+func (h *AuthHandler) issueConfirmationCode(ctx context.Context, user *models.User) error {
+	if existing, err := h.emailVerificationTokenRepo.FindActiveByUserID(ctx, user.ID.String()); err == nil {
+		if elapsed := time.Since(existing.CreatedAt); elapsed < resendCooldown {
+			return &errResendCooldown{retryAfter: resendCooldown - elapsed}
+		}
+	} else if !errors.Is(err, models.ErrNoActiveEmailVerificationToken) {
+		return fmt.Errorf("failed to look up active confirmation code: %w", err)
+	}
+
+	if err := h.emailVerificationTokenRepo.DeleteActiveForUser(ctx, user.ID.String()); err != nil {
+		return fmt.Errorf("failed to clear prior confirmation code: %w", err)
+	}
+
+	code, err := auth.GenerateConfirmationCode()
+	if err != nil {
+		return fmt.Errorf("failed to generate confirmation code: %w", err)
+	}
+
+	token, err := h.emailVerificationTokenRepo.Create(ctx, user.ID.String(), auth.HashToken(code), time.Now().Add(confirmationCodeTTL))
+	if err != nil {
+		return fmt.Errorf("failed to persist confirmation code: %w", err)
+	}
+
+	if err := h.emailSender.SendConfirmationCode(ctx, user.Email, code); err != nil {
+		// Never delivered — mark it used so it doesn't block the next attempt behind a cooldown for a code the user never received.
+		if markErr := h.emailVerificationTokenRepo.MarkUsed(ctx, token.ID.String()); markErr != nil {
+			return fmt.Errorf("failed to send confirmation email (%w) and failed to clean up undelivered code: %w", err, markErr)
+		}
+		return fmt.Errorf("failed to send confirmation email: %w", err)
+	}
+	return nil
+}
+
+type confirmRequest struct {
+	Email string `json:"email" binding:"required,email"`
+	Code  string `json:"code" binding:"required"`
+}
+
+func (h *AuthHandler) ConfirmEmail(c *gin.Context) {
+	var req confirmRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	user, err := h.userRepo.FindByEmail(ctx, req.Email)
+	if err != nil {
+		// Unknown email collapses into the same code_invalid as a wrong code — no second enumeration channel next to register's own.
+		c.JSON(http.StatusBadRequest, gin.H{"error": "code_invalid"})
+		return
+	}
+
+	token, err := h.emailVerificationTokenRepo.FindActiveByUserID(ctx, user.ID.String())
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "code_invalid"})
+		return
+	}
+
+	if token.Attempts >= maxConfirmationAttempts {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "too_many_attempts"})
+		return
+	}
+
+	if time.Now().After(token.ExpiresAt) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "code_expired"})
+		return
+	}
+
+	if auth.HashToken(req.Code) != token.TokenHash {
+		if _, err := h.emailVerificationTokenRepo.IncrementAttempts(ctx, token.ID.String()); err != nil {
+			_ = c.Error(fmt.Errorf("failed to record failed confirmation attempt: %w", err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "code_invalid"})
+		return
+	}
+
+	if _, err := h.userRepo.MarkEmailConfirmed(ctx, user.ID.String()); err != nil {
+		_ = c.Error(fmt.Errorf("failed to mark email confirmed: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+	// Confirmation itself already succeeded — a failure here just leaves an inert token that
+	// self-expires within confirmationCodeTTL, not worth failing a successful confirmation over.
+	if err := h.emailVerificationTokenRepo.MarkUsed(ctx, token.ID.String()); err != nil {
+		_ = c.Error(fmt.Errorf("email confirmed but failed to mark code used: %w", err))
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "email confirmed"})
+}
+
+type resendRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+func (h *AuthHandler) ResendConfirmation(c *gin.Context) {
+	var req resendRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	user, err := h.userRepo.FindByEmail(ctx, req.Email)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email_not_found"})
+		return
+	}
+
+	if user.EmailVerifiedAt != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "already_confirmed"})
+		return
+	}
+
+	if err := h.issueConfirmationCode(ctx, user); err != nil {
+		var cooldown *errResendCooldown
+		if errors.As(err, &cooldown) {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error":             "resend_too_soon",
+				"retryAfterSeconds": int(cooldown.retryAfter.Seconds()),
+			})
+			return
+		}
+		_ = c.Error(fmt.Errorf("failed to issue confirmation code: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "confirmation code resent"})
 }
