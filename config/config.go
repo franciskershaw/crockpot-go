@@ -62,6 +62,9 @@ func validate(cfg *Config) error {
 		{"JWT_SECRET_ACCESS", cfg.JWTSecretAccess},
 		{"JWT_SECRET_REFRESH", cfg.JWTSecretRefresh},
 		{"JWT_SECRET_OAUTH_STATE", cfg.JWTSecretOAuthState},
+		{"GOOGLE_CLIENT_ID", cfg.GoogleClientID},
+		{"GOOGLE_CLIENT_SECRET", cfg.GoogleClientSecret},
+		{"GOOGLE_REDIRECT_URI", cfg.GoogleRedirectURL},
 		{"FRONTEND_URL", cfg.FrontendURL},
 	}
 

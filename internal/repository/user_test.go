@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -57,6 +58,50 @@ func TestGetOrCreateUser_ReturnsExistingAndRefreshesProfile(t *testing.T) {
 	require.NotNil(t, created.LastLoginAt)
 	require.NotNil(t, fetched.LastLoginAt)
 	assert.True(t, fetched.LastLoginAt.After(*created.LastLoginAt), "expected last_login_at to advance on repeat login")
+}
+
+func TestGetOrCreateUser_ReturnsExistingAndPreservesProfileOnEmptyClaims(t *testing.T) {
+	ctx := context.Background()
+	googleID := "repo-test-google-" + uuid.NewString()
+	email := "repo-test-" + uuid.NewString() + "@example.com"
+
+	created, err := userRepo.GetOrCreateUser(ctx, email, googleID, "Original Name", "http://example.com/original.png")
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, created.ID)
+
+	fetched, err := userRepo.GetOrCreateUser(ctx, email, googleID, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, fetched)
+
+	require.NotNil(t, fetched.Name)
+	assert.Equal(t, "Original Name", *fetched.Name, "empty claim should not blank out a previously stored name")
+	require.NotNil(t, fetched.Image)
+	assert.Equal(t, "http://example.com/original.png", *fetched.Image, "empty claim should not blank out a previously stored image")
+}
+
+func TestGetOrCreateUser_ConcurrentFirstLoginsForSameAccountBothSucceed(t *testing.T) {
+	ctx := context.Background()
+	googleID := "repo-test-google-" + uuid.NewString()
+	email := "repo-test-" + uuid.NewString() + "@example.com"
+
+	var wg sync.WaitGroup
+	results := make([]*models.User, 2)
+	errs := make([]error, 2)
+	for i := range 2 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			results[i], errs[i] = userRepo.GetOrCreateUser(ctx, email, googleID, "Test User", "http://example.com/avatar.png")
+		}(i)
+	}
+	wg.Wait()
+
+	require.NoError(t, errs[0])
+	require.NoError(t, errs[1])
+	require.NotNil(t, results[0])
+	require.NotNil(t, results[1])
+	assert.Equal(t, results[0].ID, results[1].ID, "concurrent first logins for the same account should resolve to one user, not error")
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, results[0].ID)
 }
 
 func TestGetOrCreateUser_EmailAlreadyRegisteredWithPassword(t *testing.T) {

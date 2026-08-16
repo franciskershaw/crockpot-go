@@ -13,6 +13,9 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("JWT_SECRET_ACCESS", "test-access-secret")
 	t.Setenv("JWT_SECRET_REFRESH", "test-refresh-secret")
 	t.Setenv("JWT_SECRET_OAUTH_STATE", "test-oauth-state-secret")
+	t.Setenv("GOOGLE_CLIENT_ID", "test-client-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "test-client-secret")
+	t.Setenv("GOOGLE_REDIRECT_URI", "http://localhost:8080/callback")
 	t.Setenv("FRONTEND_URL", "http://localhost:5173")
 }
 
@@ -47,6 +50,9 @@ func TestLoad_RequiresEnvVar(t *testing.T) {
 		"JWT_SECRET_ACCESS",
 		"JWT_SECRET_REFRESH",
 		"JWT_SECRET_OAUTH_STATE",
+		"GOOGLE_CLIENT_ID",
+		"GOOGLE_CLIENT_SECRET",
+		"GOOGLE_REDIRECT_URI",
 		"FRONTEND_URL",
 	}
 

@@ -10,7 +10,10 @@ import (
 	"golang.org/x/oauth2"
 )
 
-const oauthStateTTL = 10 * time.Minute
+const (
+	oauthStateTTL        = 10 * time.Minute
+	oidcDiscoveryTimeout = 10 * time.Second
+)
 
 type GoogleOAuthManager struct {
 	config      *oauth2.Config
@@ -19,15 +22,17 @@ type GoogleOAuthManager struct {
 }
 
 type IDTokenClaims struct {
-	Email       string `json:"email"`
-	GoogleID    string `json:"sub"`
-	DisplayName string `json:"name"`
-	AvatarURL   string `json:"picture"`
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"email_verified"`
+	GoogleID      string `json:"sub"`
+	DisplayName   string `json:"name"`
+	AvatarURL     string `json:"picture"`
 }
 
 // NewGoogleOAuthManager initializes the Google OAuth2 manager
 func NewGoogleOAuthManager(clientID, clientSecret, redirectURL, stateSecret string) (*GoogleOAuthManager, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), oidcDiscoveryTimeout)
+	defer cancel()
 
 	provider, err := oidc.NewProvider(ctx, "https://accounts.google.com")
 	if err != nil {

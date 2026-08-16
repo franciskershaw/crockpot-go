@@ -104,10 +104,11 @@ var (
 		Role:     "FREE",
 	}
 	fakeClaims = &auth.IDTokenClaims{
-		Email:       fakeUser.Email,
-		GoogleID:    *fakeUser.GoogleID,
-		DisplayName: *fakeUser.Name,
-		AvatarURL:   *fakeUser.Image,
+		Email:         fakeUser.Email,
+		EmailVerified: true,
+		GoogleID:      *fakeUser.GoogleID,
+		DisplayName:   *fakeUser.Name,
+		AvatarURL:     *fakeUser.Image,
 	}
 )
 
@@ -190,6 +191,15 @@ func errorFromLocation(t *testing.T, w *httptest.ResponseRecorder) string {
 	loc, err := w.Result().Location()
 	require.NoError(t, err)
 	return loc.Query().Get("error")
+}
+
+func oauthStateCookieCleared(w *httptest.ResponseRecorder) bool {
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "oauthState" {
+			return c.MaxAge < 0
+		}
+	}
+	return false
 }
 
 // --- GoogleCallback: happy path ---
@@ -289,6 +299,7 @@ func TestGoogleCallback_RejectedAtStateValidation(t *testing.T) {
 
 			assert.Equal(t, http.StatusTemporaryRedirect, w.Code)
 			assert.Equal(t, tc.wantError, errorFromLocation(t, w))
+			assert.True(t, oauthStateCookieCleared(w), "expected oauthState cookie to be cleared on every rejection path")
 			m.assertExpectations(t)
 		})
 	}
@@ -318,6 +329,19 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 				oauthMgr.On("VerifyIDToken", mock.Anything, fakeToken).Return(nil, errors.New("verify failed"))
 			},
 			wantError: "verify_failed",
+		},
+		{
+			name: "email not verified",
+			setup: func(oauthMgr *MockOAuthManager, _ *MockUserRepository, _ *MockRefreshTokenRepository) {
+				oauthMgr.On("ValidateState", "valid-state").Return(true)
+				oauthMgr.On("ExchangeCodeForToken", mock.Anything, "auth-code").Return(fakeToken, nil)
+				unverifiedClaims := &auth.IDTokenClaims{
+					Email: fakeClaims.Email, EmailVerified: false,
+					GoogleID: fakeClaims.GoogleID, DisplayName: fakeClaims.DisplayName, AvatarURL: fakeClaims.AvatarURL,
+				}
+				oauthMgr.On("VerifyIDToken", mock.Anything, fakeToken).Return(unverifiedClaims, nil)
+			},
+			wantError: "email_not_verified",
 		},
 		{
 			name: "email already registered with password",

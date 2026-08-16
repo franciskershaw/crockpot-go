@@ -74,19 +74,22 @@ func (q *Queries) GetUserByGoogleID(ctx context.Context, googleID pgtype.Text) (
 
 const updateUserLoginProfile = `-- name: UpdateUserLoginProfile :one
 UPDATE users
-SET name = $2, image = $3, last_login_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-WHERE id = $1
+SET name = COALESCE(NULLIF($1::text, ''), name),
+    image = COALESCE(NULLIF($2::text, ''), image),
+    last_login_at = CURRENT_TIMESTAMP,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $3
 RETURNING id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at
 `
 
 type UpdateUserLoginProfileParams struct {
-	ID    pgtype.UUID
-	Name  pgtype.Text
-	Image pgtype.Text
+	DisplayName string
+	AvatarUrl   string
+	ID          pgtype.UUID
 }
 
 func (q *Queries) UpdateUserLoginProfile(ctx context.Context, arg UpdateUserLoginProfileParams) (User, error) {
-	row := q.db.QueryRow(ctx, updateUserLoginProfile, arg.ID, arg.Name, arg.Image)
+	row := q.db.QueryRow(ctx, updateUserLoginProfile, arg.DisplayName, arg.AvatarUrl, arg.ID)
 	var i User
 	err := row.Scan(
 		&i.ID,

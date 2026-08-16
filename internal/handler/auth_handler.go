@@ -105,10 +105,12 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 	state := c.Query("state")
 
 	if code == "" {
+		h.clearOAuthStateCookie(c)
 		h.redirectWithError(c, "missing_code")
 		return
 	}
 	if state == "" {
+		h.clearOAuthStateCookie(c)
 		h.redirectWithError(c, "missing_state")
 		return
 	}
@@ -135,6 +137,10 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 	idTokenClaims, err := h.oauthManager.VerifyIDToken(ctx, oauthToken)
 	if err != nil {
 		h.redirectWithError(c, "verify_failed")
+		return
+	}
+	if !idTokenClaims.EmailVerified {
+		h.redirectWithError(c, "email_not_verified")
 		return
 	}
 
