@@ -1,6 +1,6 @@
 module github.com/franciskershaw/crockpot-go
 
-go 1.26.2
+go 1.26.6
 
 require (
 	github.com/gin-gonic/gin v1.12.0
