@@ -25,6 +25,8 @@ type Config struct {
 	GoogleRedirectURL   string
 	FrontendURL         string
 	TrustedProxies      []string
+	ResendAPIKey        string
+	EmailFrom           string
 }
 
 func Load() (*Config, error) {
