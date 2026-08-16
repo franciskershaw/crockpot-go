@@ -157,6 +157,17 @@ actually needs it).
   first, so a real `invalid_request` is an edge case, not a normal
   user path worth building precision for. Recorded in full at
   `master-spec.md`'s "API error response shape" bullet.
+- **The 60s resend cooldown lives inside `issueConfirmationCode` itself**,
+  not `ResendConfirmation`'s handler body — found after the founder asked
+  why `POST /auth/register`'s abandoned-signup retry path (case (c))
+  wasn't cooldown-protected the same way `ResendConfirmation` is, given
+  both have the identical effect of sending another code. Re-registering
+  the same unconfirmed email repeatedly was a second, unprotected way to
+  hit the exact email-bombing vector the cooldown exists for. Centralizing
+  the check in the shared helper (a typed `errResendCooldown`, mapped to
+  `429 resend_too_soon` at each call site) means every current and future
+  caller gets the protection automatically, rather than trusting each one
+  to remember to duplicate the check.
 
 ## Acceptance criteria
 

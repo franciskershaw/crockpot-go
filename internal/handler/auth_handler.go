@@ -22,6 +22,7 @@ const (
 	oauthExchangeTimeout    = 10 * time.Second
 	confirmationCodeTTL     = 10 * time.Minute
 	maxConfirmationAttempts = 5
+	resendCooldown          = 60 * time.Second
 	minPasswordLength       = 8
 	maxPasswordBytes        = 72
 )
@@ -261,6 +262,14 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	if err := h.issueConfirmationCode(ctx, user); err != nil {
+		var cooldown *errResendCooldown
+		if errors.As(err, &cooldown) {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error":             "resend_too_soon",
+				"retryAfterSeconds": int(cooldown.retryAfter.Seconds()),
+			})
+			return
+		}
 		_ = c.Error(fmt.Errorf("failed to issue confirmation code: %w", err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
 		return
@@ -269,8 +278,25 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "check your email for a confirmation code"})
 }
 
-// issueConfirmationCode clears any prior unconsumed code before issuing and emailing a fresh one — shared by fresh registration and the abandoned-signup retry path.
+// errResendCooldown signals the 60s per-email cooldown is still active — every caller of issueConfirmationCode gets this protection, not just ResendConfirmation.
+type errResendCooldown struct {
+	retryAfter time.Duration
+}
+
+func (e *errResendCooldown) Error() string {
+	return fmt.Sprintf("resend cooldown active, retry after %s", e.retryAfter)
+}
+
+// issueConfirmationCode clears any prior unconsumed code before issuing and emailing a fresh one — shared by fresh registration, the abandoned-signup retry path, and ResendConfirmation.
 func (h *AuthHandler) issueConfirmationCode(ctx context.Context, user *models.User) error {
+	if existing, err := h.emailVerificationTokenRepo.FindActiveByUserID(ctx, user.ID.String()); err == nil {
+		if elapsed := time.Since(existing.CreatedAt); elapsed < resendCooldown {
+			return &errResendCooldown{retryAfter: resendCooldown - elapsed}
+		}
+	} else if !errors.Is(err, models.ErrNoActiveEmailVerificationToken) {
+		return fmt.Errorf("failed to look up active confirmation code: %w", err)
+	}
+
 	if err := h.emailVerificationTokenRepo.DeleteActiveForUser(ctx, user.ID.String()); err != nil {
 		return fmt.Errorf("failed to clear prior confirmation code: %w", err)
 	}
@@ -356,5 +382,38 @@ type resendRequest struct {
 }
 
 func (h *AuthHandler) ResendConfirmation(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented"})
+	var req resendRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	user, err := h.userRepo.FindByEmail(ctx, req.Email)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email_not_found"})
+		return
+	}
+
+	if user.EmailVerifiedAt != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "already_confirmed"})
+		return
+	}
+
+	if err := h.issueConfirmationCode(ctx, user); err != nil {
+		var cooldown *errResendCooldown
+		if errors.As(err, &cooldown) {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error":             "resend_too_soon",
+				"retryAfterSeconds": int(cooldown.retryAfter.Seconds()),
+			})
+			return
+		}
+		_ = c.Error(fmt.Errorf("failed to issue confirmation code: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "confirmation code resent"})
 }

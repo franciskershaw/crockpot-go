@@ -129,6 +129,14 @@ func decodeJSONBody(t *testing.T, w *httptest.ResponseRecorder) map[string]strin
 	return body
 }
 
+// decodeJSONBodyAny handles responses with non-string fields (e.g. retryAfterSeconds), where decodeJSONBody's map[string]string would fail to unmarshal.
+func decodeJSONBodyAny(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	return body
+}
+
 func refreshCookieFrom(w *httptest.ResponseRecorder) *http.Cookie {
 	for _, c := range w.Result().Cookies() {
 		if c.Name == "refreshToken" {
@@ -390,6 +398,7 @@ func TestRegister_Success(t *testing.T) {
 	newUser := &models.User{ID: uuid.MustParse("22222222-2222-2222-2222-222222222222"), Email: "new@example.com"}
 
 	m.userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, "new@example.com", mock.AnythingOfType("string"), "New User").Return(newUser, nil)
+	m.emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, newUser.ID.String()).Return(nil, models.ErrNoActiveEmailVerificationToken)
 	m.emailTokenRepo.EXPECT().DeleteActiveForUser(mock.Anything, newUser.ID.String()).Return(nil)
 	m.emailTokenRepo.EXPECT().Create(mock.Anything, newUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(&models.EmailVerificationToken{}, nil)
 	m.emailSender.EXPECT().SendConfirmationCode(mock.Anything, "new@example.com", mock.AnythingOfType("string")).Return(nil)
@@ -405,6 +414,7 @@ func TestRegister_UnconfirmedRetry_Succeeds(t *testing.T) {
 
 	m.userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, "retry@example.com", mock.AnythingOfType("string"), "New Name").Return(nil, models.ErrEmailUnconfirmed)
 	m.userRepo.EXPECT().UpdatePasswordAndClearConfirmation(mock.Anything, "retry@example.com", mock.AnythingOfType("string"), "New Name").Return(existingUser, nil)
+	m.emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, existingUser.ID.String()).Return(nil, models.ErrNoActiveEmailVerificationToken)
 	m.emailTokenRepo.EXPECT().DeleteActiveForUser(mock.Anything, existingUser.ID.String()).Return(nil)
 	m.emailTokenRepo.EXPECT().Create(mock.Anything, existingUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(&models.EmailVerificationToken{}, nil)
 	m.emailSender.EXPECT().SendConfirmationCode(mock.Anything, "retry@example.com", mock.AnythingOfType("string")).Return(nil)
@@ -412,6 +422,23 @@ func TestRegister_UnconfirmedRetry_Succeeds(t *testing.T) {
 	w := doRegister(m.router, map[string]string{"email": "retry@example.com", "password": "correcthorse", "name": "New Name"})
 
 	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+func TestRegister_UnconfirmedRetry_WithinCooldown(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	existingUser := &models.User{ID: uuid.MustParse("33333333-3333-3333-3333-333333333333"), Email: "retry@example.com"}
+
+	m.userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, "retry@example.com", mock.AnythingOfType("string"), "New Name").Return(nil, models.ErrEmailUnconfirmed)
+	m.userRepo.EXPECT().UpdatePasswordAndClearConfirmation(mock.Anything, "retry@example.com", mock.AnythingOfType("string"), "New Name").Return(existingUser, nil)
+	m.emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, existingUser.ID.String()).Return(&models.EmailVerificationToken{
+		ID: uuid.New(), UserID: existingUser.ID, ExpiresAt: time.Now().Add(5 * time.Minute),
+		CreatedAt: time.Now().Add(-10 * time.Second),
+	}, nil)
+
+	w := doRegister(m.router, map[string]string{"email": "retry@example.com", "password": "correcthorse", "name": "New Name"})
+
+	assert.Equal(t, http.StatusTooManyRequests, w.Code)
+	assert.Equal(t, "resend_too_soon", decodeJSONBodyAny(t, w)["error"])
 }
 
 // --- Register: fails ---
@@ -684,7 +711,7 @@ func TestResendConfirmation_Fails(t *testing.T) {
 			w := doResend(m.router, map[string]string{"email": "resend@example.com"})
 
 			assert.Equal(t, tc.wantCode, w.Code)
-			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])
+			assert.Equal(t, tc.wantError, decodeJSONBodyAny(t, w)["error"])
 		})
 	}
 }

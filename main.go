@@ -87,6 +87,7 @@ func main() {
 	{
 		authTight.POST("/register", authHandler.Register)
 		authTight.POST("/confirm", authHandler.ConfirmEmail)
+		authTight.POST("/resend-confirmation", authHandler.ResendConfirmation)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

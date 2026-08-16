@@ -27,7 +27,7 @@ POST http://localhost:{{$dotenv PORT}}/auth/register
 Content-Type: application/json
 
 {
-  "email": "franciskershaw.dev@gmail.com",
+  "email": "email_here",
   "password": "correcthorsebattery",
   "name": "HTTP Test User"
 }
@@ -72,13 +72,15 @@ Content-Type: application/json
 
 ### ✅ 201 — re-registers the same still-unconfirmed email above (case (c):
 ### abandoned signup). NOT a 409 — clears the old code, issues a new one,
-### overwrites the password. A true 409 needs the account confirmed
-### first, which needs ConfirmEmail (next piece) to exist.
+### overwrites the password. A true 409 needs the account confirmed first.
+### Subject to the same 60s resend cooldown as /auth/resend-confirmation —
+### if run within 60s of the request above, expect 429 resend_too_soon
+### instead of 201 (wait, or just treat that as the cooldown demo).
 POST http://localhost:{{$dotenv PORT}}/auth/register
 Content-Type: application/json
 
 {
-  "email": "franciskershaw.dev@gmail.com",
+  "email": "email_here",
   "password": "correcthorsebattery",
   "name": "HTTP Test User"
 }
@@ -98,8 +100,8 @@ POST http://localhost:{{$dotenv PORT}}/auth/confirm
 Content-Type: application/json
 
 {
-  "email": "franciskershaw.dev@gmail.com",
-  "code": "634359"
+  "email": "email_here",
+  "code": "046196"
 }
 
 ###
@@ -117,15 +119,60 @@ Content-Type: application/json
 
 ### 🔒 400 — wrong code. Run this block 5 times in a row (attempts 1-5,
 ### each still code_invalid), then a 6th time to see the lockout flip to
-### too_many_attempts. Run the ✅ 200 request above again afterward to
-### confirm even the *real* code now fails until a resend reissues one
-### (once ResendConfirmation exists).
+### too_many_attempts. Run the ✅ 200 confirm request above again
+### afterward to confirm even the *real* code now fails — the
+### resend-confirmation section below is what recovers from this.
 POST http://localhost:{{$dotenv PORT}}/auth/confirm
 Content-Type: application/json
 
 {
-  "email": "franciskershaw.dev@gmail.com",
+  "email": "email_here",
   "code": "000000"
+}
+
+
+# ══════════════════════════════════════════
+#  POST /auth/resend-confirmation
+# ══════════════════════════════════════════
+
+### ✅ 200 — issues a fresh code, sends a real email. Also the recovery
+### path after the lockout block above — run this, then re-run the ✅ 200
+### confirm request with the newly emailed code.
+POST http://localhost:{{$dotenv PORT}}/auth/resend-confirmation
+Content-Type: application/json
+
+{
+  "email": "email_here"
+}
+
+###
+
+### 🔒 429 — run the request above twice in a row within 60s to see this
+POST http://localhost:{{$dotenv PORT}}/auth/resend-confirmation
+Content-Type: application/json
+
+{
+  "email": "email_here"
+}
+
+###
+
+### 🔒 400 — unknown email
+POST http://localhost:{{$dotenv PORT}}/auth/resend-confirmation
+Content-Type: application/json
+
+{
+  "email": "crockpot-http-test-nobody@example.com"
+}
+
+###
+
+### 🔒 400 — already confirmed (run after actually confirming above)
+POST http://localhost:{{$dotenv PORT}}/auth/resend-confirmation
+Content-Type: application/json
+
+{
+  "email": "email_here"
 }
 
 
@@ -138,5 +185,5 @@ Content-Type: application/json
 ### re-hitting the same existing row). Connect via psql/a DB client and
 ### run manually (no DELETE endpoint exists for this):
 #
-#   DELETE FROM users WHERE email = 'REPLACE_WITH_YOUR_REAL_EMAIL';
+#   DELETE FROM users WHERE email = 'email_here';
 #   -- use whatever you actually swapped that placeholder for above
