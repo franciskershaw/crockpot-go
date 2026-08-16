@@ -140,7 +140,7 @@ func TestLoad_TrustedProxies(t *testing.T) {
 	}
 }
 
-func TestLoad_BuildsGoogleOAuth2Config(t *testing.T) {
+func TestLoad_ReadsGoogleOAuthFields(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("GOOGLE_CLIENT_ID", "client-id")
 	t.Setenv("GOOGLE_CLIENT_SECRET", "client-secret")
@@ -148,13 +148,13 @@ func TestLoad_BuildsGoogleOAuth2Config(t *testing.T) {
 
 	cfg := mustLoad(t)
 
-	if cfg.GoogleOAuth2Config == nil {
-		t.Fatal("expected GoogleOAuth2Config to be set")
+	if cfg.GoogleClientID != "client-id" {
+		t.Errorf("GoogleClientID = %q, want %q", cfg.GoogleClientID, "client-id")
 	}
-	if cfg.GoogleOAuth2Config.ClientID != "client-id" {
-		t.Errorf("ClientID = %q, want %q", cfg.GoogleOAuth2Config.ClientID, "client-id")
+	if cfg.GoogleClientSecret != "client-secret" {
+		t.Errorf("GoogleClientSecret = %q, want %q", cfg.GoogleClientSecret, "client-secret")
 	}
-	if len(cfg.GoogleOAuth2Config.Scopes) != 2 {
-		t.Errorf("expected 2 scopes, got %d", len(cfg.GoogleOAuth2Config.Scopes))
+	if cfg.GoogleRedirectURL != "http://localhost:8080/callback" {
+		t.Errorf("GoogleRedirectURL = %q, want %q", cfg.GoogleRedirectURL, "http://localhost:8080/callback")
 	}
 }
