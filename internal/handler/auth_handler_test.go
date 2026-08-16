@@ -590,6 +590,14 @@ func TestConfirmEmail_Fails(t *testing.T) {
 			wantError: "code_invalid",
 		},
 		{
+			name: "FindByEmail generic error",
+			setup: func(userRepo *genmocks.MockUserRepository, _ *genmocks.MockEmailVerificationTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(nil, errors.New("db exploded"))
+			},
+			wantCode:  http.StatusInternalServerError,
+			wantError: "server_error",
+		},
+		{
 			name: "no active token",
 			setup: func(userRepo *genmocks.MockUserRepository, emailTokenRepo *genmocks.MockEmailVerificationTokenRepository) {
 				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(confirmUser, nil)
@@ -716,6 +724,14 @@ func TestResendConfirmation_Fails(t *testing.T) {
 			wantError: "email_not_found",
 		},
 		{
+			name: "FindByEmail generic error",
+			setup: func(userRepo *genmocks.MockUserRepository, _ *genmocks.MockEmailVerificationTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "resend@example.com").Return(nil, errors.New("db exploded"))
+			},
+			wantCode:  http.StatusInternalServerError,
+			wantError: "server_error",
+		},
+		{
 			name: "already confirmed",
 			setup: func(userRepo *genmocks.MockUserRepository, _ *genmocks.MockEmailVerificationTokenRepository) {
 				userRepo.EXPECT().FindByEmail(mock.Anything, "resend@example.com").Return(confirmedUser, nil)
@@ -819,6 +835,15 @@ func TestLogin_Fails(t *testing.T) {
 			},
 			wantCode:  http.StatusUnauthorized,
 			wantError: "invalid_credentials",
+		},
+		{
+			name: "FindByEmail generic error",
+			body: map[string]string{"email": "ghost@example.com", "password": loginUserPassword},
+			setup: func(userRepo *genmocks.MockUserRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "ghost@example.com").Return(nil, errors.New("db exploded"))
+			},
+			wantCode:  http.StatusInternalServerError,
+			wantError: "server_error",
 		},
 		{
 			name: "google-only account has no password to check against",
