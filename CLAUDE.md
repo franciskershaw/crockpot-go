@@ -138,6 +138,12 @@ docs/
 - Lint (uncapped, matches CI):
   `golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`
 - Format: `gofmt` — canonical, no formatter choice to make.
+- `go mod tidy`: deferred to ticket-end, not run per piece — mid-ticket it
+  prunes any dependency added ahead of the file that imports it, causing
+  churn. CI only ever checks `go mod tidy -diff` (read-only, fails if it
+  would change anything), never rewrites `go.mod`/`go.sum` itself. Adding
+  a dependency mid-ticket: use `go get <pkg>@<version>` alone, which
+  updates precisely that dependency without a full-tree prune.
 
 ## Docs
 
