@@ -13,6 +13,9 @@ import (
 
 	"github.com/franciskershaw/crockpot-go/config"
 	"github.com/franciskershaw/crockpot-go/db"
+	"github.com/franciskershaw/crockpot-go/internal/auth"
+	"github.com/franciskershaw/crockpot-go/internal/handler"
+	"github.com/franciskershaw/crockpot-go/internal/repository"
 	"github.com/gin-gonic/gin"
 
 	_ "github.com/joho/godotenv/autoload"
@@ -40,6 +43,22 @@ func main() {
 	}
 	defer db.CloseDB()
 
+	// Initialise Google OAuth manager once at startup (makes a network call)
+	oauthManager, err := auth.NewGoogleOAuthManager(
+		cfg.GoogleClientID,
+		cfg.GoogleClientSecret,
+		cfg.GoogleRedirectURL,
+		cfg.JWTSecretOAuthState,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Google OAuth init failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	userRepo := repository.NewPostgresUserRepository(db.DB)
+	refreshTokenRepo := repository.NewPostgresRefreshTokenRepository(db.DB)
+	authHandler := handler.NewAuthHandler(userRepo, oauthManager, refreshTokenRepo, cfg)
+
 	// Initialize Gin server
 	gin.SetMode(configureGinMode(string(cfg.Environment)))
 	server := gin.Default()
@@ -49,6 +68,9 @@ func main() {
 			"message": "Welcome to the Crockpot API",
 		})
 	})
+
+	server.GET("/auth/google/login", authHandler.LoginWithGoogle)
+	server.GET("/auth/google/callback", authHandler.GoogleCallback)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

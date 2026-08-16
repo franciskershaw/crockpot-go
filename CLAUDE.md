@@ -95,12 +95,27 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
   `packing-list-go/CLAUDE.md`'s "TDD in Go" shape — CROC-001 itself
   skipped that step because this layer is test-exempt, not because the
   roadmap format omits it by default.
+- **AI-driven tickets.** Claude works one coherent piece at a time (roughly
+  file-sized, matching hand-written mode's roadmap granularity above):
+  write the failing test(s), write a minimal stub that fails for the
+  right reason (never a panic), confirm red, then **stop and report the
+  diff for review** — no real implementation until the founder gives the
+  go-ahead. On go-ahead: implement, confirm green, then stop again before
+  starting the next piece. Applies regardless of Auto Mode, which governs
+  whether Claude pauses to ask clarifying questions about ambiguous
+  requirements, not whether it pauses at these checkpoints. A test
+  confirmed red for the right reason is locked once that stop happens —
+  Claude implements to satisfy it, it does not edit the test's assertions
+  to fit whatever gets implemented afterward. If a locked test later turns
+  out to be wrong, that discovery is itself a stop-and-flag moment, not a
+  silent edit.
 
 ## Folder layout (once CROC-001 scaffolds it)
 
 Mirrors `packing-list-go`:
 
 ```
+.githooks/        Versioned git hooks (core.hooksPath) — pre-commit checks
 config/           Environment/config loading
 db/               DB connection setup, migrations, seed SQL
 internal/
@@ -114,6 +129,7 @@ internal/
 docs/
   specs/          Master spec + ticket backlog
   handoffs/       Per-ticket handoff docs written before implementation
+requests/         Manual .http regression suite, one file per resource
 ```
 
 ## Verification commands
@@ -124,9 +140,85 @@ docs/
 - Lint (uncapped, matches CI):
   `golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`
 - Format: `gofmt` — canonical, no formatter choice to make.
+- `go mod tidy`: deferred to ticket-end, not run per piece — mid-ticket it
+  prunes any dependency added ahead of the file that imports it, causing
+  churn. CI only ever checks `go mod tidy -diff` (read-only, fails if it
+  would change anything), never rewrites `go.mod`/`go.sum` itself. Adding
+  a dependency mid-ticket: use `go get <pkg>@<version>` alone, which
+  updates precisely that dependency without a full-tree prune.
+- `/code-review`: default to `medium` effort for a per-ticket close-out
+  review (`/code-review medium`), never bare `/code-review` — bare
+  invocations reuse whichever effort last ran in the session, which can
+  silently escalate to an expensive multi-agent pass (8 finder
+  sub-agents plus verification) for a routine review. Reserve `high`/
+  `ultra` for the periodic security review + tech-debt pass
+  `~/.claude/CLAUDE.md` already schedules separately ("every few
+  units"), not every ticket.
+
+## Pre-commit hook
+
+`.githooks/pre-commit` (versioned, wired via `git config core.hooksPath
+.githooks` — run that once per clone, it doesn't apply itself) runs the
+fast, local-only, no-external-dependency checks on every commit:
+`gofmt` and `go mod tidy` auto-fix and re-stage; `go vet`/`go build`
+block the commit on failure. Deliberately excludes `golangci-lint`
+(borderline — fast enough on this repo's current size, revisit if it
+ever isn't), `govulncheck` (slow — builds a full symbol graph) and the
+real-DB repository tests (need a live `DATABASE_URL`, wrong thing to gate
+a local commit on) — those stay CI-only, already enforced pre-merge via
+branch protection (`CROC-003a`). This narrows the same principle behind
+the `go mod tidy` deferral above (don't tidy before real code justifies
+a dependency) to the commit boundary instead of ticket-end: under the
+piece-by-piece AI-driven cadence, a commit only ever happens after the
+importing code is real, so there's nothing premature left to prune.
+Landed after CI caught a stale `quic-go` CVE pin and a leftover
+`go.sum` entry that a local commit-time check would have caught first.
+
+## Manual `.http` regression suite
+
+Every ticket that adds or changes an HTTP-callable endpoint — regardless
+of whether Claude or the founder wrote the code — includes a
+corresponding `requests/<resource>.http` file (new or extended) as part
+of its own acceptance criteria, not a follow-up. Mirrors
+`packing-list-go`'s `requests/*.http` convention (one file per resource,
+run top-to-bottom in VS Code's REST Client extension, a Cleanup section
+per file — see `packing-list-go/requests/README.md` for the base
+pattern) — that convention isn't written into `packing-list-go/CLAUDE.md`
+either; it lives only in its own README, same as this one will.
+
+**Token acquisition doesn't need `packing-list-go`'s `scripts/gen_token.go`.**
+`.http` coverage doesn't start until `CROC-008` (the first ticket with
+endpoints past `CROC-004`'s browser-only ones), by which point
+`/auth/refresh` already exists — so `DEV_TOKEN` (the access token) is
+never manually obtained at all, only `DEV_REFRESH_TOKEN` is: seed it
+into `.env` once, by hand, from the httponly `refreshToken` cookie a
+real browser Google login sets (already a required manual step for
+`CROC-004`'s own interactive verification — extract the cookie value
+from browser devtools). `requests/auth.http` then chains a
+`POST /auth/refresh` request off `{{$dotenv DEV_REFRESH_TOKEN}}` at the
+top of the file and captures the returned access token via REST
+Client's response-variable syntax (`@authToken =
+{{refresh.response.body.accessToken}}`) for every request below it — no
+step ever manually copies an access token, matching `packing-list-go`'s
+`{{$dotenv DEV_TOKEN}}` convention in spirit but not in mechanism. Once
+`CROC-005`/`CROC-006` (password register/login) exist, `requests/auth.http`
+gains an alternative chain: log in against a pre-created, already-confirmed
+test account and capture the token the same way
+(`@authToken = {{login.response.body.accessToken}}`), no manual seed
+needed at all.
+
+Google login/callback themselves stay out of `.http` coverage, same
+reasoning `packing-list-go/requests/README.md` documents: a real browser
+round-trip can't be driven by a plain HTTP request.
+
+First ticket this applies to: `CROC-008` (`/auth/refresh`,
+`/auth/logout` — the first endpoints past `CROC-004` that don't need a
+live browser).
 
 ## Docs
 
 - `docs/specs/master-spec.md` — living spec + ticket backlog
 - `docs/handoffs/CROC-NNN.md` — one per ticket
 - `LESSONS.md` — retro log, reviewed each kickoff/grill-me
+- `requests/README.md` — once `CROC-008` creates it, the `.http`
+  regression suite's setup/running instructions

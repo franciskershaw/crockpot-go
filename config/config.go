@@ -4,9 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 )
 
 type Environment string
@@ -26,7 +23,6 @@ type Config struct {
 	GoogleClientID      string
 	GoogleClientSecret  string
 	GoogleRedirectURL   string
-	GoogleOAuth2Config  *oauth2.Config
 	FrontendURL         string
 	TrustedProxies      []string
 }
@@ -37,8 +33,6 @@ func Load() (*Config, error) {
 	if err := validate(cfg); err != nil {
 		return nil, err
 	}
-
-	cfg.GoogleOAuth2Config = buildGoogleOAuth2Config(cfg)
 
 	return cfg, nil
 }
@@ -68,6 +62,9 @@ func validate(cfg *Config) error {
 		{"JWT_SECRET_ACCESS", cfg.JWTSecretAccess},
 		{"JWT_SECRET_REFRESH", cfg.JWTSecretRefresh},
 		{"JWT_SECRET_OAUTH_STATE", cfg.JWTSecretOAuthState},
+		{"GOOGLE_CLIENT_ID", cfg.GoogleClientID},
+		{"GOOGLE_CLIENT_SECRET", cfg.GoogleClientSecret},
+		{"GOOGLE_REDIRECT_URI", cfg.GoogleRedirectURL},
 		{"FRONTEND_URL", cfg.FrontendURL},
 	}
 
@@ -83,19 +80,6 @@ func validate(cfg *Config) error {
 	}
 
 	return nil
-}
-
-func buildGoogleOAuth2Config(cfg *Config) *oauth2.Config {
-	return &oauth2.Config{
-		ClientID:     cfg.GoogleClientID,
-		ClientSecret: cfg.GoogleClientSecret,
-		RedirectURL:  cfg.GoogleRedirectURL,
-		Scopes: []string{
-			"https://www.googleapis.com/auth/userinfo.email",
-			"https://www.googleapis.com/auth/userinfo.profile",
-		},
-		Endpoint: google.Endpoint,
-	}
 }
 
 func getEnvWithFallback(key, defaultVal string) string {

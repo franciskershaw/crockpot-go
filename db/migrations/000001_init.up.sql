@@ -10,6 +10,7 @@ CREATE TABLE
         image TEXT,
         role TEXT NOT NULL DEFAULT 'FREE' CHECK (role IN ('FREE', 'PREMIUM', 'PRO', 'ADMIN')),
         email_verified_at TIMESTAMPTZ,
+        last_login_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         CHECK (

@@ -13,6 +13,9 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("JWT_SECRET_ACCESS", "test-access-secret")
 	t.Setenv("JWT_SECRET_REFRESH", "test-refresh-secret")
 	t.Setenv("JWT_SECRET_OAUTH_STATE", "test-oauth-state-secret")
+	t.Setenv("GOOGLE_CLIENT_ID", "test-client-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "test-client-secret")
+	t.Setenv("GOOGLE_REDIRECT_URI", "http://localhost:8080/callback")
 	t.Setenv("FRONTEND_URL", "http://localhost:5173")
 }
 
@@ -47,6 +50,9 @@ func TestLoad_RequiresEnvVar(t *testing.T) {
 		"JWT_SECRET_ACCESS",
 		"JWT_SECRET_REFRESH",
 		"JWT_SECRET_OAUTH_STATE",
+		"GOOGLE_CLIENT_ID",
+		"GOOGLE_CLIENT_SECRET",
+		"GOOGLE_REDIRECT_URI",
 		"FRONTEND_URL",
 	}
 
@@ -140,7 +146,7 @@ func TestLoad_TrustedProxies(t *testing.T) {
 	}
 }
 
-func TestLoad_BuildsGoogleOAuth2Config(t *testing.T) {
+func TestLoad_ReadsGoogleOAuthFields(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("GOOGLE_CLIENT_ID", "client-id")
 	t.Setenv("GOOGLE_CLIENT_SECRET", "client-secret")
@@ -148,13 +154,13 @@ func TestLoad_BuildsGoogleOAuth2Config(t *testing.T) {
 
 	cfg := mustLoad(t)
 
-	if cfg.GoogleOAuth2Config == nil {
-		t.Fatal("expected GoogleOAuth2Config to be set")
+	if cfg.GoogleClientID != "client-id" {
+		t.Errorf("GoogleClientID = %q, want %q", cfg.GoogleClientID, "client-id")
 	}
-	if cfg.GoogleOAuth2Config.ClientID != "client-id" {
-		t.Errorf("ClientID = %q, want %q", cfg.GoogleOAuth2Config.ClientID, "client-id")
+	if cfg.GoogleClientSecret != "client-secret" {
+		t.Errorf("GoogleClientSecret = %q, want %q", cfg.GoogleClientSecret, "client-secret")
 	}
-	if len(cfg.GoogleOAuth2Config.Scopes) != 2 {
-		t.Errorf("expected 2 scopes, got %d", len(cfg.GoogleOAuth2Config.Scopes))
+	if cfg.GoogleRedirectURL != "http://localhost:8080/callback" {
+		t.Errorf("GoogleRedirectURL = %q, want %q", cfg.GoogleRedirectURL, "http://localhost:8080/callback")
 	}
 }
