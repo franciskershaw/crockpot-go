@@ -118,7 +118,18 @@ func (r *PostgresUserRepository) UpdateLastLogin(ctx context.Context, userID str
 }
 
 func (r *PostgresUserRepository) UpdatePassword(ctx context.Context, userID, passwordHash string) (*models.User, error) {
-	return nil, errors.New("stub not implemented")
+	userUUID, err := uuidParam(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	updated, err := r.q.UpdateUserPassword(ctx, sqlc.UpdateUserPasswordParams{
+		ID:           userUUID,
+		PasswordHash: textParam(passwordHash),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to update password: %w", err)
+	}
+	return toModelUser(updated), nil
 }
 
 func (r *PostgresUserRepository) refreshLoginProfile(ctx context.Context, id pgtype.UUID, displayName, avatarURL string) (*models.User, error) {
