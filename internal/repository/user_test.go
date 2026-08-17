@@ -255,3 +255,23 @@ func TestUpdateLastLogin_AdvancesLastLoginAt(t *testing.T) {
 	require.NotNil(t, updated.LastLoginAt)
 	assert.True(t, updated.LastLoginAt.After(staleLastLogin), "expected last_login_at to advance past its stale value")
 }
+
+func TestUpdatePassword_SetsNewPasswordHash(t *testing.T) {
+	ctx := context.Background()
+	email := "repo-test-" + uuid.NewString() + "@example.com"
+	existingID := uuid.New()
+
+	_, err := db.DB.Exec(ctx,
+		`INSERT INTO users (id, password_hash, email) VALUES ($1, $2, $3)`,
+		existingID, "old-bcrypt-hash-placeholder", email,
+	)
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, existingID)
+
+	newHash := "new-bcrypt-hash-" + uuid.NewString()
+	updated, err := userRepo.UpdatePassword(ctx, existingID.String(), newHash)
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	require.NotNil(t, updated.PasswordHash)
+	assert.Equal(t, newHash, *updated.PasswordHash)
+}
