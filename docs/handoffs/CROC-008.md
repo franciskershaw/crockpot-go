@@ -116,7 +116,7 @@ this ticket.
 **Repository layer (own commit, pause for review before the handler
 layer):**
 
-- [ ] `RefreshTokenRepository` gains `RotateFamily(ctx, familyID,
+- [x] `RefreshTokenRepository` gains `RotateFamily(ctx, familyID,
       newTokenHash string, newExpiresAt time.Time) error` (shifts current
       `token_hash` into `previous_token_hash` + sets
       `previous_token_rotated_at`, sets new hash/expiry, one `UPDATE`),
@@ -124,47 +124,51 @@ layer):**
       error)` (returns `models.ErrRefreshTokenFamilyNotFound` if no row
       matches, per the corrected convention above), `RevokeFamily(ctx,
       familyID string) error` (sets `revoked_at`)
-- [ ] `PostgresRefreshTokenRepository` implements all three
-- [ ] `UserRepository` gains `FindByID(ctx, userID string) (*models.User,
+- [x] `PostgresRefreshTokenRepository` implements all three
+- [x] `UserRepository` gains `FindByID(ctx, userID string) (*models.User,
       error)`; `PostgresUserRepository` implements it via a new
       `GetUserByID` sqlc query
-- [ ] Integration test confirms `RotateFamily` preserves the prior
+- [x] Integration test confirms `RotateFamily` preserves the prior
       hash/timestamp in `previous_token_hash`/`previous_token_rotated_at`,
       not just overwriting silently
-- [ ] Integration test confirms `FindFamilyByID` returns the family for
+- [x] Integration test confirms `FindFamilyByID` returns the family for
       its own id/user, `models.ErrRefreshTokenFamilyNotFound` for an
       unknown id, and the same error for a correct id under the wrong
       user
-- [ ] Integration test confirms `RevokeFamily` sets `revoked_at`
-- [ ] Integration test confirms `UserRepository.FindByID` returns the
+- [x] Integration test confirms `RevokeFamily` sets `revoked_at`
+- [x] Integration test confirms `UserRepository.FindByID` returns the
       user for a known id, `models.ErrUserNotFound` for unknown
 
 **Handler layer:**
 
-- [ ] `POST /auth/refresh`: parses the refresh cookie via
+- [x] `POST /auth/refresh`: parses the refresh cookie via
       `auth.ValidateRefreshToken`; missing/invalid/expired token →
       `401 invalid_refresh_token`
-- [ ] Looks up the family by `claims.FamilyID` + `claims.Subject` via
+- [x] Looks up the family by `claims.FamilyID` + `claims.Subject` via
       `FindFamilyByID`; not found, or found with `revoked_at` set →
       `401 invalid_refresh_token`
-- [ ] Hash matches `token_hash`, or matches `previous_token_hash` within
+- [x] Hash matches `token_hash`, or matches `previous_token_hash` within
       the 10s grace window → `FindByID` for the user first; on failure,
       `500`, nothing mutated; on success, `RotateFamily`, set the new
       refresh cookie, mint and return a new access token,
       `200 {"accessToken": "..."}`
-- [ ] Hash matches `previous_token_hash` outside the grace window, or
+- [x] Hash matches `previous_token_hash` outside the grace window, or
       matches neither hash → `RevokeFamily`, `401 invalid_refresh_token`
-- [ ] A revoked family's token immediately fails on any subsequent
-      `/auth/refresh` call, not just the triggering one
-- [ ] `POST /auth/logout`: decodes the refresh cookie's `familyId` claim
+- [x] A revoked family's token immediately fails on any subsequent
+      `/auth/refresh` call, not just the triggering one — proven at the
+      unit level (`TestRefreshToken_RejectsAlreadyRevokedFamily`) plus
+      the repository integration test that `RevokeFamily` really
+      persists `revoked_at`; full end-to-end proof (a real replay against
+      a running server) is the outstanding manual verification pass below
+- [x] `POST /auth/logout`: decodes the refresh cookie's `familyId` claim
       (if present and validly signed) and calls `RevokeFamily` directly —
       no lookup step. Missing/invalid/expired cookie doesn't error —
       still clears the cookie, `200`
-- [ ] `main.go`: new route group for `/auth/refresh` at 30/min;
+- [x] `main.go`: new route group for `/auth/refresh` at 30/min;
       `/auth/logout` added to the existing 10/min `authTight` group;
       `NewAuthHandler` wiring unchanged (already takes
       `RefreshTokenRepository`)
-- [ ] `go tool mockery` re-run for the extended `RefreshTokenRepository`
+- [x] `go tool mockery` re-run for the extended `RefreshTokenRepository`
       and `UserRepository` interfaces
 
 ## Non-goals
@@ -203,19 +207,54 @@ layer):**
 
 ## Manual verification (`requests/auth.http`)
 
-Extended per `crockpot-go/CLAUDE.md`'s already-documented mechanism:
-`DEV_REFRESH_TOKEN` seeded once by hand from a real browser Google-login
-cookie, chained via `{{$dotenv DEV_REFRESH_TOKEN}}`. Sequence: refresh
-(rotate, capture new cookie) → refresh again (rotate again, proves
-rotation) → replay the original `DEV_REFRESH_TOKEN` after the 10s grace
-window has passed (expect 401, family revoked) → refresh with the latest
-cookie (expect 401, proves the whole family is dead, not just the
-replayed token) → separately, a fresh login → `POST /auth/logout` →
-refresh (expect 401, proves server-side revocation, not just cookie
-clearing). Also exercises the 30/min rate limit and the 10s grace-window
-boundary for real (real timing, real repeated calls), not just against a
-mocked clock in a unit test.
+**Corrected at implementation time**: `CLAUDE.md`'s original plan here
+(seed a `DEV_REFRESH_TOKEN` env var by hand from a real browser
+Google-login cookie) predates `Login` existing in this file. Since
+`Login` (`CROC-006`) already sets a real `refreshToken` cookie via
+`Set-Cookie`, and REST Client's cookie jar carries it forward
+automatically to later requests in the same run, the `refresh`/`logout`
+sections chain directly off `Login`'s cookie instead — no manual browser
+round-trip needed, and CROC-008's rotation/reuse/revoke mechanism is
+identical regardless of which login method created the family.
+`CLAUDE.md`'s "Token acquisition" section is updated to match.
+
+Sequence, run right after the existing `Login` section: refresh (rotate,
+capture new cookie) → refresh again (rotate again, proves rotation) →
+replay the *original* pre-rotation cookie (saved via `@name` before the
+first refresh) after the 10s grace window has passed (expect 401, family
+revoked) → refresh with the latest cookie (expect 401, proves the whole
+family is dead, not just the replayed token) → separately, `POST
+/auth/logout` on a fresh session → refresh (expect 401, proves
+server-side revocation, not just cookie clearing). Also exercises the
+30/min rate limit and the 10s grace-window boundary for real (real
+timing, real repeated calls), not just against a mocked clock in a unit
+test.
 
 ## Close-out
 
-Not started.
+Repository and handler layers implemented, both TDD (red confirmed
+before each layer's real bodies), all green: `go test ./internal/handler/...`,
+`./scripts/test-repo.sh`, `go build ./...`, `go vet ./...`, `gofmt -l .`,
+`golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`
+(0 issues), `go mod tidy -diff` (no changes — no new dependencies this
+ticket). `go tool mockery` re-run for the extended interfaces.
+
+`requests/auth.http` extended with the refresh/logout sections (rotate ×2,
+deliberate stale-replay, whole-family-dead check, then a separate
+logout → post-logout-replay sequence, plus a note on manually exercising
+the 30/min rate limit) — chains off `Login`'s cookie via REST Client's
+jar rather than the `DEV_REFRESH_TOKEN` env var `CLAUDE.md` originally
+sketched (corrected in both the "Manual verification" section above and
+`CLAUDE.md` itself). `requests/README.md` updated to match.
+
+Manual verification run against a real server: rotation confirmed live.
+The first stale-replay attempt returned 200 rather than the expected 401
+— traced to not having waited the 10s grace window, not a bug (a
+`previous_token_hash` match within the window is deliberately treated as
+a benign concurrent-refresh race and rotates normally, per this ticket's
+own grace-window decision). Founder called this gate complete on that
+basis rather than re-running the full timed replay sequence.
+
+Outstanding before this ticket can close, per `crockpot-go/CLAUDE.md`:
+open a PR to get CodeRabbit's review (the per-ticket gate for AI-driven
+tickets), fix anything real.

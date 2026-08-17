@@ -26,6 +26,7 @@ const (
 	passwordResetTokenTTL   = time.Hour
 	minPasswordLength       = 8
 	maxPasswordBytes        = 72
+	refreshGraceWindow      = 10 * time.Second
 )
 
 type UserRepository interface {
@@ -737,10 +738,101 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 // errPasswordResetTokenAlreadyClaimed signals MarkUsed's atomic claim lost a race to a concurrent ResetPassword call.
 var errPasswordResetTokenAlreadyClaimed = errors.New("password reset token already claimed")
 
+func (h *AuthHandler) invalidRefreshToken(c *gin.Context) {
+	c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_refresh_token"})
+}
+
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
-	c.JSON(http.StatusTeapot, gin.H{"error": "stub_not_implemented"})
+	ctx := c.Request.Context()
+
+	cookie, err := c.Cookie("refreshToken")
+	if err != nil {
+		h.invalidRefreshToken(c)
+		return
+	}
+
+	claims, err := auth.ValidateRefreshToken(cookie, h.cfg.JWTSecretRefresh)
+	if err != nil {
+		h.invalidRefreshToken(c)
+		return
+	}
+
+	family, err := h.refreshTokenRepo.FindFamilyByID(ctx, claims.FamilyID, claims.Subject)
+	if err != nil {
+		if !errors.Is(err, models.ErrRefreshTokenFamilyNotFound) {
+			_ = c.Error(fmt.Errorf("failed to look up refresh token family: %w", err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			return
+		}
+		h.invalidRefreshToken(c)
+		return
+	}
+
+	if family.RevokedAt != nil {
+		h.invalidRefreshToken(c)
+		return
+	}
+
+	presentedHash := auth.HashToken(cookie)
+	isCurrent := presentedHash == family.TokenHash
+	isWithinGraceWindow := family.PreviousTokenHash != nil && presentedHash == *family.PreviousTokenHash &&
+		family.PreviousTokenRotatedAt != nil && time.Since(*family.PreviousTokenRotatedAt) <= refreshGraceWindow
+
+	if !isCurrent && !isWithinGraceWindow {
+		// Reuse of a stale token — either the immediately-prior one outside the grace window, or one from
+		// 2+ rotations ago — kills the whole family, not just this request.
+		if err := h.refreshTokenRepo.RevokeFamily(ctx, claims.FamilyID); err != nil {
+			_ = c.Error(fmt.Errorf("failed to revoke reused refresh token family: %w", err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			return
+		}
+		h.invalidRefreshToken(c)
+		return
+	}
+
+	// User lookup happens before rotation — rotation is what grants the continued session (new cookie),
+	// so a failure here must never leave a rotated-but-unusable family behind.
+	user, err := h.userRepo.FindByID(ctx, claims.Subject)
+	if err != nil {
+		_ = c.Error(fmt.Errorf("failed to look up user: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	accessToken, err := auth.GenerateAccessToken(user.Email, user.ID.String(), user.Role, h.cfg.JWTSecretAccess)
+	if err != nil {
+		_ = c.Error(fmt.Errorf("failed to generate access token: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	newRefreshToken, err := auth.GenerateRefreshToken(claims.Subject, claims.FamilyID, h.cfg.JWTSecretRefresh)
+	if err != nil {
+		_ = c.Error(fmt.Errorf("failed to generate refresh token: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	if err := h.refreshTokenRepo.RotateFamily(ctx, claims.FamilyID, auth.HashToken(newRefreshToken), time.Now().Add(refreshTokenTTL)); err != nil {
+		_ = c.Error(fmt.Errorf("failed to rotate refresh token family: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	h.setRefreshCookie(c, newRefreshToken, int(refreshTokenTTL.Seconds()))
+	c.JSON(http.StatusOK, gin.H{"accessToken": accessToken})
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
-	c.JSON(http.StatusTeapot, gin.H{"error": "stub_not_implemented"})
+	if cookie, err := c.Cookie("refreshToken"); err == nil {
+		if claims, err := auth.ValidateRefreshToken(cookie, h.cfg.JWTSecretRefresh); err == nil {
+			if err := h.refreshTokenRepo.RevokeFamily(c.Request.Context(), claims.FamilyID); err != nil {
+				_ = c.Error(fmt.Errorf("failed to revoke refresh token family: %w", err))
+			}
+		}
+	}
+
+	// Cookie is always cleared, even if the token above was missing, invalid, or failed to revoke.
+	h.setRefreshCookie(c, "", -1)
+	c.JSON(http.StatusOK, gin.H{"message": "logged out"})
 }
