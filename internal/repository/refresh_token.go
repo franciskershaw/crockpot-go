@@ -8,6 +8,7 @@ import (
 
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/sqlc"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -64,15 +65,52 @@ func (r *PostgresRefreshTokenRepository) RevokeAllFamiliesForUser(ctx context.Co
 }
 
 func (r *PostgresRefreshTokenRepository) FindFamilyByID(ctx context.Context, id, userID string) (*models.RefreshTokenFamily, error) {
-	return nil, errors.New("stub not implemented")
+	idUUID, err := uuidParam(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid family id: %w", err)
+	}
+	userUUID, err := uuidParam(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+
+	found, err := queriesFor(ctx, r.db).GetRefreshTokenFamilyByID(ctx, sqlc.GetRefreshTokenFamilyByIDParams{
+		ID:     idUUID,
+		UserID: userUUID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, models.ErrRefreshTokenFamilyNotFound
+		}
+		return nil, fmt.Errorf("failed to find refresh token family: %w", err)
+	}
+	return toModelRefreshTokenFamily(found), nil
 }
 
 func (r *PostgresRefreshTokenRepository) RotateFamily(ctx context.Context, familyID, newTokenHash string, newExpiresAt time.Time) error {
-	return errors.New("stub not implemented")
+	idUUID, err := uuidParam(familyID)
+	if err != nil {
+		return fmt.Errorf("invalid family id: %w", err)
+	}
+	if err := queriesFor(ctx, r.db).RotateRefreshTokenFamily(ctx, sqlc.RotateRefreshTokenFamilyParams{
+		ID:        idUUID,
+		TokenHash: newTokenHash,
+		ExpiresAt: pgtype.Timestamptz{Time: newExpiresAt, Valid: true},
+	}); err != nil {
+		return fmt.Errorf("failed to rotate refresh token family: %w", err)
+	}
+	return nil
 }
 
 func (r *PostgresRefreshTokenRepository) RevokeFamily(ctx context.Context, familyID string) error {
-	return errors.New("stub not implemented")
+	idUUID, err := uuidParam(familyID)
+	if err != nil {
+		return fmt.Errorf("invalid family id: %w", err)
+	}
+	if err := queriesFor(ctx, r.db).RevokeRefreshTokenFamily(ctx, idUUID); err != nil {
+		return fmt.Errorf("failed to revoke refresh token family: %w", err)
+	}
+	return nil
 }
 
 func toModelRefreshTokenFamily(f sqlc.RefreshToken) *models.RefreshTokenFamily {
