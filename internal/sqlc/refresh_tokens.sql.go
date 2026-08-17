@@ -55,6 +55,32 @@ func (q *Queries) DeleteStaleRefreshTokenFamiliesForUser(ctx context.Context, us
 	return err
 }
 
+const getRefreshTokenFamilyByID = `-- name: GetRefreshTokenFamilyByID :one
+SELECT id, user_id, token_hash, previous_token_hash, previous_token_rotated_at, expires_at, revoked_at, created_at FROM refresh_tokens
+WHERE id = $1 AND user_id = $2
+`
+
+type GetRefreshTokenFamilyByIDParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) GetRefreshTokenFamilyByID(ctx context.Context, arg GetRefreshTokenFamilyByIDParams) (RefreshToken, error) {
+	row := q.db.QueryRow(ctx, getRefreshTokenFamilyByID, arg.ID, arg.UserID)
+	var i RefreshToken
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.PreviousTokenHash,
+		&i.PreviousTokenRotatedAt,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const revokeAllRefreshTokenFamiliesForUser = `-- name: RevokeAllRefreshTokenFamiliesForUser :exec
 UPDATE refresh_tokens
 SET revoked_at = CURRENT_TIMESTAMP
@@ -63,5 +89,36 @@ WHERE user_id = $1 AND revoked_at IS NULL AND expires_at >= CURRENT_TIMESTAMP
 
 func (q *Queries) RevokeAllRefreshTokenFamiliesForUser(ctx context.Context, userID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, revokeAllRefreshTokenFamiliesForUser, userID)
+	return err
+}
+
+const revokeRefreshTokenFamily = `-- name: RevokeRefreshTokenFamily :exec
+UPDATE refresh_tokens
+SET revoked_at = CURRENT_TIMESTAMP
+WHERE id = $1
+`
+
+func (q *Queries) RevokeRefreshTokenFamily(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, revokeRefreshTokenFamily, id)
+	return err
+}
+
+const rotateRefreshTokenFamily = `-- name: RotateRefreshTokenFamily :exec
+UPDATE refresh_tokens
+SET previous_token_hash = token_hash,
+    previous_token_rotated_at = CURRENT_TIMESTAMP,
+    token_hash = $2,
+    expires_at = $3
+WHERE id = $1
+`
+
+type RotateRefreshTokenFamilyParams struct {
+	ID        pgtype.UUID
+	TokenHash string
+	ExpiresAt pgtype.Timestamptz
+}
+
+func (q *Queries) RotateRefreshTokenFamily(ctx context.Context, arg RotateRefreshTokenFamilyParams) error {
+	_, err := q.db.Exec(ctx, rotateRefreshTokenFamily, arg.ID, arg.TokenHash, arg.ExpiresAt)
 	return err
 }

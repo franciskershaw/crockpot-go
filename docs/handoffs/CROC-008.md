@@ -49,6 +49,16 @@ this ticket.
   - hash matches neither, or family already has `revoked_at` set →
     `RevokeFamily`, generic 401
   - family not found by id → generic 401
+- **Not-found convention: sentinel error, not `nil, nil`.** The AC below
+  originally said `FindFamilyByID`/`UserRepository.FindByID` return
+  `nil, nil` on a miss, sourced from PACK-027's convention without
+  checking this repo's own. Corrected: every existing "find" method here
+  (`FindByEmail`, `FindActiveByUserID`, `FindActiveByTokenHash`) returns
+  a sentinel error via `errors.Is(err, pgx.ErrNoRows) →
+  models.ErrXxx`, never `nil, nil` — `FindByID` reuses the existing
+  `models.ErrUserNotFound` (same entity as `FindByEmail`), and
+  `FindFamilyByID` gets a new `models.ErrRefreshTokenFamilyNotFound`,
+  matching the naming pattern.
 - **Access-token minting on refresh needs a new lookup.**
   `POST /auth/refresh` must return a fresh access token (per master
   spec: `GoogleCallback` mints no access token, the frontend gets its
@@ -111,9 +121,9 @@ layer):**
       `token_hash` into `previous_token_hash` + sets
       `previous_token_rotated_at`, sets new hash/expiry, one `UPDATE`),
       `FindFamilyByID(ctx, id, userID string) (*models.RefreshTokenFamily,
-      error)` (nil, nil if no row matches — mirrors existing not-found
-      convention), `RevokeFamily(ctx, familyID string) error` (sets
-      `revoked_at`)
+      error)` (returns `models.ErrRefreshTokenFamilyNotFound` if no row
+      matches, per the corrected convention above), `RevokeFamily(ctx,
+      familyID string) error` (sets `revoked_at`)
 - [ ] `PostgresRefreshTokenRepository` implements all three
 - [ ] `UserRepository` gains `FindByID(ctx, userID string) (*models.User,
       error)`; `PostgresUserRepository` implements it via a new
@@ -122,11 +132,12 @@ layer):**
       hash/timestamp in `previous_token_hash`/`previous_token_rotated_at`,
       not just overwriting silently
 - [ ] Integration test confirms `FindFamilyByID` returns the family for
-      its own id/user, nil for an unknown id, nil for a correct id under
-      the wrong user
+      its own id/user, `models.ErrRefreshTokenFamilyNotFound` for an
+      unknown id, and the same error for a correct id under the wrong
+      user
 - [ ] Integration test confirms `RevokeFamily` sets `revoked_at`
 - [ ] Integration test confirms `UserRepository.FindByID` returns the
-      user for a known id, nil for unknown
+      user for a known id, `models.ErrUserNotFound` for unknown
 
 **Handler layer:**
 
@@ -175,12 +186,11 @@ layer):**
 - `internal/repository/refresh_token_test.go` — extended:
   `TestRotateFamily_ShiftsCurrentIntoPrevious`,
   `TestFindFamilyByID_ReturnsFamily`,
-  `TestFindFamilyByID_ReturnsNilForUnknownID`,
-  `TestFindFamilyByID_ReturnsNilForWrongUser`,
+  `TestFindFamilyByID_ReturnsErrRefreshTokenFamilyNotFoundForUnknownID`,
+  `TestFindFamilyByID_ReturnsErrRefreshTokenFamilyNotFoundForWrongUser`,
   `TestRevokeFamily_SetsRevokedAt`
-- `internal/repository/user_test.go` (or wherever `FindByEmail`'s test
-  lives) — extended: `TestFindByID_ReturnsUser`,
-  `TestFindByID_ReturnsNilForUnknownID`
+- `internal/repository/user_test.go` — extended: `TestFindByID_ReturnsUser`,
+  `TestFindByID_ReturnsErrUserNotFound`
 - `internal/handler/auth_handler_test.go` — extended:
   `TestRefreshToken_RotatesOnCurrentHash`,
   `TestRefreshToken_RotatesWithinGraceWindowOnPreviousHash`,

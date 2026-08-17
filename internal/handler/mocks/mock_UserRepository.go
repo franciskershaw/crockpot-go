@@ -143,6 +143,65 @@ func (_c *MockUserRepository_FindByEmail_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
+// FindByID provides a mock function with given fields: ctx, userID
+func (_m *MockUserRepository) FindByID(ctx context.Context, userID string) (*models.User, error) {
+	ret := _m.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FindByID")
+	}
+
+	var r0 *models.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*models.User, error)); ok {
+		return rf(ctx, userID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *models.User); ok {
+		r0 = rf(ctx, userID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockUserRepository_FindByID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FindByID'
+type MockUserRepository_FindByID_Call struct {
+	*mock.Call
+}
+
+// FindByID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+func (_e *MockUserRepository_Expecter) FindByID(ctx interface{}, userID interface{}) *MockUserRepository_FindByID_Call {
+	return &MockUserRepository_FindByID_Call{Call: _e.mock.On("FindByID", ctx, userID)}
+}
+
+func (_c *MockUserRepository_FindByID_Call) Run(run func(ctx context.Context, userID string)) *MockUserRepository_FindByID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockUserRepository_FindByID_Call) Return(_a0 *models.User, _a1 error) *MockUserRepository_FindByID_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockUserRepository_FindByID_Call) RunAndReturn(run func(context.Context, string) (*models.User, error)) *MockUserRepository_FindByID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetOrCreateUser provides a mock function with given fields: ctx, email, googleID, displayName, avatarURL
 func (_m *MockUserRepository) GetOrCreateUser(ctx context.Context, email string, googleID string, displayName string, avatarURL string) (*models.User, error) {
 	ret := _m.Called(ctx, email, googleID, displayName, avatarURL)

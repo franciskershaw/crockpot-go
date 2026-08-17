@@ -13,3 +13,5 @@ var ErrNoActiveEmailVerificationToken = errors.New("no active email verification
 var ErrNoActivePasswordResetToken = errors.New("no active password reset token")
 
 var ErrUserNotFound = errors.New("user not found")
+
+var ErrRefreshTokenFamilyNotFound = errors.New("refresh token family not found")

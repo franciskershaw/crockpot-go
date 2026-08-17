@@ -93,6 +93,10 @@ func (r *PostgresUserRepository) FindByEmail(ctx context.Context, email string) 
 	return toModelUser(found), nil
 }
 
+func (r *PostgresUserRepository) FindByID(ctx context.Context, userID string) (*models.User, error) {
+	return nil, errors.New("stub not implemented")
+}
+
 func (r *PostgresUserRepository) MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error) {
 	userUUID, err := uuidParam(userID)
 	if err != nil {

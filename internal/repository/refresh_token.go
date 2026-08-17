@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -60,6 +61,18 @@ func (r *PostgresRefreshTokenRepository) RevokeAllFamiliesForUser(ctx context.Co
 		return fmt.Errorf("failed to revoke refresh token families: %w", err)
 	}
 	return nil
+}
+
+func (r *PostgresRefreshTokenRepository) FindFamilyByID(ctx context.Context, id, userID string) (*models.RefreshTokenFamily, error) {
+	return nil, errors.New("stub not implemented")
+}
+
+func (r *PostgresRefreshTokenRepository) RotateFamily(ctx context.Context, familyID, newTokenHash string, newExpiresAt time.Time) error {
+	return errors.New("stub not implemented")
+}
+
+func (r *PostgresRefreshTokenRepository) RevokeFamily(ctx context.Context, familyID string) error {
+	return errors.New("stub not implemented")
 }
 
 func toModelRefreshTokenFamily(f sqlc.RefreshToken) *models.RefreshTokenFamily {

@@ -33,6 +33,7 @@ type UserRepository interface {
 	CreateUnconfirmedUser(ctx context.Context, email, passwordHash, name string) (*models.User, error)
 	MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error)
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
+	FindByID(ctx context.Context, userID string) (*models.User, error)
 	UpdateLastLogin(ctx context.Context, userID string) (*models.User, error)
 	UpdatePassword(ctx context.Context, userID, passwordHash string) (*models.User, error)
 }
@@ -41,6 +42,9 @@ type RefreshTokenRepository interface {
 	CreateFamily(ctx context.Context, id, userID, tokenHash string, expiresAt time.Time) (*models.RefreshTokenFamily, error)
 	DeleteStaleFamiliesForUser(ctx context.Context, userID string) error
 	RevokeAllFamiliesForUser(ctx context.Context, userID string) error
+	FindFamilyByID(ctx context.Context, id, userID string) (*models.RefreshTokenFamily, error)
+	RotateFamily(ctx context.Context, familyID, newTokenHash string, newExpiresAt time.Time) error
+	RevokeFamily(ctx context.Context, familyID string) error
 }
 
 type EmailVerificationTokenRepository interface {
