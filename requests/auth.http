@@ -311,7 +311,9 @@ Content-Type: application/json
 
 ###
 
-### 🔒 400 — unknown email (never reveals whether the email exists)
+### 🔒 400 — unknown email. Deliberately disclosed, not a generic response —
+### see CROC-007 handoff's "discloses unknown-email and Google-only-account
+### cases explicitly" decision, matching ResendConfirmation/Login precedent.
 POST http://localhost:{{$dotenv PORT}}/auth/forgot-password
 Content-Type: application/json
 

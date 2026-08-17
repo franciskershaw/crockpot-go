@@ -25,6 +25,53 @@ func (_m *MockPasswordResetTokenRepository) EXPECT() *MockPasswordResetTokenRepo
 	return &MockPasswordResetTokenRepository_Expecter{mock: &_m.Mock}
 }
 
+// AcquireUserLock provides a mock function with given fields: ctx, userID
+func (_m *MockPasswordResetTokenRepository) AcquireUserLock(ctx context.Context, userID string) error {
+	ret := _m.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AcquireUserLock")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, userID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockPasswordResetTokenRepository_AcquireUserLock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AcquireUserLock'
+type MockPasswordResetTokenRepository_AcquireUserLock_Call struct {
+	*mock.Call
+}
+
+// AcquireUserLock is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+func (_e *MockPasswordResetTokenRepository_Expecter) AcquireUserLock(ctx interface{}, userID interface{}) *MockPasswordResetTokenRepository_AcquireUserLock_Call {
+	return &MockPasswordResetTokenRepository_AcquireUserLock_Call{Call: _e.mock.On("AcquireUserLock", ctx, userID)}
+}
+
+func (_c *MockPasswordResetTokenRepository_AcquireUserLock_Call) Run(run func(ctx context.Context, userID string)) *MockPasswordResetTokenRepository_AcquireUserLock_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockPasswordResetTokenRepository_AcquireUserLock_Call) Return(_a0 error) *MockPasswordResetTokenRepository_AcquireUserLock_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockPasswordResetTokenRepository_AcquireUserLock_Call) RunAndReturn(run func(context.Context, string) error) *MockPasswordResetTokenRepository_AcquireUserLock_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Create provides a mock function with given fields: ctx, userID, tokenHash, expiresAt
 func (_m *MockPasswordResetTokenRepository) Create(ctx context.Context, userID string, tokenHash string, expiresAt time.Time) (*models.PasswordResetToken, error) {
 	ret := _m.Called(ctx, userID, tokenHash, expiresAt)
@@ -252,21 +299,31 @@ func (_c *MockPasswordResetTokenRepository_FindActiveByUserID_Call) RunAndReturn
 }
 
 // MarkUsed provides a mock function with given fields: ctx, id
-func (_m *MockPasswordResetTokenRepository) MarkUsed(ctx context.Context, id string) error {
+func (_m *MockPasswordResetTokenRepository) MarkUsed(ctx context.Context, id string) (bool, error) {
 	ret := _m.Called(ctx, id)
 
 	if len(ret) == 0 {
 		panic("no return value specified for MarkUsed")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (bool, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) bool); ok {
 		r0 = rf(ctx, id)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(bool)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockPasswordResetTokenRepository_MarkUsed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkUsed'
@@ -288,12 +345,12 @@ func (_c *MockPasswordResetTokenRepository_MarkUsed_Call) Run(run func(ctx conte
 	return _c
 }
 
-func (_c *MockPasswordResetTokenRepository_MarkUsed_Call) Return(_a0 error) *MockPasswordResetTokenRepository_MarkUsed_Call {
-	_c.Call.Return(_a0)
+func (_c *MockPasswordResetTokenRepository_MarkUsed_Call) Return(_a0 bool, _a1 error) *MockPasswordResetTokenRepository_MarkUsed_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockPasswordResetTokenRepository_MarkUsed_Call) RunAndReturn(run func(context.Context, string) error) *MockPasswordResetTokenRepository_MarkUsed_Call {
+func (_c *MockPasswordResetTokenRepository_MarkUsed_Call) RunAndReturn(run func(context.Context, string) (bool, error)) *MockPasswordResetTokenRepository_MarkUsed_Call {
 	_c.Call.Return(run)
 	return _c
 }

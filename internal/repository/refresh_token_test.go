@@ -69,12 +69,13 @@ func TestDeleteStaleFamiliesForUser_DeletesExpiredAndRevoked_KeepsActive(t *test
 	assert.Contains(t, remainingIDs, activeID, "active family should not have been deleted")
 }
 
-func TestRevokeAllFamiliesForUser_RevokesLive_LeavesAlreadyRevokedUntouched(t *testing.T) {
+func TestRevokeAllFamiliesForUser_RevokesLive_LeavesAlreadyRevokedAndExpiredUntouched(t *testing.T) {
 	ctx := context.Background()
 
 	liveAID := uuid.NewString()
 	liveBID := uuid.NewString()
 	alreadyRevokedID := uuid.NewString()
+	expiredUnrevokedID := uuid.NewString()
 	fixedPastRevokedAt := time.Now().Add(-24 * time.Hour)
 
 	_, err := refreshTokenRepo.CreateFamily(ctx, liveAID, repoUserID.String(), "repo-test-hash-"+uuid.NewString(), time.Now().Add(7*24*time.Hour))
@@ -90,6 +91,14 @@ func TestRevokeAllFamiliesForUser_RevokesLive_LeavesAlreadyRevokedUntouched(t *t
 	cleanupExec(t, `DELETE FROM refresh_tokens WHERE id = $1`, alreadyRevokedID)
 	_, err = db.DB.Exec(ctx, `UPDATE refresh_tokens SET revoked_at = $2 WHERE id = $1`, alreadyRevokedID, fixedPastRevokedAt)
 	require.NoError(t, err)
+
+	// Expired but never revoked — CreateFamily rejects a past expiry, so insert directly.
+	_, err = db.DB.Exec(ctx,
+		`INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)`,
+		expiredUnrevokedID, repoUserID, "repo-test-hash-"+uuid.NewString(), time.Now().Add(-time.Hour),
+	)
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM refresh_tokens WHERE id = $1`, expiredUnrevokedID)
 
 	err = refreshTokenRepo.RevokeAllFamiliesForUser(ctx, repoUserID.String())
 	require.NoError(t, err)
@@ -107,4 +116,6 @@ func TestRevokeAllFamiliesForUser_RevokesLive_LeavesAlreadyRevokedUntouched(t *t
 	revokedAt := assertRevokedAt(alreadyRevokedID)
 	require.NotNil(t, revokedAt)
 	assert.WithinDuration(t, fixedPastRevokedAt, *revokedAt, time.Second, "already-revoked family's revoked_at should not be overwritten")
+
+	assert.Nil(t, assertRevokedAt(expiredUnrevokedID), "expired-but-unrevoked family should not be touched")
 }

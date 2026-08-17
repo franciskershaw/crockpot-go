@@ -11,6 +11,15 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const acquireUserPasswordResetLock = `-- name: AcquireUserPasswordResetLock :exec
+SELECT pg_advisory_xact_lock(hashtext($1)::bigint)
+`
+
+func (q *Queries) AcquireUserPasswordResetLock(ctx context.Context, hashtext string) error {
+	_, err := q.db.Exec(ctx, acquireUserPasswordResetLock, hashtext)
+	return err
+}
+
 const createPasswordResetToken = `-- name: CreatePasswordResetToken :one
 INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
 VALUES ($1, $2, $3)
@@ -85,13 +94,16 @@ func (q *Queries) FindActivePasswordResetTokenByUserID(ctx context.Context, user
 	return i, err
 }
 
-const markPasswordResetTokenUsed = `-- name: MarkPasswordResetTokenUsed :exec
+const markPasswordResetTokenUsed = `-- name: MarkPasswordResetTokenUsed :execrows
 UPDATE password_reset_tokens
 SET used_at = CURRENT_TIMESTAMP
-WHERE id = $1
+WHERE id = $1 AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP
 `
 
-func (q *Queries) MarkPasswordResetTokenUsed(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, markPasswordResetTokenUsed, id)
-	return err
+func (q *Queries) MarkPasswordResetTokenUsed(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, markPasswordResetTokenUsed, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

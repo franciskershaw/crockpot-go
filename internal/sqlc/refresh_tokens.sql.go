@@ -58,7 +58,7 @@ func (q *Queries) DeleteStaleRefreshTokenFamiliesForUser(ctx context.Context, us
 const revokeAllRefreshTokenFamiliesForUser = `-- name: RevokeAllRefreshTokenFamiliesForUser :exec
 UPDATE refresh_tokens
 SET revoked_at = CURRENT_TIMESTAMP
-WHERE user_id = $1 AND revoked_at IS NULL
+WHERE user_id = $1 AND revoked_at IS NULL AND expires_at >= CURRENT_TIMESTAMP
 `
 
 func (q *Queries) RevokeAllRefreshTokenFamiliesForUser(ctx context.Context, userID pgtype.UUID) error {

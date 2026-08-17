@@ -13,11 +13,20 @@ import (
 )
 
 type PostgresPasswordResetTokenRepository struct {
-	q *sqlc.Queries
+	db sqlc.DBTX
 }
 
 func NewPostgresPasswordResetTokenRepository(db sqlc.DBTX) *PostgresPasswordResetTokenRepository {
-	return &PostgresPasswordResetTokenRepository{q: sqlc.New(db)}
+	return &PostgresPasswordResetTokenRepository{db: db}
+}
+
+// AcquireUserLock takes a tx-scoped advisory lock on userID, serializing
+// concurrent callers; must run inside a transaction (auto-releases on commit/rollback).
+func (r *PostgresPasswordResetTokenRepository) AcquireUserLock(ctx context.Context, userID string) error {
+	if err := queriesFor(ctx, r.db).AcquireUserPasswordResetLock(ctx, userID); err != nil {
+		return fmt.Errorf("failed to acquire password reset lock: %w", err)
+	}
+	return nil
 }
 
 func (r *PostgresPasswordResetTokenRepository) Create(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*models.PasswordResetToken, error) {
@@ -26,7 +35,7 @@ func (r *PostgresPasswordResetTokenRepository) Create(ctx context.Context, userI
 		return nil, fmt.Errorf("invalid user id: %w", err)
 	}
 
-	created, err := r.q.CreatePasswordResetToken(ctx, sqlc.CreatePasswordResetTokenParams{
+	created, err := queriesFor(ctx, r.db).CreatePasswordResetToken(ctx, sqlc.CreatePasswordResetTokenParams{
 		UserID:    userUUID,
 		TokenHash: tokenHash,
 		ExpiresAt: pgtype.Timestamptz{Time: expiresAt, Valid: true},
@@ -43,7 +52,7 @@ func (r *PostgresPasswordResetTokenRepository) FindActiveByUserID(ctx context.Co
 		return nil, fmt.Errorf("invalid user id: %w", err)
 	}
 
-	found, err := r.q.FindActivePasswordResetTokenByUserID(ctx, userUUID)
+	found, err := queriesFor(ctx, r.db).FindActivePasswordResetTokenByUserID(ctx, userUUID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, models.ErrNoActivePasswordResetToken
@@ -54,7 +63,7 @@ func (r *PostgresPasswordResetTokenRepository) FindActiveByUserID(ctx context.Co
 }
 
 func (r *PostgresPasswordResetTokenRepository) FindActiveByTokenHash(ctx context.Context, tokenHash string) (*models.PasswordResetToken, error) {
-	found, err := r.q.FindActivePasswordResetTokenByTokenHash(ctx, tokenHash)
+	found, err := queriesFor(ctx, r.db).FindActivePasswordResetTokenByTokenHash(ctx, tokenHash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, models.ErrNoActivePasswordResetToken
@@ -64,16 +73,18 @@ func (r *PostgresPasswordResetTokenRepository) FindActiveByTokenHash(ctx context
 	return toModelPasswordResetToken(found), nil
 }
 
-func (r *PostgresPasswordResetTokenRepository) MarkUsed(ctx context.Context, id string) error {
+// MarkUsed atomically claims the token: claimed is true only if it was still unused and unexpired.
+func (r *PostgresPasswordResetTokenRepository) MarkUsed(ctx context.Context, id string) (bool, error) {
 	idUUID, err := uuidParam(id)
 	if err != nil {
-		return fmt.Errorf("invalid token id: %w", err)
+		return false, fmt.Errorf("invalid token id: %w", err)
 	}
 
-	if err := r.q.MarkPasswordResetTokenUsed(ctx, idUUID); err != nil {
-		return fmt.Errorf("failed to mark password reset token used: %w", err)
+	rowsAffected, err := queriesFor(ctx, r.db).MarkPasswordResetTokenUsed(ctx, idUUID)
+	if err != nil {
+		return false, fmt.Errorf("failed to mark password reset token used: %w", err)
 	}
-	return nil
+	return rowsAffected == 1, nil
 }
 
 func (r *PostgresPasswordResetTokenRepository) DeleteActiveForUser(ctx context.Context, userID string) error {
@@ -82,7 +93,7 @@ func (r *PostgresPasswordResetTokenRepository) DeleteActiveForUser(ctx context.C
 		return fmt.Errorf("invalid user id: %w", err)
 	}
 
-	if err := r.q.DeleteActivePasswordResetTokensForUser(ctx, userUUID); err != nil {
+	if err := queriesFor(ctx, r.db).DeleteActivePasswordResetTokensForUser(ctx, userUUID); err != nil {
 		return fmt.Errorf("failed to delete active password reset tokens: %w", err)
 	}
 	return nil

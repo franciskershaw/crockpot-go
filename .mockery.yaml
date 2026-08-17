@@ -16,3 +16,4 @@ packages:
       EmailVerificationTokenRepository:
       PasswordResetTokenRepository:
       EmailSender:
+      Transactor:

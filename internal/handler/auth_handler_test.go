@@ -75,6 +75,7 @@ type mocks struct {
 	emailTokenRepo   *genmocks.MockEmailVerificationTokenRepository
 	resetTokenRepo   *genmocks.MockPasswordResetTokenRepository
 	emailSender      *genmocks.MockEmailSender
+	transactor       *genmocks.MockTransactor
 	router           *gin.Engine
 }
 
@@ -86,8 +87,14 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 		emailTokenRepo:   genmocks.NewMockEmailVerificationTokenRepository(t),
 		resetTokenRepo:   genmocks.NewMockPasswordResetTokenRepository(t),
 		emailSender:      genmocks.NewMockEmailSender(t),
+		transactor:       genmocks.NewMockTransactor(t),
 	}
-	h := handler.NewAuthHandler(m.userRepo, m.oauthMgr, m.refreshTokenRepo, m.emailTokenRepo, m.resetTokenRepo, m.emailSender, &config.Config{
+	// Every test gets a transactor that just runs the wrapped function directly — real transaction
+	// behavior is covered by repository-layer tests against the real DB, not these handler mocks.
+	m.transactor.EXPECT().WithinTx(mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) }).
+		Maybe()
+	h := handler.NewAuthHandler(m.userRepo, m.oauthMgr, m.refreshTokenRepo, m.emailTokenRepo, m.resetTokenRepo, m.emailSender, m.transactor, &config.Config{
 		Environment:         env,
 		JWTSecretAccess:     testutil.TestAccessSecret,
 		JWTSecretRefresh:    testutil.TestRefreshSecret,
@@ -923,6 +930,7 @@ func TestForgotPassword_SuccessNoExistingToken(t *testing.T) {
 	forgotUser := &models.User{ID: uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc"), Email: "forgot@example.com", PasswordHash: ptr(loginUserPasswordHash)}
 
 	m.userRepo.EXPECT().FindByEmail(mock.Anything, "forgot@example.com").Return(forgotUser, nil)
+	m.resetTokenRepo.EXPECT().AcquireUserLock(mock.Anything, forgotUser.ID.String()).Return(nil)
 	m.resetTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, forgotUser.ID.String()).Return(nil, models.ErrNoActivePasswordResetToken)
 	m.resetTokenRepo.EXPECT().DeleteActiveForUser(mock.Anything, forgotUser.ID.String()).Return(nil)
 	m.resetTokenRepo.EXPECT().Create(mock.Anything, forgotUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(&models.PasswordResetToken{}, nil)
@@ -983,6 +991,7 @@ func TestForgotPassword_Fails(t *testing.T) {
 			email: "forgot@example.com",
 			setup: func(userRepo *genmocks.MockUserRepository, resetTokenRepo *genmocks.MockPasswordResetTokenRepository) {
 				userRepo.EXPECT().FindByEmail(mock.Anything, "forgot@example.com").Return(forgotUser, nil)
+				resetTokenRepo.EXPECT().AcquireUserLock(mock.Anything, forgotUser.ID.String()).Return(nil)
 				resetTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, forgotUser.ID.String()).Return(&models.PasswordResetToken{
 					ID: uuid.New(), UserID: forgotUser.ID, ExpiresAt: time.Now().Add(50 * time.Minute),
 					CreatedAt: time.Now().Add(-10 * time.Second),
@@ -1033,16 +1042,16 @@ func TestResetPassword_Success(t *testing.T) {
 
 	var order []string
 
-	m.resetTokenRepo.EXPECT().FindActiveByTokenHash(mock.Anything, mock.AnythingOfType("string")).Return(resetToken, nil)
+	m.resetTokenRepo.EXPECT().FindActiveByTokenHash(mock.Anything, auth.HashToken("some-opaque-token")).Return(resetToken, nil)
+	m.resetTokenRepo.EXPECT().MarkUsed(mock.Anything, resetToken.ID.String()).
+		Run(func(context.Context, string) { order = append(order, "MarkUsed") }).
+		Return(true, nil)
 	m.userRepo.EXPECT().UpdatePassword(mock.Anything, resetUser.ID.String(), mock.AnythingOfType("string")).
 		Run(func(context.Context, string, string) { order = append(order, "UpdatePassword") }).
 		Return(resetUser, nil)
 	m.userRepo.EXPECT().MarkEmailConfirmed(mock.Anything, resetUser.ID.String()).
 		Run(func(context.Context, string) { order = append(order, "MarkEmailConfirmed") }).
 		Return(resetUser, nil)
-	m.resetTokenRepo.EXPECT().MarkUsed(mock.Anything, resetToken.ID.String()).
-		Run(func(context.Context, string) { order = append(order, "MarkUsed") }).
-		Return(nil)
 	m.refreshTokenRepo.EXPECT().RevokeAllFamiliesForUser(mock.Anything, resetUser.ID.String()).
 		Run(func(context.Context, string) { order = append(order, "RevokeAllFamiliesForUser") }).
 		Return(nil)
@@ -1058,7 +1067,7 @@ func TestResetPassword_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.NotEmpty(t, decodeJSONBody(t, w)["accessToken"])
 	require.NotNil(t, refreshCookieFrom(w), "expected refreshToken cookie to be set")
-	assert.Equal(t, []string{"UpdatePassword", "MarkEmailConfirmed", "MarkUsed", "RevokeAllFamiliesForUser", "DeleteStaleFamiliesForUser", "CreateFamily"}, order)
+	assert.Equal(t, []string{"MarkUsed", "UpdatePassword", "MarkEmailConfirmed", "RevokeAllFamiliesForUser", "DeleteStaleFamiliesForUser", "CreateFamily"}, order)
 }
 
 func TestResetPassword_Fails(t *testing.T) {
@@ -1083,15 +1092,6 @@ func TestResetPassword_Fails(t *testing.T) {
 		{
 			name: "invalid token",
 			body: map[string]string{"token": "bogus-token", "newPassword": resetPasswordPlaintext},
-			setup: func(resetTokenRepo *genmocks.MockPasswordResetTokenRepository) {
-				resetTokenRepo.EXPECT().FindActiveByTokenHash(mock.Anything, mock.AnythingOfType("string")).Return(nil, models.ErrNoActivePasswordResetToken)
-			},
-			wantCode:  http.StatusBadRequest,
-			wantError: "token_invalid",
-		},
-		{
-			name: "already-used token",
-			body: map[string]string{"token": "used-token", "newPassword": resetPasswordPlaintext},
 			setup: func(resetTokenRepo *genmocks.MockPasswordResetTokenRepository) {
 				resetTokenRepo.EXPECT().FindActiveByTokenHash(mock.Anything, mock.AnythingOfType("string")).Return(nil, models.ErrNoActivePasswordResetToken)
 			},
@@ -1130,6 +1130,21 @@ func TestResetPassword_Fails(t *testing.T) {
 			},
 			wantCode:  http.StatusBadRequest,
 			wantError: "password_too_long",
+		},
+		{
+			// Simulates a concurrent request winning the race to claim the same token first —
+			// MarkUsed's atomic conditional UPDATE reports 0 rows affected.
+			name: "token claimed by a concurrent request",
+			body: map[string]string{"token": "valid-token", "newPassword": resetPasswordPlaintext},
+			setup: func(resetTokenRepo *genmocks.MockPasswordResetTokenRepository) {
+				token := &models.PasswordResetToken{
+					ID: uuid.New(), UserID: resetUser.ID, ExpiresAt: time.Now().Add(30 * time.Minute),
+				}
+				resetTokenRepo.EXPECT().FindActiveByTokenHash(mock.Anything, mock.AnythingOfType("string")).Return(token, nil)
+				resetTokenRepo.EXPECT().MarkUsed(mock.Anything, token.ID.String()).Return(false, nil)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "token_invalid",
 		},
 	}
 

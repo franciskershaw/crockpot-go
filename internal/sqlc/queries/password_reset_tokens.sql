@@ -11,11 +11,14 @@ WHERE user_id = $1 AND used_at IS NULL;
 SELECT * FROM password_reset_tokens
 WHERE token_hash = $1 AND used_at IS NULL;
 
--- name: MarkPasswordResetTokenUsed :exec
+-- name: MarkPasswordResetTokenUsed :execrows
 UPDATE password_reset_tokens
 SET used_at = CURRENT_TIMESTAMP
-WHERE id = $1;
+WHERE id = $1 AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP;
 
 -- name: DeleteActivePasswordResetTokensForUser :exec
 DELETE FROM password_reset_tokens
 WHERE user_id = $1 AND used_at IS NULL;
+
+-- name: AcquireUserPasswordResetLock :exec
+SELECT pg_advisory_xact_lock(hashtext($1)::bigint);
