@@ -23,6 +23,7 @@ const (
 	confirmationCodeTTL     = 10 * time.Minute
 	maxConfirmationAttempts = 5
 	resendCooldown          = 60 * time.Second
+	passwordResetTokenTTL   = time.Hour
 	minPasswordLength       = 8
 	maxPasswordBytes        = 72
 )
@@ -526,5 +527,72 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusTeapot, gin.H{"error": "STUB_NOT_IMPLEMENTED"})
+	ctx := c.Request.Context()
+
+	user, err := h.userRepo.FindByEmail(ctx, req.Email)
+	if err != nil {
+		if !errors.Is(err, models.ErrUserNotFound) {
+			_ = c.Error(fmt.Errorf("failed to look up user by email: %w", err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email_not_found"})
+		return
+	}
+
+	if user.PasswordHash == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "google_account_no_password"})
+		return
+	}
+
+	if err := h.issuePasswordResetToken(ctx, user); err != nil {
+		var cooldown *errResendCooldown
+		if errors.As(err, &cooldown) {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error":             "resend_too_soon",
+				"retryAfterSeconds": int(cooldown.retryAfter.Seconds()),
+			})
+			return
+		}
+		_ = c.Error(fmt.Errorf("failed to issue password reset token: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "check your email for a password reset link"})
+}
+
+// issuePasswordResetToken clears any prior unconsumed token before issuing and emailing a fresh one, same shape as issueConfirmationCode.
+func (h *AuthHandler) issuePasswordResetToken(ctx context.Context, user *models.User) error {
+	if existing, err := h.passwordResetTokenRepo.FindActiveByUserID(ctx, user.ID.String()); err == nil {
+		if elapsed := time.Since(existing.CreatedAt); elapsed < resendCooldown {
+			return &errResendCooldown{retryAfter: resendCooldown - elapsed}
+		}
+	} else if !errors.Is(err, models.ErrNoActivePasswordResetToken) {
+		return fmt.Errorf("failed to look up active password reset token: %w", err)
+	}
+
+	if err := h.passwordResetTokenRepo.DeleteActiveForUser(ctx, user.ID.String()); err != nil {
+		return fmt.Errorf("failed to clear prior password reset token: %w", err)
+	}
+
+	token, err := auth.GenerateResetToken()
+	if err != nil {
+		return fmt.Errorf("failed to generate password reset token: %w", err)
+	}
+
+	created, err := h.passwordResetTokenRepo.Create(ctx, user.ID.String(), auth.HashToken(token), time.Now().Add(passwordResetTokenTTL))
+	if err != nil {
+		return fmt.Errorf("failed to persist password reset token: %w", err)
+	}
+
+	resetURL := fmt.Sprintf("%s/reset-password?token=%s", h.cfg.FrontendURL, token)
+	if err := h.emailSender.SendPasswordResetLink(ctx, user.Email, resetURL); err != nil {
+		// Never delivered — mark it used so it doesn't block the next attempt behind a cooldown for a link the user never received.
+		if markErr := h.passwordResetTokenRepo.MarkUsed(ctx, created.ID.String()); markErr != nil {
+			return fmt.Errorf("failed to send password reset email (%w) and failed to clean up undelivered token: %w", err, markErr)
+		}
+		return fmt.Errorf("failed to send password reset email: %w", err)
+	}
+	return nil
 }
