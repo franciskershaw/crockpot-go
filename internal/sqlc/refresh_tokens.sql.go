@@ -54,3 +54,14 @@ func (q *Queries) DeleteStaleRefreshTokenFamiliesForUser(ctx context.Context, us
 	_, err := q.db.Exec(ctx, deleteStaleRefreshTokenFamiliesForUser, userID)
 	return err
 }
+
+const revokeAllRefreshTokenFamiliesForUser = `-- name: RevokeAllRefreshTokenFamiliesForUser :exec
+UPDATE refresh_tokens
+SET revoked_at = CURRENT_TIMESTAMP
+WHERE user_id = $1 AND revoked_at IS NULL
+`
+
+func (q *Queries) RevokeAllRefreshTokenFamiliesForUser(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, revokeAllRefreshTokenFamiliesForUser, userID)
+	return err
+}

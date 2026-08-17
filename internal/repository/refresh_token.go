@@ -51,6 +51,10 @@ func (r *PostgresRefreshTokenRepository) DeleteStaleFamiliesForUser(ctx context.
 	return nil
 }
 
+func (r *PostgresRefreshTokenRepository) RevokeAllFamiliesForUser(ctx context.Context, userID string) error {
+	return nil
+}
+
 func toModelRefreshTokenFamily(f sqlc.RefreshToken) *models.RefreshTokenFamily {
 	return &models.RefreshTokenFamily{
 		ID:                     uuidValue(f.ID),

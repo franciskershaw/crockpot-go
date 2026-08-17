@@ -68,3 +68,43 @@ func TestDeleteStaleFamiliesForUser_DeletesExpiredAndRevoked_KeepsActive(t *test
 	assert.NotContains(t, remainingIDs, revokedID, "revoked family should have been deleted")
 	assert.Contains(t, remainingIDs, activeID, "active family should not have been deleted")
 }
+
+func TestRevokeAllFamiliesForUser_RevokesLive_LeavesAlreadyRevokedUntouched(t *testing.T) {
+	ctx := context.Background()
+
+	liveAID := uuid.NewString()
+	liveBID := uuid.NewString()
+	alreadyRevokedID := uuid.NewString()
+	fixedPastRevokedAt := time.Now().Add(-24 * time.Hour)
+
+	_, err := refreshTokenRepo.CreateFamily(ctx, liveAID, repoUserID.String(), "repo-test-hash-"+uuid.NewString(), time.Now().Add(7*24*time.Hour))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM refresh_tokens WHERE id = $1`, liveAID)
+
+	_, err = refreshTokenRepo.CreateFamily(ctx, liveBID, repoUserID.String(), "repo-test-hash-"+uuid.NewString(), time.Now().Add(7*24*time.Hour))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM refresh_tokens WHERE id = $1`, liveBID)
+
+	_, err = refreshTokenRepo.CreateFamily(ctx, alreadyRevokedID, repoUserID.String(), "repo-test-hash-"+uuid.NewString(), time.Now().Add(7*24*time.Hour))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM refresh_tokens WHERE id = $1`, alreadyRevokedID)
+	_, err = db.DB.Exec(ctx, `UPDATE refresh_tokens SET revoked_at = $2 WHERE id = $1`, alreadyRevokedID, fixedPastRevokedAt)
+	require.NoError(t, err)
+
+	err = refreshTokenRepo.RevokeAllFamiliesForUser(ctx, repoUserID.String())
+	require.NoError(t, err)
+
+	assertRevokedAt := func(id string) *time.Time {
+		var revokedAt *time.Time
+		row := db.DB.QueryRow(ctx, `SELECT revoked_at FROM refresh_tokens WHERE id = $1`, id)
+		require.NoError(t, row.Scan(&revokedAt))
+		return revokedAt
+	}
+
+	assert.NotNil(t, assertRevokedAt(liveAID), "live family A should have been revoked")
+	assert.NotNil(t, assertRevokedAt(liveBID), "live family B should have been revoked")
+
+	revokedAt := assertRevokedAt(alreadyRevokedID)
+	require.NotNil(t, revokedAt)
+	assert.WithinDuration(t, fixedPastRevokedAt, *revokedAt, time.Second, "already-revoked family's revoked_at should not be overwritten")
+}
