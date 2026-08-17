@@ -34,6 +34,8 @@ func (t *PostgresTransactor) WithinTx(ctx context.Context, fn func(ctx context.C
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	// Catches a panic in fn so the connection doesn't leak with an open tx; no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := fn(context.WithValue(ctx, txKey{}, tx)); err != nil {
 		if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) {

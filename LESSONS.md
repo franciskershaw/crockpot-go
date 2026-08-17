@@ -150,3 +150,16 @@ implementation quality until CROC-001 lands.
   possible failure, the one that grants access goes last — protect
   against a working session existing when the response says it failed,
   not against stale metadata.
+
+## 2026-08-17 — CROC-007 — Forgot/reset password shipped; CodeRabbit caught two lifecycle bugs in my own transaction fix, not just the original diff
+
+- Round 1 correctly rejected a disclosure finding that contradicted an
+  already-deliberate decision (checked against Register/ResendConfirmation/
+  Login precedent), but building the transaction fix for a real concurrency
+  gap introduced two new bugs — `require.NoError` inside a test goroutine
+  and a missing deferred rollback on panic — both caught by CodeRabbit's
+  second pass, not self-caught.
+- **Pattern**: CodeRabbit is the accepted real gate for this process, not a
+  formality — third ticket running where it catches something a clean
+  first-pass implementation missed. No mechanization needed; founder
+  confirmed this is the intended shape of the process.

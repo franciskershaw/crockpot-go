@@ -134,17 +134,20 @@ func TestPasswordResetTokenMarkUsed_ConcurrentCallersOnlyOneClaims(t *testing.T)
 
 	const attempts = 10
 	results := make([]bool, attempts)
+	errs := make([]error, attempts)
 	var wg sync.WaitGroup
 	for i := 0; i < attempts; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			claimed, err := passwordResetTokenRepo.MarkUsed(ctx, created.ID.String())
-			require.NoError(t, err)
-			results[i] = claimed
+			results[i], errs[i] = passwordResetTokenRepo.MarkUsed(ctx, created.ID.String())
 		}(i)
 	}
 	wg.Wait()
+
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
 
 	claimedCount := 0
 	for _, c := range results {

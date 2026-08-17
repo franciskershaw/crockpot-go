@@ -51,6 +51,26 @@ func TestWithinTx_RollsBackWritesOnError(t *testing.T) {
 	assert.ErrorIs(t, err, models.ErrNoActivePasswordResetToken, "the create inside the failed transaction should have been rolled back")
 }
 
+func TestWithinTx_RollsBackWritesOnPanic(t *testing.T) {
+	ctx := context.Background()
+	hash := "repo-test-hash-" + uuid.NewString()
+
+	func() {
+		defer func() {
+			require.NotNil(t, recover(), "expected the panic to propagate out of WithinTx")
+		}()
+		_ = transactor.WithinTx(ctx, func(ctx context.Context) error {
+			if _, err := passwordResetTokenRepo.Create(ctx, repoUserID.String(), hash, time.Now().Add(time.Hour)); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			panic("simulated handler panic")
+		})
+	}()
+
+	_, err := passwordResetTokenRepo.FindActiveByTokenHash(ctx, hash)
+	assert.ErrorIs(t, err, models.ErrNoActivePasswordResetToken, "the create inside the panicking transaction should have been rolled back")
+}
+
 func TestAcquireUserLock_SerializesConcurrentTransactionsForSameUser(t *testing.T) {
 	ctx := context.Background()
 	var mu sync.Mutex

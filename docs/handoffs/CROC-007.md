@@ -1,6 +1,6 @@
 # CROC-007 — Forgot/reset password
 
-Grilled 2026-08-16.
+Grilled 2026-08-16. Completed 2026-08-17.
 
 **Implementation mode: AI-driven.** Claude implements one piece at a time
 (failing test/stub → confirm red → stop for go-ahead → implement →
