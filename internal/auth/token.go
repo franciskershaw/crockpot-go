@@ -16,6 +16,10 @@ func GenerateConfirmationCode() (string, error) {
 	return fmt.Sprintf("%06d", n.Int64()), nil
 }
 
+func GenerateResetToken() (string, error) {
+	return "NOTAREALRESETTOKEN", nil
+}
+
 func HashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])

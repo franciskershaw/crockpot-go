@@ -35,6 +35,38 @@ func TestGenerateConfirmationCode_IsRandom(t *testing.T) {
 	}
 }
 
+func TestGenerateResetToken_Is64CharHex(t *testing.T) {
+	token, err := GenerateResetToken()
+	if err != nil {
+		t.Fatalf("GenerateResetToken failed: %v", err)
+	}
+
+	if len(token) != 64 {
+		t.Fatalf("expected 64-char hex-encoded token (32 bytes), got %q (len %d)", token, len(token))
+	}
+	for _, r := range token {
+		isHex := (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')
+		if !isHex {
+			t.Fatalf("expected lowercase hex output, got %q", token)
+		}
+	}
+}
+
+func TestGenerateResetToken_IsRandom(t *testing.T) {
+	seen := make(map[string]bool)
+	for i := 0; i < 20; i++ {
+		token, err := GenerateResetToken()
+		if err != nil {
+			t.Fatalf("GenerateResetToken failed: %v", err)
+		}
+		seen[token] = true
+	}
+
+	if len(seen) < 20 {
+		t.Fatalf("expected 20 distinct tokens across 20 generations, got %d distinct value(s)", len(seen))
+	}
+}
+
 func TestHashToken_IsDeterministic(t *testing.T) {
 	first := HashToken("abc123")
 	second := HashToken("abc123")
