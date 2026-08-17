@@ -276,7 +276,7 @@ session.*
   link-token, sets the new password, confirms the email, revokes every
   other live session, and auto-issues a fresh one). Same
   clear-before-insert requirement as CROC-005, against
-  `password_reset_tokens`. See `docs/handoffs/CROC-007.md`.
+  `password_reset_tokens`. **Done.** See `docs/handoffs/CROC-007.md`.
 - **CROC-008** — Refresh + logout (`POST /auth/refresh`, `POST
   /auth/logout`), rotation + reuse-detection per the design above.
 - **CROC-009** — `GET /me` profile endpoint (id, email, name, image, role).

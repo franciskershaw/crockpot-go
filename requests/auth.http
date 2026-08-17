@@ -278,14 +278,175 @@ Content-Type: application/json
 
 
 # ══════════════════════════════════════════
+#  POST /auth/forgot-password
+#
+#  Uses the same confirmed account as the login section above — run the
+#  ✅ 201 register and ✅ 200 confirm requests at the top of this file
+#  first if you haven't. The 🔒 401 case reuses the Google-only account
+#  created for login's own 🔒 401 case above.
+# ══════════════════════════════════════════
+
+### ✅ 200 — sends a real password reset link by email. Copy the value
+### of the link's ?token= query param into TOKEN_FROM_EMAIL in the
+### reset-password section below before running anything there — every
+### case below (length checks, invalid, expired, success) is sequenced
+### to reuse this one token, since issuing a second one hits the 60s
+### cooldown right below.
+POST http://localhost:{{$dotenv PORT}}/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL"
+}
+
+###
+
+### 🔒 429 — run the request above twice in a row within 60s to see this
+POST http://localhost:{{$dotenv PORT}}/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL"
+}
+
+###
+
+### 🔒 400 — unknown email (never reveals whether the email exists)
+POST http://localhost:{{$dotenv PORT}}/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "crockpot-http-test-nobody@example.com"
+}
+
+###
+
+### 🔒 401 — Google-only account, no password to reset
+POST http://localhost:{{$dotenv PORT}}/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "crockpot-http-test-login-google@example.com"
+}
+
+
+# ══════════════════════════════════════════
+#  POST /auth/reset-password
+#
+#  Run in this exact order against TOKEN_FROM_EMAIL from the ✅ 200
+#  forgot-password request above. The too-short/too-long/invalid cases
+#  below all fail before the token is ever consumed (password length is
+#  checked before UpdatePassword/MarkUsed), so the same real token
+#  stays valid through all of them — only the final ✅ 200 success case
+#  actually consumes it.
+# ══════════════════════════════════════════
+
+### 🔒 400 — password too short. Token still unconsumed after this.
+POST http://localhost:{{$dotenv PORT}}/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "TOKEN_FROM_EMAIL",
+  "newPassword": "short"
+}
+
+###
+
+### 🔒 400 — password too long (>72 bytes). Token still unconsumed.
+POST http://localhost:{{$dotenv PORT}}/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "TOKEN_FROM_EMAIL",
+  "newPassword": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
+
+###
+
+### 🔒 400 — invalid token (garbage value, not TOKEN_FROM_EMAIL)
+POST http://localhost:{{$dotenv PORT}}/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "not-a-real-token-value",
+  "newPassword": "correcthorsebattery2"
+}
+
+###
+
+### Setup for the ✅ 200 case below — inserts a second, live "other
+### device" refresh token family for the test account, so the reset's
+### RevokeAllFamiliesForUser call has something real to revoke. Run
+### this, then the SELECT further down afterward to confirm it actually
+### got revoked_at set.
+#
+#   INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+#   VALUES ((SELECT id FROM users WHERE email = 'REPLACE_WITH_YOUR_REAL_EMAIL'), 'http-test-other-device-hash', now() + interval '7 days');
+#
+### ✅ 200 — consumes TOKEN_FROM_EMAIL: sets the new password, confirms
+### the email (if it wasn't already), revokes every other live session
+### (including the "other device" row inserted above), and logs the
+### caller in with a fresh accessToken + refreshToken cookie. Afterward,
+### verify the "other device" row actually got revoked (revoked_at
+### should be non-null):
+#
+#   SELECT revoked_at FROM refresh_tokens
+#   WHERE user_id = (SELECT id FROM users WHERE email = 'REPLACE_WITH_YOUR_REAL_EMAIL')
+#   AND token_hash = 'http-test-other-device-hash';
+#
+POST http://localhost:{{$dotenv PORT}}/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "TOKEN_FROM_EMAIL",
+  "newPassword": "correcthorsebattery2"
+}
+
+###
+
+### 🔒 400 — reused token (run the ✅ 200 request above again with the
+### same now-used TOKEN_FROM_EMAIL)
+POST http://localhost:{{$dotenv PORT}}/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "TOKEN_FROM_EMAIL",
+  "newPassword": "correcthorsebattery3"
+}
+
+###
+
+### 🔒 400 — expired token. TOKEN_FROM_EMAIL is already used at this
+### point, so this needs a fresh one: wait out the 60s cooldown, run
+### the ✅ 200 forgot-password request further up again, and copy its
+### email's token into TOKEN_FROM_EMAIL_2. Then backdate that row (1h
+### TTL, so can't be triggered live) before running this:
+#
+#   UPDATE password_reset_tokens SET expires_at = now() - interval '1 minute'
+#   WHERE user_id = (SELECT id FROM users WHERE email = 'REPLACE_WITH_YOUR_REAL_EMAIL')
+#   AND used_at IS NULL;
+#
+POST http://localhost:{{$dotenv PORT}}/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "TOKEN_FROM_EMAIL_2",
+  "newPassword": "correcthorsebattery4"
+}
+
+
+# ══════════════════════════════════════════
 #  Cleanup
 # ══════════════════════════════════════════
 
 ### The ✅ 201 register request, the 🔒 403 setup register, and the 🔒
-### 401 setup INSERT above are the only requests that leave rows behind
-### — everything else fails before reaching the DB or acts on one of
-### those same rows. Connect via psql/a DB client and run manually (no
-### DELETE endpoint exists for this):
+### 401 setup INSERT above are the only requests that leave top-level
+### rows behind — everything else fails before reaching the DB or acts
+### on one of those same rows or their children (the password reset
+### tokens and the extra "other device" refresh token row above all
+### hang off REPLACE_WITH_YOUR_REAL_EMAIL's user row via ON DELETE
+### CASCADE, so the DELETE below clears them too). Connect via psql/a DB
+### client and run manually (no DELETE endpoint exists for this):
 #
 #   DELETE FROM users WHERE email IN (
 #     'REPLACE_WITH_YOUR_REAL_EMAIL',
