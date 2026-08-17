@@ -596,3 +596,18 @@ func (h *AuthHandler) issuePasswordResetToken(ctx context.Context, user *models.
 	}
 	return nil
 }
+
+type resetPasswordRequest struct {
+	Token       string `json:"token" binding:"required"`
+	NewPassword string `json:"newPassword" binding:"required"`
+}
+
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var req resetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		return
+	}
+
+	c.JSON(http.StatusTeapot, gin.H{"error": "STUB_NOT_IMPLEMENTED"})
+}
