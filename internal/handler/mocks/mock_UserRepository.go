@@ -323,6 +323,66 @@ func (_c *MockUserRepository_UpdateLastLogin_Call) RunAndReturn(run func(context
 	return _c
 }
 
+// UpdatePassword provides a mock function with given fields: ctx, userID, passwordHash
+func (_m *MockUserRepository) UpdatePassword(ctx context.Context, userID string, passwordHash string) (*models.User, error) {
+	ret := _m.Called(ctx, userID, passwordHash)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdatePassword")
+	}
+
+	var r0 *models.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*models.User, error)); ok {
+		return rf(ctx, userID, passwordHash)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *models.User); ok {
+		r0 = rf(ctx, userID, passwordHash)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, userID, passwordHash)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockUserRepository_UpdatePassword_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdatePassword'
+type MockUserRepository_UpdatePassword_Call struct {
+	*mock.Call
+}
+
+// UpdatePassword is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - passwordHash string
+func (_e *MockUserRepository_Expecter) UpdatePassword(ctx interface{}, userID interface{}, passwordHash interface{}) *MockUserRepository_UpdatePassword_Call {
+	return &MockUserRepository_UpdatePassword_Call{Call: _e.mock.On("UpdatePassword", ctx, userID, passwordHash)}
+}
+
+func (_c *MockUserRepository_UpdatePassword_Call) Run(run func(ctx context.Context, userID string, passwordHash string)) *MockUserRepository_UpdatePassword_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockUserRepository_UpdatePassword_Call) Return(_a0 *models.User, _a1 error) *MockUserRepository_UpdatePassword_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockUserRepository_UpdatePassword_Call) RunAndReturn(run func(context.Context, string, string) (*models.User, error)) *MockUserRepository_UpdatePassword_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockUserRepository creates a new instance of MockUserRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockUserRepository(t interface {

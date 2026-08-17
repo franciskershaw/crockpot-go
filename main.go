@@ -65,8 +65,9 @@ func main() {
 	userRepo := repository.NewPostgresUserRepository(db.DB)
 	refreshTokenRepo := repository.NewPostgresRefreshTokenRepository(db.DB)
 	emailVerificationTokenRepo := repository.NewPostgresEmailVerificationTokenRepository(db.DB)
+	passwordResetTokenRepo := repository.NewPostgresPasswordResetTokenRepository(db.DB)
 	emailSender := email.NewResendClient(cfg.ResendAPIKey, cfg.EmailFrom)
-	authHandler := handler.NewAuthHandler(userRepo, oauthManager, refreshTokenRepo, emailVerificationTokenRepo, emailSender, cfg)
+	authHandler := handler.NewAuthHandler(userRepo, oauthManager, refreshTokenRepo, emailVerificationTokenRepo, passwordResetTokenRepo, emailSender, cfg)
 
 	// Initialize Gin server
 	gin.SetMode(configureGinMode(string(cfg.Environment)))

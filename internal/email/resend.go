@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	htmltemplate "html/template"
 	"io"
@@ -91,4 +92,8 @@ func (c *ResendClient) SendConfirmationCode(ctx context.Context, toEmail, code s
 		return fmt.Errorf("resend: unexpected status %d: %s", resp.StatusCode, body)
 	}
 	return nil
+}
+
+func (c *ResendClient) SendPasswordResetLink(ctx context.Context, toEmail, resetURL string) error {
+	return errors.New("SendPasswordResetLink not implemented")
 }

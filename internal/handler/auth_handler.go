@@ -33,17 +33,27 @@ type UserRepository interface {
 	MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error)
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
 	UpdateLastLogin(ctx context.Context, userID string) (*models.User, error)
+	UpdatePassword(ctx context.Context, userID, passwordHash string) (*models.User, error)
 }
 
 type RefreshTokenRepository interface {
 	CreateFamily(ctx context.Context, id, userID, tokenHash string, expiresAt time.Time) (*models.RefreshTokenFamily, error)
 	DeleteStaleFamiliesForUser(ctx context.Context, userID string) error
+	RevokeAllFamiliesForUser(ctx context.Context, userID string) error
 }
 
 type EmailVerificationTokenRepository interface {
 	Create(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*models.EmailVerificationToken, error)
 	FindActiveByUserID(ctx context.Context, userID string) (*models.EmailVerificationToken, error)
 	IncrementAttempts(ctx context.Context, id string) (*models.EmailVerificationToken, error)
+	MarkUsed(ctx context.Context, id string) error
+	DeleteActiveForUser(ctx context.Context, userID string) error
+}
+
+type PasswordResetTokenRepository interface {
+	Create(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*models.PasswordResetToken, error)
+	FindActiveByUserID(ctx context.Context, userID string) (*models.PasswordResetToken, error)
+	FindActiveByTokenHash(ctx context.Context, tokenHash string) (*models.PasswordResetToken, error)
 	MarkUsed(ctx context.Context, id string) error
 	DeleteActiveForUser(ctx context.Context, userID string) error
 }
@@ -58,6 +68,7 @@ type OAuthManager interface {
 
 type EmailSender interface {
 	SendConfirmationCode(ctx context.Context, toEmail, code string) error
+	SendPasswordResetLink(ctx context.Context, toEmail, resetURL string) error
 }
 
 type AuthHandler struct {
@@ -65,16 +76,18 @@ type AuthHandler struct {
 	oauthManager               OAuthManager
 	refreshTokenRepo           RefreshTokenRepository
 	emailVerificationTokenRepo EmailVerificationTokenRepository
+	passwordResetTokenRepo     PasswordResetTokenRepository
 	emailSender                EmailSender
 	cfg                        *config.Config
 }
 
-func NewAuthHandler(userRepo UserRepository, oauthManager OAuthManager, refreshTokenRepo RefreshTokenRepository, emailVerificationTokenRepo EmailVerificationTokenRepository, emailSender EmailSender, cfg *config.Config) *AuthHandler {
+func NewAuthHandler(userRepo UserRepository, oauthManager OAuthManager, refreshTokenRepo RefreshTokenRepository, emailVerificationTokenRepo EmailVerificationTokenRepository, passwordResetTokenRepo PasswordResetTokenRepository, emailSender EmailSender, cfg *config.Config) *AuthHandler {
 	return &AuthHandler{
 		userRepo:                   userRepo,
 		oauthManager:               oauthManager,
 		refreshTokenRepo:           refreshTokenRepo,
 		emailVerificationTokenRepo: emailVerificationTokenRepo,
+		passwordResetTokenRepo:     passwordResetTokenRepo,
 		emailSender:                emailSender,
 		cfg:                        cfg,
 	}

@@ -72,6 +72,7 @@ type mocks struct {
 	oauthMgr         *genmocks.MockOAuthManager
 	refreshTokenRepo *genmocks.MockRefreshTokenRepository
 	emailTokenRepo   *genmocks.MockEmailVerificationTokenRepository
+	resetTokenRepo   *genmocks.MockPasswordResetTokenRepository
 	emailSender      *genmocks.MockEmailSender
 	router           *gin.Engine
 }
@@ -82,9 +83,10 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 		oauthMgr:         genmocks.NewMockOAuthManager(t),
 		refreshTokenRepo: genmocks.NewMockRefreshTokenRepository(t),
 		emailTokenRepo:   genmocks.NewMockEmailVerificationTokenRepository(t),
+		resetTokenRepo:   genmocks.NewMockPasswordResetTokenRepository(t),
 		emailSender:      genmocks.NewMockEmailSender(t),
 	}
-	h := handler.NewAuthHandler(m.userRepo, m.oauthMgr, m.refreshTokenRepo, m.emailTokenRepo, m.emailSender, &config.Config{
+	h := handler.NewAuthHandler(m.userRepo, m.oauthMgr, m.refreshTokenRepo, m.emailTokenRepo, m.resetTokenRepo, m.emailSender, &config.Config{
 		Environment:         env,
 		JWTSecretAccess:     testutil.TestAccessSecret,
 		JWTSecretRefresh:    testutil.TestRefreshSecret,
