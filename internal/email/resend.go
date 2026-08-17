@@ -5,7 +5,6 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	htmltemplate "html/template"
 	"io"
@@ -16,16 +15,22 @@ import (
 
 const resendAPIURL = "https://api.resend.com/emails"
 
-//go:embed templates/confirmation.html templates/confirmation.txt
+//go:embed templates/confirmation.html templates/confirmation.txt templates/reset.html templates/reset.txt
 var templateFS embed.FS
 
 var (
 	confirmationHTMLTemplate = htmltemplate.Must(htmltemplate.ParseFS(templateFS, "templates/confirmation.html"))
 	confirmationTextTemplate = texttemplate.Must(texttemplate.ParseFS(templateFS, "templates/confirmation.txt"))
+	resetHTMLTemplate        = htmltemplate.Must(htmltemplate.ParseFS(templateFS, "templates/reset.html"))
+	resetTextTemplate        = texttemplate.Must(texttemplate.ParseFS(templateFS, "templates/reset.txt"))
 )
 
 type confirmationEmailData struct {
 	Code string
+}
+
+type passwordResetEmailData struct {
+	ResetURL string
 }
 
 type ResendClient struct {
@@ -95,5 +100,43 @@ func (c *ResendClient) SendConfirmationCode(ctx context.Context, toEmail, code s
 }
 
 func (c *ResendClient) SendPasswordResetLink(ctx context.Context, toEmail, resetURL string) error {
-	return errors.New("SendPasswordResetLink not implemented")
+	data := passwordResetEmailData{ResetURL: resetURL}
+
+	var html, text bytes.Buffer
+	if err := resetHTMLTemplate.Execute(&html, data); err != nil {
+		return fmt.Errorf("resend: render html template: %w", err)
+	}
+	if err := resetTextTemplate.Execute(&text, data); err != nil {
+		return fmt.Errorf("resend: render text template: %w", err)
+	}
+
+	body, err := json.Marshal(resendEmailRequest{
+		From:    c.fromEmail,
+		To:      toEmail,
+		Subject: "Reset your Crockpot password",
+		HTML:    html.String(),
+		Text:    text.String(),
+	})
+	if err != nil {
+		return fmt.Errorf("resend: marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("resend: build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("resend: send request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return fmt.Errorf("resend: unexpected status %d: %s", resp.StatusCode, body)
+	}
+	return nil
 }
