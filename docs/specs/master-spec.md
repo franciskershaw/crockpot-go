@@ -279,6 +279,7 @@ session.*
   `password_reset_tokens`. **Done.** See `docs/handoffs/CROC-007.md`.
 - **CROC-008** — Refresh + logout (`POST /auth/refresh`, `POST
   /auth/logout`), rotation + reuse-detection per the design above.
+  **Done.** See `docs/handoffs/CROC-008.md`.
 - **CROC-009** — `GET /me` profile endpoint (id, email, name, image, role).
   First real protected route — also owns proving `CROC-003`'s
   `AuthMiddleware` works end-to-end against a live request (that ticket

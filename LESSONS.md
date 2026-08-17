@@ -151,6 +151,16 @@ implementation quality until CROC-001 lands.
   against a working session existing when the response says it failed,
   not against stale metadata.
 
+## 2026-08-17 — CROC-008 — Refresh + logout shipped; CodeRabbit's fourth real catch in a row, this one a genuine TOCTOU race in the core rotation mechanism
+
+- No rework in the TDD layers themselves (repository and handler both
+  red→green clean). CodeRabbit's post-review pass found 3 real issues: a
+  stale doc claim, `Logout` silently swallowing a `RevokeFamily`
+  failure, and an unconditional `RotateFamily` `UPDATE` racing against a
+  concurrent rotation — invisible to mocked handler tests by
+  construction, only provable once the check moved into the SQL `WHERE`
+  clause and got a real-DB repository test.
+
 ## 2026-08-17 — CROC-007 — Forgot/reset password shipped; CodeRabbit caught two lifecycle bugs in my own transaction fix, not just the original diff
 
 - Round 1 correctly rejected a disclosure finding that contradicted an

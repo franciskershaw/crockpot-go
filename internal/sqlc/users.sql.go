@@ -127,6 +127,30 @@ func (q *Queries) GetUserByGoogleID(ctx context.Context, googleID pgtype.Text) (
 	return i, err
 }
 
+const getUserByID = `-- name: GetUserByID :one
+SELECT id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at FROM users
+WHERE id = $1
+`
+
+func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByID, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.GoogleID,
+		&i.PasswordHash,
+		&i.Email,
+		&i.Name,
+		&i.Image,
+		&i.Role,
+		&i.EmailVerifiedAt,
+		&i.LastLoginAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const markUserEmailConfirmed = `-- name: MarkUserEmailConfirmed :one
 UPDATE users
 SET email_verified_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP

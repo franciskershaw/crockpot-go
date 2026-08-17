@@ -55,6 +55,32 @@ func (q *Queries) DeleteStaleRefreshTokenFamiliesForUser(ctx context.Context, us
 	return err
 }
 
+const getRefreshTokenFamilyByID = `-- name: GetRefreshTokenFamilyByID :one
+SELECT id, user_id, token_hash, previous_token_hash, previous_token_rotated_at, expires_at, revoked_at, created_at FROM refresh_tokens
+WHERE id = $1 AND user_id = $2
+`
+
+type GetRefreshTokenFamilyByIDParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) GetRefreshTokenFamilyByID(ctx context.Context, arg GetRefreshTokenFamilyByIDParams) (RefreshToken, error) {
+	row := q.db.QueryRow(ctx, getRefreshTokenFamilyByID, arg.ID, arg.UserID)
+	var i RefreshToken
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.PreviousTokenHash,
+		&i.PreviousTokenRotatedAt,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const revokeAllRefreshTokenFamiliesForUser = `-- name: RevokeAllRefreshTokenFamiliesForUser :exec
 UPDATE refresh_tokens
 SET revoked_at = CURRENT_TIMESTAMP
@@ -64,4 +90,54 @@ WHERE user_id = $1 AND revoked_at IS NULL AND expires_at >= CURRENT_TIMESTAMP
 func (q *Queries) RevokeAllRefreshTokenFamiliesForUser(ctx context.Context, userID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, revokeAllRefreshTokenFamiliesForUser, userID)
 	return err
+}
+
+const revokeRefreshTokenFamily = `-- name: RevokeRefreshTokenFamily :exec
+UPDATE refresh_tokens
+SET revoked_at = CURRENT_TIMESTAMP
+WHERE id = $1
+`
+
+func (q *Queries) RevokeRefreshTokenFamily(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, revokeRefreshTokenFamily, id)
+	return err
+}
+
+const rotateRefreshTokenFamily = `-- name: RotateRefreshTokenFamily :execrows
+UPDATE refresh_tokens
+SET previous_token_hash = token_hash,
+    previous_token_rotated_at = CURRENT_TIMESTAMP,
+    token_hash = $2,
+    expires_at = $3
+WHERE id = $1
+  AND revoked_at IS NULL
+  AND (
+    token_hash = $4::text
+    OR (previous_token_hash = $4::text AND previous_token_rotated_at > $5::timestamptz)
+  )
+`
+
+type RotateRefreshTokenFamilyParams struct {
+	ID                pgtype.UUID
+	TokenHash         string
+	ExpiresAt         pgtype.Timestamptz
+	PresentedHash     string
+	GraceWindowCutoff pgtype.Timestamptz
+}
+
+// Only rotates if the presented hash still matches the live row at write time (current token_hash,
+// or previous_token_hash within the grace window) — re-validates atomically instead of trusting an
+// earlier read, closing the gap a concurrent rotation could otherwise race through.
+func (q *Queries) RotateRefreshTokenFamily(ctx context.Context, arg RotateRefreshTokenFamilyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, rotateRefreshTokenFamily,
+		arg.ID,
+		arg.TokenHash,
+		arg.ExpiresAt,
+		arg.PresentedHash,
+		arg.GraceWindowCutoff,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

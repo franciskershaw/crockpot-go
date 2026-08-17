@@ -30,6 +30,7 @@ const shutdownGracePeriod = 20 * time.Second
 
 var globalRateLimit = limiter.Rate{Period: time.Minute, Limit: 120}
 var authRateLimit = limiter.Rate{Period: time.Minute, Limit: 10}
+var authRefreshRateLimit = limiter.Rate{Period: time.Minute, Limit: 30}
 
 func main() {
 	// Match Gin's own default writer (os.Stdout) so log output interleaves in order.
@@ -97,6 +98,13 @@ func main() {
 		authTight.POST("/login", authHandler.Login)
 		authTight.POST("/forgot-password", authHandler.ForgotPassword)
 		authTight.POST("/reset-password", authHandler.ResetPassword)
+		authTight.POST("/logout", authHandler.Logout)
+	}
+
+	authRefresh := server.Group("/auth")
+	authRefresh.Use(middleware.NewRateLimitMiddleware(memory.NewStore(), authRefreshRateLimit).Handler())
+	{
+		authRefresh.POST("/refresh", authHandler.RefreshToken)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

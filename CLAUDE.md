@@ -247,15 +247,20 @@ needed at all for any of them). Once `CROC-006` (password login) lands,
 the same file gains a token-acquiring chain: log in against a
 pre-created, already-confirmed test account and capture the access token
 via REST Client's response-variable syntax (`@authToken =
-{{login.response.body.accessToken}}`). Once `CROC-008` (`/auth/refresh`)
-lands, an alternative chain covers the cookie-based refresh path: seed
-`DEV_REFRESH_TOKEN` into `.env` once, by hand, from the httponly
-`refreshToken` cookie a real browser Google login sets (already a
-required manual step for `CROC-004`'s own interactive verification —
-extract the cookie value from browser devtools), then chain a `POST
-/auth/refresh` off `{{$dotenv DEV_REFRESH_TOKEN}}` the same way — no step
-ever manually copies an access token, matching `packing-list-go`'s
-`{{$dotenv DEV_TOKEN}}` convention in spirit but not in mechanism.
+{{login.response.body.accessToken}}`). `CROC-008`'s `/auth/refresh`/
+`/auth/logout` sections chain directly off that same `Login` request's
+`Set-Cookie` response instead of a separate seeded token: REST Client's
+cookie jar (`rest-client.rememberCookiesForSubsequentRequests`, on by
+default — confirmed against `packing-list-go`'s own `PACK-027` finding)
+carries the real `refreshToken` cookie `Login` sets forward to every
+later request in the same run automatically. **Corrects this section's
+earlier plan**, written before `Login` existed in this file, to seed a
+`DEV_REFRESH_TOKEN` env var by hand from a real browser Google-login
+cookie — decided against at `CROC-008`'s grill: CROC-008's rotation/
+reuse/revoke mechanism is identical regardless of which login method
+created the family, so a password-login-sourced cookie already in this
+file exercises it fully, with no manual browser round-trip needed per
+run.
 
 Google login/callback themselves stay out of `.http` coverage, same
 reasoning `packing-list-go/requests/README.md` documents: a real browser

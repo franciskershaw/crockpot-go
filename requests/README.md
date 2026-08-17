@@ -10,13 +10,13 @@ on every commit.
 
 1. Start the server: `go run main.go`
 
-That's it for now — `requests/auth.http`'s current sections
-(`register`/`confirm`/`resend-confirmation`) are all unauthenticated by
-definition, so there's no token to seed. Once `CROC-006` (password login)
-and `CROC-008` (`/auth/refresh`) land, this file gains token-acquiring
-chains the same way `packing-list-go`'s does — see
-`docs/handoffs/CROC-005.md`'s "Token acquisition" note in `CLAUDE.md` for
-the planned shape.
+That's it for now — `register`/`confirm`/`resend-confirmation` are all
+unauthenticated by definition, so there's no token to seed for those.
+`Login` (`CROC-006`) captures the access token via REST Client's
+response-variable syntax; `refresh`/`logout` (`CROC-008`) chain directly
+off `Login`'s `Set-Cookie` response instead of a separately-seeded
+token — REST Client's cookie jar carries it forward automatically. See
+`CLAUDE.md`'s "Token acquisition" note for the full reasoning.
 
 The host resolves from `.env`, reusing the same `PORT` the server binds
 to (`config.Config`) — every request URL is

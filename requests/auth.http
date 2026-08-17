@@ -193,8 +193,9 @@ Content-Type: application/json
 # ══════════════════════════════════════════
 
 ### ✅ 200 — correct credentials against the confirmed account above.
-### Captures the access token into @authToken for reuse once CROC-008's
-### endpoints land in this file.
+### Captures the access token into @authToken. Also sets a real
+### refreshToken cookie, which the refresh/logout section below chains
+### off automatically via REST Client's cookie jar.
 # @name login
 POST http://localhost:{{$dotenv PORT}}/auth/login
 Content-Type: application/json
@@ -275,6 +276,88 @@ Content-Type: application/json
   "email": "crockpot-http-test-login-google@example.com",
   "password": "whatever"
 }
+
+
+# ══════════════════════════════════════════
+#  POST /auth/refresh, POST /auth/logout
+#
+#  Chains off the ✅ 200 login request above — REST Client's cookie jar
+#  (rememberCookiesForSubsequentRequests, on by default) carries that
+#  request's refreshToken cookie forward to every request below with no
+#  explicit reference needed, same as a real browser tab would. Run the
+#  ✅ 200 login request above first if you haven't already this session.
+#
+#  🔒 429 — /auth/refresh has its own 30/min group, looser than the
+#  10/min authTight group the other 🔒 429 cases in this file exercise.
+#  Click "Send Request" on the first ✅ 200 request below 31 times in a
+#  row (fast) to see it — not scripted here, since REST Client has no
+#  built-in repeat-N-times action; do it before the rotate/replay
+#  sequence, against a disposable session, since each successful call
+#  rotates and you don't want to exhaust the family before the real
+#  reuse-detection sequence below.
+# ══════════════════════════════════════════
+
+### ✅ 200 — rotates the session: new accessToken, new refreshToken
+### cookie. Before running this, copy the *current* refreshToken cookie
+### value out of the ✅ 200 login response's Set-Cookie header (VS
+### Code's REST Client response pane shows raw headers) into
+### ORIGINAL_REFRESH_TOKEN below — you'll deliberately replay it further
+### down to trigger reuse detection.
+POST http://localhost:{{$dotenv PORT}}/auth/refresh
+
+###
+
+### ✅ 200 — refresh again. Proves rotation actually advances (not just
+### re-issuing the same pair): the jar now presents the cookie the
+### request above issued, not the original login cookie.
+POST http://localhost:{{$dotenv PORT}}/auth/refresh
+
+###
+
+### 🔒 401 — deliberately replay ORIGINAL_REFRESH_TOKEN (copied above),
+### now two rotations stale. Wait at least 10s after the first refresh
+### request above before running this, so the grace window has cleared
+### and this is unambiguously reuse, not a benign race. This is what
+### actually revokes the whole family.
+POST http://localhost:{{$dotenv PORT}}/auth/refresh
+Cookie: refreshToken=ORIGINAL_REFRESH_TOKEN
+
+###
+
+### 🔒 401 — the family is now revoked entirely: even the most-recently
+### rotated cookie (still held by the jar from the second refresh
+### above) fails immediately after the replay above, proving the whole
+### family died, not just the replayed token.
+POST http://localhost:{{$dotenv PORT}}/auth/refresh
+
+###
+
+### Setup for the logout case below — the family above is already dead,
+### so re-login for a fresh, live session. Before running Logout below,
+### copy this response's refreshToken cookie value into
+### LOGOUT_TEST_REFRESH_TOKEN — Logout's own response clears the jar's
+### cookie, so the final request below needs it presented explicitly.
+POST http://localhost:{{$dotenv PORT}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "password": "correcthorsebattery"
+}
+
+###
+
+### ✅ 200 — revokes the session above server-side and clears the
+### cookie (Max-Age 0 in the response — check the response headers).
+POST http://localhost:{{$dotenv PORT}}/auth/logout
+
+###
+
+### 🔒 401 — replay LOGOUT_TEST_REFRESH_TOKEN (copied above) after
+### logout. Proves server-side revocation, not just cookie-clearing —
+### this token was never rotated or reused, only logged out.
+POST http://localhost:{{$dotenv PORT}}/auth/refresh
+Cookie: refreshToken=LOGOUT_TEST_REFRESH_TOKEN
 
 
 # ══════════════════════════════════════════

@@ -134,6 +134,66 @@ func (_c *MockRefreshTokenRepository_DeleteStaleFamiliesForUser_Call) RunAndRetu
 	return _c
 }
 
+// FindFamilyByID provides a mock function with given fields: ctx, id, userID
+func (_m *MockRefreshTokenRepository) FindFamilyByID(ctx context.Context, id string, userID string) (*models.RefreshTokenFamily, error) {
+	ret := _m.Called(ctx, id, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FindFamilyByID")
+	}
+
+	var r0 *models.RefreshTokenFamily
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*models.RefreshTokenFamily, error)); ok {
+		return rf(ctx, id, userID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *models.RefreshTokenFamily); ok {
+		r0 = rf(ctx, id, userID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.RefreshTokenFamily)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, id, userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockRefreshTokenRepository_FindFamilyByID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FindFamilyByID'
+type MockRefreshTokenRepository_FindFamilyByID_Call struct {
+	*mock.Call
+}
+
+// FindFamilyByID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - userID string
+func (_e *MockRefreshTokenRepository_Expecter) FindFamilyByID(ctx interface{}, id interface{}, userID interface{}) *MockRefreshTokenRepository_FindFamilyByID_Call {
+	return &MockRefreshTokenRepository_FindFamilyByID_Call{Call: _e.mock.On("FindFamilyByID", ctx, id, userID)}
+}
+
+func (_c *MockRefreshTokenRepository_FindFamilyByID_Call) Run(run func(ctx context.Context, id string, userID string)) *MockRefreshTokenRepository_FindFamilyByID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockRefreshTokenRepository_FindFamilyByID_Call) Return(_a0 *models.RefreshTokenFamily, _a1 error) *MockRefreshTokenRepository_FindFamilyByID_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockRefreshTokenRepository_FindFamilyByID_Call) RunAndReturn(run func(context.Context, string, string) (*models.RefreshTokenFamily, error)) *MockRefreshTokenRepository_FindFamilyByID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RevokeAllFamiliesForUser provides a mock function with given fields: ctx, userID
 func (_m *MockRefreshTokenRepository) RevokeAllFamiliesForUser(ctx context.Context, userID string) error {
 	ret := _m.Called(ctx, userID)
@@ -177,6 +237,114 @@ func (_c *MockRefreshTokenRepository_RevokeAllFamiliesForUser_Call) Return(_a0 e
 }
 
 func (_c *MockRefreshTokenRepository_RevokeAllFamiliesForUser_Call) RunAndReturn(run func(context.Context, string) error) *MockRefreshTokenRepository_RevokeAllFamiliesForUser_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RevokeFamily provides a mock function with given fields: ctx, familyID
+func (_m *MockRefreshTokenRepository) RevokeFamily(ctx context.Context, familyID string) error {
+	ret := _m.Called(ctx, familyID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RevokeFamily")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, familyID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockRefreshTokenRepository_RevokeFamily_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RevokeFamily'
+type MockRefreshTokenRepository_RevokeFamily_Call struct {
+	*mock.Call
+}
+
+// RevokeFamily is a helper method to define mock.On call
+//   - ctx context.Context
+//   - familyID string
+func (_e *MockRefreshTokenRepository_Expecter) RevokeFamily(ctx interface{}, familyID interface{}) *MockRefreshTokenRepository_RevokeFamily_Call {
+	return &MockRefreshTokenRepository_RevokeFamily_Call{Call: _e.mock.On("RevokeFamily", ctx, familyID)}
+}
+
+func (_c *MockRefreshTokenRepository_RevokeFamily_Call) Run(run func(ctx context.Context, familyID string)) *MockRefreshTokenRepository_RevokeFamily_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockRefreshTokenRepository_RevokeFamily_Call) Return(_a0 error) *MockRefreshTokenRepository_RevokeFamily_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockRefreshTokenRepository_RevokeFamily_Call) RunAndReturn(run func(context.Context, string) error) *MockRefreshTokenRepository_RevokeFamily_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RotateFamily provides a mock function with given fields: ctx, familyID, presentedHash, newTokenHash, newExpiresAt, graceWindowCutoff
+func (_m *MockRefreshTokenRepository) RotateFamily(ctx context.Context, familyID string, presentedHash string, newTokenHash string, newExpiresAt time.Time, graceWindowCutoff time.Time) (bool, error) {
+	ret := _m.Called(ctx, familyID, presentedHash, newTokenHash, newExpiresAt, graceWindowCutoff)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RotateFamily")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, time.Time, time.Time) (bool, error)); ok {
+		return rf(ctx, familyID, presentedHash, newTokenHash, newExpiresAt, graceWindowCutoff)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, time.Time, time.Time) bool); ok {
+		r0 = rf(ctx, familyID, presentedHash, newTokenHash, newExpiresAt, graceWindowCutoff)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, time.Time, time.Time) error); ok {
+		r1 = rf(ctx, familyID, presentedHash, newTokenHash, newExpiresAt, graceWindowCutoff)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockRefreshTokenRepository_RotateFamily_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RotateFamily'
+type MockRefreshTokenRepository_RotateFamily_Call struct {
+	*mock.Call
+}
+
+// RotateFamily is a helper method to define mock.On call
+//   - ctx context.Context
+//   - familyID string
+//   - presentedHash string
+//   - newTokenHash string
+//   - newExpiresAt time.Time
+//   - graceWindowCutoff time.Time
+func (_e *MockRefreshTokenRepository_Expecter) RotateFamily(ctx interface{}, familyID interface{}, presentedHash interface{}, newTokenHash interface{}, newExpiresAt interface{}, graceWindowCutoff interface{}) *MockRefreshTokenRepository_RotateFamily_Call {
+	return &MockRefreshTokenRepository_RotateFamily_Call{Call: _e.mock.On("RotateFamily", ctx, familyID, presentedHash, newTokenHash, newExpiresAt, graceWindowCutoff)}
+}
+
+func (_c *MockRefreshTokenRepository_RotateFamily_Call) Run(run func(ctx context.Context, familyID string, presentedHash string, newTokenHash string, newExpiresAt time.Time, graceWindowCutoff time.Time)) *MockRefreshTokenRepository_RotateFamily_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(time.Time), args[5].(time.Time))
+	})
+	return _c
+}
+
+func (_c *MockRefreshTokenRepository_RotateFamily_Call) Return(_a0 bool, _a1 error) *MockRefreshTokenRepository_RotateFamily_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockRefreshTokenRepository_RotateFamily_Call) RunAndReturn(run func(context.Context, string, string, string, time.Time, time.Time) (bool, error)) *MockRefreshTokenRepository_RotateFamily_Call {
 	_c.Call.Return(run)
 	return _c
 }
