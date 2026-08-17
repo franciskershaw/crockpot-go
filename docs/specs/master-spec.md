@@ -122,8 +122,15 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   founder flagged that a clickable confirmation link reads as
   spam/phishing in the wrong context), 10-minute TTL, invalidated after 5
   wrong attempts; forgot-password issues a separate, single-use, expiring
-  reset token (shape TBD at `CROC-007`'s own grill — not assumed to be the
-  same OTP pattern). Password hashing via `golang.org/x/crypto/bcrypt`
+  reset token — decided at `CROC-007` (`docs/handoffs/CROC-007.md`) to be
+  an opaque high-entropy link-token (32 random bytes, hex-encoded, sha256-
+  hashed like refresh tokens), not the OTP pattern above: a "click here to
+  reset your password" link doesn't carry the spam/phishing signal a
+  same-session confirmation link does, and the token's entropy makes an
+  attempts-lockout unnecessary (`password_reset_tokens` has no `attempts`
+  column). A successful reset revokes every other live session for the
+  account (`RevokeAllFamiliesForUser`) and auto-issues a fresh one for the
+  device that completed it. Password hashing via `golang.org/x/crypto/bcrypt`
   (max 72 bytes, rejected explicitly rather than silently truncated).
   **Correction**: the original claim here that this "match[es] the old
   Next.js app's `bcryptjs` choice" was checked and found false at
@@ -162,10 +169,16 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   token** — no access token is minted or returned at that step; the
   frontend mints its own via `POST /auth/refresh` on load, matching
   `crockpot-react`'s master-spec commitment. `RefreshTokenRepository` is
-  one interface split across two tickets: `CROC-004` builds
-  `CreateFamily`/`DeleteStaleFamiliesForUser` only; `CROC-008` adds
-  `RotateFamily`/`FindFamilyByID`/`RevokeFamily` to the same
-  interface/struct. **A Google sign-in against an email already
+  one interface split across three tickets: `CROC-004` builds
+  `CreateFamily`/`DeleteStaleFamiliesForUser` only; `CROC-007` adds
+  `RevokeAllFamiliesForUser` (bulk, revokes every live family for a user
+  — password reset logs the account out everywhere except the device
+  that just proved it's really them, see `docs/handoffs/CROC-007.md`);
+  `CROC-008` adds `RotateFamily`/`FindFamilyByID`/`RevokeFamily`
+  (single-family, by-ID, for the rotate-on-use + reuse-detection
+  mechanism) to the same interface/struct. Bulk logout-on-reset and
+  per-family reuse revocation are different operations, not overlapping
+  scope. **A Google sign-in against an email already
   registered via password fails explicitly** (`ErrEmailRegisteredWithPassword`,
   detected as a Postgres unique-violation on `users.email`), redirecting
   the browser to `${FRONTEND_URL}/auth/callback?error=...` rather than
@@ -228,8 +241,8 @@ being the first ticket that needs it (see `docs/handoffs/CROC-005.md`).
 whole token family (same model as `packing-list-go`, see its
 `docs/handoffs/PACK-027.md` for the reuse-detection design this copies).
 Email-verification and password-reset tokens are single-use and
-short-expiry (verification ~24h, reset ~1h — confirmed per-ticket, not
-locked in at kickoff).
+short-expiry (verification 10 min, confirmed at `CROC-005`; reset 1h,
+confirmed at `CROC-007`).
 
 **Data retention**: no soft-delete requirement identified yet for any
 Crockpot entity (unlike `packing-list-go`'s archived packing lists) —
@@ -259,9 +272,11 @@ session.*
 - **CROC-006** — Email/password login. **Done.**
   See `docs/handoffs/CROC-006.md`.
 - **CROC-007** — Forgot/reset password (`POST /auth/forgot-password` sends
-  reset email; `POST /auth/reset-password` consumes the token). Same
+  a reset-link email; `POST /auth/reset-password` consumes the opaque
+  link-token, sets the new password, confirms the email, revokes every
+  other live session, and auto-issues a fresh one). Same
   clear-before-insert requirement as CROC-005, against
-  `password_reset_tokens`.
+  `password_reset_tokens`. **Done.** See `docs/handoffs/CROC-007.md`.
 - **CROC-008** — Refresh + logout (`POST /auth/refresh`, `POST
   /auth/logout`), rotation + reuse-detection per the design above.
 - **CROC-009** — `GET /me` profile endpoint (id, email, name, image, role).

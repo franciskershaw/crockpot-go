@@ -134,6 +134,53 @@ func (_c *MockRefreshTokenRepository_DeleteStaleFamiliesForUser_Call) RunAndRetu
 	return _c
 }
 
+// RevokeAllFamiliesForUser provides a mock function with given fields: ctx, userID
+func (_m *MockRefreshTokenRepository) RevokeAllFamiliesForUser(ctx context.Context, userID string) error {
+	ret := _m.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RevokeAllFamiliesForUser")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, userID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockRefreshTokenRepository_RevokeAllFamiliesForUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RevokeAllFamiliesForUser'
+type MockRefreshTokenRepository_RevokeAllFamiliesForUser_Call struct {
+	*mock.Call
+}
+
+// RevokeAllFamiliesForUser is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+func (_e *MockRefreshTokenRepository_Expecter) RevokeAllFamiliesForUser(ctx interface{}, userID interface{}) *MockRefreshTokenRepository_RevokeAllFamiliesForUser_Call {
+	return &MockRefreshTokenRepository_RevokeAllFamiliesForUser_Call{Call: _e.mock.On("RevokeAllFamiliesForUser", ctx, userID)}
+}
+
+func (_c *MockRefreshTokenRepository_RevokeAllFamiliesForUser_Call) Run(run func(ctx context.Context, userID string)) *MockRefreshTokenRepository_RevokeAllFamiliesForUser_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockRefreshTokenRepository_RevokeAllFamiliesForUser_Call) Return(_a0 error) *MockRefreshTokenRepository_RevokeAllFamiliesForUser_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockRefreshTokenRepository_RevokeAllFamiliesForUser_Call) RunAndReturn(run func(context.Context, string) error) *MockRefreshTokenRepository_RevokeAllFamiliesForUser_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockRefreshTokenRepository creates a new instance of MockRefreshTokenRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockRefreshTokenRepository(t interface {

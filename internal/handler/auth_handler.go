@@ -23,6 +23,7 @@ const (
 	confirmationCodeTTL     = 10 * time.Minute
 	maxConfirmationAttempts = 5
 	resendCooldown          = 60 * time.Second
+	passwordResetTokenTTL   = time.Hour
 	minPasswordLength       = 8
 	maxPasswordBytes        = 72
 )
@@ -33,11 +34,13 @@ type UserRepository interface {
 	MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error)
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
 	UpdateLastLogin(ctx context.Context, userID string) (*models.User, error)
+	UpdatePassword(ctx context.Context, userID, passwordHash string) (*models.User, error)
 }
 
 type RefreshTokenRepository interface {
 	CreateFamily(ctx context.Context, id, userID, tokenHash string, expiresAt time.Time) (*models.RefreshTokenFamily, error)
 	DeleteStaleFamiliesForUser(ctx context.Context, userID string) error
+	RevokeAllFamiliesForUser(ctx context.Context, userID string) error
 }
 
 type EmailVerificationTokenRepository interface {
@@ -46,6 +49,21 @@ type EmailVerificationTokenRepository interface {
 	IncrementAttempts(ctx context.Context, id string) (*models.EmailVerificationToken, error)
 	MarkUsed(ctx context.Context, id string) error
 	DeleteActiveForUser(ctx context.Context, userID string) error
+}
+
+type PasswordResetTokenRepository interface {
+	Create(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*models.PasswordResetToken, error)
+	FindActiveByUserID(ctx context.Context, userID string) (*models.PasswordResetToken, error)
+	FindActiveByTokenHash(ctx context.Context, tokenHash string) (*models.PasswordResetToken, error)
+	MarkUsed(ctx context.Context, id string) (bool, error)
+	DeleteActiveForUser(ctx context.Context, userID string) error
+	AcquireUserLock(ctx context.Context, userID string) error
+}
+
+// Transactor runs fn inside a single database transaction — every repository call made
+// with the ctx passed to fn joins that transaction, regardless of which repo interface it's called through.
+type Transactor interface {
+	WithinTx(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
 type OAuthManager interface {
@@ -58,6 +76,7 @@ type OAuthManager interface {
 
 type EmailSender interface {
 	SendConfirmationCode(ctx context.Context, toEmail, code string) error
+	SendPasswordResetLink(ctx context.Context, toEmail, resetURL string) error
 }
 
 type AuthHandler struct {
@@ -65,17 +84,21 @@ type AuthHandler struct {
 	oauthManager               OAuthManager
 	refreshTokenRepo           RefreshTokenRepository
 	emailVerificationTokenRepo EmailVerificationTokenRepository
+	passwordResetTokenRepo     PasswordResetTokenRepository
 	emailSender                EmailSender
+	transactor                 Transactor
 	cfg                        *config.Config
 }
 
-func NewAuthHandler(userRepo UserRepository, oauthManager OAuthManager, refreshTokenRepo RefreshTokenRepository, emailVerificationTokenRepo EmailVerificationTokenRepository, emailSender EmailSender, cfg *config.Config) *AuthHandler {
+func NewAuthHandler(userRepo UserRepository, oauthManager OAuthManager, refreshTokenRepo RefreshTokenRepository, emailVerificationTokenRepo EmailVerificationTokenRepository, passwordResetTokenRepo PasswordResetTokenRepository, emailSender EmailSender, transactor Transactor, cfg *config.Config) *AuthHandler {
 	return &AuthHandler{
 		userRepo:                   userRepo,
 		oauthManager:               oauthManager,
 		refreshTokenRepo:           refreshTokenRepo,
 		emailVerificationTokenRepo: emailVerificationTokenRepo,
+		passwordResetTokenRepo:     passwordResetTokenRepo,
 		emailSender:                emailSender,
+		transactor:                 transactor,
 		cfg:                        cfg,
 	}
 }
@@ -501,3 +524,211 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"accessToken": accessToken})
 }
+
+type forgotPasswordRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+func (h *AuthHandler) ForgotPassword(c *gin.Context) {
+	var req forgotPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	user, err := h.userRepo.FindByEmail(ctx, req.Email)
+	if err != nil {
+		if !errors.Is(err, models.ErrUserNotFound) {
+			_ = c.Error(fmt.Errorf("failed to look up user by email: %w", err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email_not_found"})
+		return
+	}
+
+	if user.PasswordHash == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "google_account_no_password"})
+		return
+	}
+
+	if err := h.issuePasswordResetToken(ctx, user); err != nil {
+		var cooldown *errResendCooldown
+		if errors.As(err, &cooldown) {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error":             "resend_too_soon",
+				"retryAfterSeconds": int(cooldown.retryAfter.Seconds()),
+			})
+			return
+		}
+		_ = c.Error(fmt.Errorf("failed to issue password reset token: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "check your email for a password reset link"})
+}
+
+// The DB sequence runs behind a per-user advisory lock so concurrent calls don't race the active-token
+// unique index; the email send stays outside the transaction, never holding a DB lock across a network call.
+func (h *AuthHandler) issuePasswordResetToken(ctx context.Context, user *models.User) error {
+	var token string
+	var created *models.PasswordResetToken
+
+	err := h.transactor.WithinTx(ctx, func(ctx context.Context) error {
+		if err := h.passwordResetTokenRepo.AcquireUserLock(ctx, user.ID.String()); err != nil {
+			return err
+		}
+
+		if existing, err := h.passwordResetTokenRepo.FindActiveByUserID(ctx, user.ID.String()); err == nil {
+			if elapsed := time.Since(existing.CreatedAt); elapsed < resendCooldown {
+				return &errResendCooldown{retryAfter: resendCooldown - elapsed}
+			}
+		} else if !errors.Is(err, models.ErrNoActivePasswordResetToken) {
+			return fmt.Errorf("failed to look up active password reset token: %w", err)
+		}
+
+		if err := h.passwordResetTokenRepo.DeleteActiveForUser(ctx, user.ID.String()); err != nil {
+			return fmt.Errorf("failed to clear prior password reset token: %w", err)
+		}
+
+		var err error
+		token, err = auth.GenerateResetToken()
+		if err != nil {
+			return fmt.Errorf("failed to generate password reset token: %w", err)
+		}
+
+		created, err = h.passwordResetTokenRepo.Create(ctx, user.ID.String(), auth.HashToken(token), time.Now().Add(passwordResetTokenTTL))
+		if err != nil {
+			return fmt.Errorf("failed to persist password reset token: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	resetURL := fmt.Sprintf("%s/reset-password?token=%s", h.cfg.FrontendURL, token)
+	if err := h.emailSender.SendPasswordResetLink(ctx, user.Email, resetURL); err != nil {
+		// Never delivered — mark it used so it doesn't block the next attempt behind a cooldown for a link the user never received.
+		if _, markErr := h.passwordResetTokenRepo.MarkUsed(ctx, created.ID.String()); markErr != nil {
+			return fmt.Errorf("failed to send password reset email (%w) and failed to clean up undelivered token: %w", err, markErr)
+		}
+		return fmt.Errorf("failed to send password reset email: %w", err)
+	}
+	return nil
+}
+
+type resetPasswordRequest struct {
+	Token       string `json:"token" binding:"required"`
+	NewPassword string `json:"newPassword" binding:"required"`
+}
+
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var req resetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	token, err := h.passwordResetTokenRepo.FindActiveByTokenHash(ctx, auth.HashToken(req.Token))
+	if err != nil {
+		if !errors.Is(err, models.ErrNoActivePasswordResetToken) {
+			_ = c.Error(fmt.Errorf("failed to look up password reset token: %w", err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "token_invalid"})
+		return
+	}
+
+	if time.Now().After(token.ExpiresAt) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "token_expired"})
+		return
+	}
+
+	if len(req.NewPassword) < minPasswordLength {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password_too_short"})
+		return
+	}
+	if len(req.NewPassword) > maxPasswordBytes {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password_too_long"})
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		_ = c.Error(fmt.Errorf("failed to hash password: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	userID := token.UserID.String()
+	familyID := uuid.NewString()
+	refreshToken, err := auth.GenerateRefreshToken(userID, familyID, h.cfg.JWTSecretRefresh)
+	if err != nil {
+		_ = c.Error(fmt.Errorf("failed to generate refresh token: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	var user *models.User
+	txErr := h.transactor.WithinTx(ctx, func(ctx context.Context) error {
+		claimed, err := h.passwordResetTokenRepo.MarkUsed(ctx, token.ID.String())
+		if err != nil {
+			return fmt.Errorf("failed to mark password reset token used: %w", err)
+		}
+		if !claimed {
+			return errPasswordResetTokenAlreadyClaimed
+		}
+
+		user, err = h.userRepo.UpdatePassword(ctx, userID, string(hash))
+		if err != nil {
+			return fmt.Errorf("failed to update password: %w", err)
+		}
+
+		if _, err := h.userRepo.MarkEmailConfirmed(ctx, userID); err != nil {
+			return fmt.Errorf("failed to mark email confirmed: %w", err)
+		}
+
+		if err := h.refreshTokenRepo.RevokeAllFamiliesForUser(ctx, userID); err != nil {
+			return fmt.Errorf("failed to revoke existing sessions: %w", err)
+		}
+
+		if err := h.refreshTokenRepo.DeleteStaleFamiliesForUser(ctx, userID); err != nil {
+			return fmt.Errorf("failed to clean up refresh tokens: %w", err)
+		}
+		if _, err := h.refreshTokenRepo.CreateFamily(ctx, familyID, userID, auth.HashToken(refreshToken), time.Now().Add(refreshTokenTTL)); err != nil {
+			return fmt.Errorf("failed to persist refresh token: %w", err)
+		}
+		return nil
+	})
+	if txErr != nil {
+		if errors.Is(txErr, errPasswordResetTokenAlreadyClaimed) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "token_invalid"})
+			return
+		}
+		_ = c.Error(txErr)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	accessToken, err := auth.GenerateAccessToken(user.Email, user.ID.String(), user.Role, h.cfg.JWTSecretAccess)
+	if err != nil {
+		_ = c.Error(fmt.Errorf("failed to generate access token: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	// Cookie is set only after the transaction above commits — never on a response that says failure.
+	h.setRefreshCookie(c, refreshToken, int(refreshTokenTTL.Seconds()))
+
+	c.JSON(http.StatusOK, gin.H{"accessToken": accessToken})
+}
+
+// errPasswordResetTokenAlreadyClaimed signals MarkUsed's atomic claim lost a race to a concurrent ResetPassword call.
+var errPasswordResetTokenAlreadyClaimed = errors.New("password reset token already claimed")

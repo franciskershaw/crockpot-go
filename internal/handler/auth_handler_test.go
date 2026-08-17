@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -72,7 +73,9 @@ type mocks struct {
 	oauthMgr         *genmocks.MockOAuthManager
 	refreshTokenRepo *genmocks.MockRefreshTokenRepository
 	emailTokenRepo   *genmocks.MockEmailVerificationTokenRepository
+	resetTokenRepo   *genmocks.MockPasswordResetTokenRepository
 	emailSender      *genmocks.MockEmailSender
+	transactor       *genmocks.MockTransactor
 	router           *gin.Engine
 }
 
@@ -82,9 +85,16 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 		oauthMgr:         genmocks.NewMockOAuthManager(t),
 		refreshTokenRepo: genmocks.NewMockRefreshTokenRepository(t),
 		emailTokenRepo:   genmocks.NewMockEmailVerificationTokenRepository(t),
+		resetTokenRepo:   genmocks.NewMockPasswordResetTokenRepository(t),
 		emailSender:      genmocks.NewMockEmailSender(t),
+		transactor:       genmocks.NewMockTransactor(t),
 	}
-	h := handler.NewAuthHandler(m.userRepo, m.oauthMgr, m.refreshTokenRepo, m.emailTokenRepo, m.emailSender, &config.Config{
+	// Every test gets a transactor that just runs the wrapped function directly — real transaction
+	// behavior is covered by repository-layer tests against the real DB, not these handler mocks.
+	m.transactor.EXPECT().WithinTx(mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) }).
+		Maybe()
+	h := handler.NewAuthHandler(m.userRepo, m.oauthMgr, m.refreshTokenRepo, m.emailTokenRepo, m.resetTokenRepo, m.emailSender, m.transactor, &config.Config{
 		Environment:         env,
 		JWTSecretAccess:     testutil.TestAccessSecret,
 		JWTSecretRefresh:    testutil.TestRefreshSecret,
@@ -98,6 +108,8 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 	m.router.POST("/auth/confirm", h.ConfirmEmail)
 	m.router.POST("/auth/resend-confirmation", h.ResendConfirmation)
 	m.router.POST("/auth/login", h.Login)
+	m.router.POST("/auth/forgot-password", h.ForgotPassword)
+	m.router.POST("/auth/reset-password", h.ResetPassword)
 	return m
 }
 
@@ -898,6 +910,256 @@ func TestLogin_Fails(t *testing.T) {
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])
 			assert.Nil(t, refreshCookieFrom(w), "no refresh cookie must be set on a failed login")
+		})
+	}
+}
+
+// --- ForgotPassword ---
+
+func doForgotPassword(r *gin.Engine, body any) *httptest.ResponseRecorder {
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/auth/forgot-password", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestForgotPassword_SuccessNoExistingToken(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	forgotUser := &models.User{ID: uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc"), Email: "forgot@example.com", PasswordHash: ptr(loginUserPasswordHash)}
+
+	m.userRepo.EXPECT().FindByEmail(mock.Anything, "forgot@example.com").Return(forgotUser, nil)
+	m.resetTokenRepo.EXPECT().AcquireUserLock(mock.Anything, forgotUser.ID.String()).Return(nil)
+	m.resetTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, forgotUser.ID.String()).Return(nil, models.ErrNoActivePasswordResetToken)
+	m.resetTokenRepo.EXPECT().DeleteActiveForUser(mock.Anything, forgotUser.ID.String()).Return(nil)
+	m.resetTokenRepo.EXPECT().Create(mock.Anything, forgotUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(&models.PasswordResetToken{}, nil)
+	m.emailSender.EXPECT().SendPasswordResetLink(mock.Anything, "forgot@example.com", mock.AnythingOfType("string")).Return(nil)
+
+	w := doForgotPassword(m.router, map[string]string{"email": "forgot@example.com"})
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotEmpty(t, decodeJSONBody(t, w)["message"])
+}
+
+func TestForgotPassword_Fails(t *testing.T) {
+	forgotUser := &models.User{ID: uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc"), Email: "forgot@example.com", PasswordHash: ptr(loginUserPasswordHash)}
+	googleOnlyUser := &models.User{ID: uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd"), Email: "google@example.com", GoogleID: ptr("google-123")}
+
+	cases := []struct {
+		name      string
+		email     string
+		setup     func(userRepo *genmocks.MockUserRepository, resetTokenRepo *genmocks.MockPasswordResetTokenRepository)
+		wantCode  int
+		wantError string
+	}{
+		{
+			name:      "malformed body",
+			email:     "not-an-email",
+			wantCode:  http.StatusBadRequest,
+			wantError: "invalid_request",
+		},
+		{
+			name:  "unknown email",
+			email: "ghost@example.com",
+			setup: func(userRepo *genmocks.MockUserRepository, _ *genmocks.MockPasswordResetTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "ghost@example.com").Return(nil, models.ErrUserNotFound)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "email_not_found",
+		},
+		{
+			name:  "FindByEmail generic error",
+			email: "ghost@example.com",
+			setup: func(userRepo *genmocks.MockUserRepository, _ *genmocks.MockPasswordResetTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "ghost@example.com").Return(nil, errors.New("db exploded"))
+			},
+			wantCode:  http.StatusInternalServerError,
+			wantError: "server_error",
+		},
+		{
+			name:  "google-only account has no password to reset",
+			email: "google@example.com",
+			setup: func(userRepo *genmocks.MockUserRepository, _ *genmocks.MockPasswordResetTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "google@example.com").Return(googleOnlyUser, nil)
+			},
+			wantCode:  http.StatusUnauthorized,
+			wantError: "google_account_no_password",
+		},
+		{
+			name:  "within cooldown",
+			email: "forgot@example.com",
+			setup: func(userRepo *genmocks.MockUserRepository, resetTokenRepo *genmocks.MockPasswordResetTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "forgot@example.com").Return(forgotUser, nil)
+				resetTokenRepo.EXPECT().AcquireUserLock(mock.Anything, forgotUser.ID.String()).Return(nil)
+				resetTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, forgotUser.ID.String()).Return(&models.PasswordResetToken{
+					ID: uuid.New(), UserID: forgotUser.ID, ExpiresAt: time.Now().Add(50 * time.Minute),
+					CreatedAt: time.Now().Add(-10 * time.Second),
+				}, nil)
+			},
+			wantCode:  http.StatusTooManyRequests,
+			wantError: "resend_too_soon",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMocks(t, config.EnvDevelopment)
+			if tc.setup != nil {
+				tc.setup(m.userRepo, m.resetTokenRepo)
+			}
+
+			w := doForgotPassword(m.router, map[string]string{"email": tc.email})
+
+			assert.Equal(t, tc.wantCode, w.Code)
+			assert.Equal(t, tc.wantError, decodeJSONBodyAny(t, w)["error"])
+		})
+	}
+}
+
+// --- ResetPassword ---
+
+func doResetPassword(r *gin.Engine, body any) *httptest.ResponseRecorder {
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/auth/reset-password", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+const resetPasswordPlaintext = "new-correct-horse"
+
+func TestResetPassword_Success(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	resetUser := &models.User{
+		ID: uuid.MustParse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"), Email: "reset@example.com",
+		PasswordHash: ptr(loginUserPasswordHash), Role: "FREE",
+	}
+	resetToken := &models.PasswordResetToken{
+		ID: uuid.New(), UserID: resetUser.ID, ExpiresAt: time.Now().Add(30 * time.Minute),
+	}
+
+	var order []string
+
+	m.resetTokenRepo.EXPECT().FindActiveByTokenHash(mock.Anything, auth.HashToken("some-opaque-token")).Return(resetToken, nil)
+	m.resetTokenRepo.EXPECT().MarkUsed(mock.Anything, resetToken.ID.String()).
+		Run(func(context.Context, string) { order = append(order, "MarkUsed") }).
+		Return(true, nil)
+	m.userRepo.EXPECT().UpdatePassword(mock.Anything, resetUser.ID.String(), mock.AnythingOfType("string")).
+		Run(func(context.Context, string, string) { order = append(order, "UpdatePassword") }).
+		Return(resetUser, nil)
+	m.userRepo.EXPECT().MarkEmailConfirmed(mock.Anything, resetUser.ID.String()).
+		Run(func(context.Context, string) { order = append(order, "MarkEmailConfirmed") }).
+		Return(resetUser, nil)
+	m.refreshTokenRepo.EXPECT().RevokeAllFamiliesForUser(mock.Anything, resetUser.ID.String()).
+		Run(func(context.Context, string) { order = append(order, "RevokeAllFamiliesForUser") }).
+		Return(nil)
+	m.refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, resetUser.ID.String()).
+		Run(func(context.Context, string) { order = append(order, "DeleteStaleFamiliesForUser") }).
+		Return(nil)
+	m.refreshTokenRepo.EXPECT().CreateFamily(mock.Anything, mock.AnythingOfType("string"), resetUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).
+		Run(func(context.Context, string, string, string, time.Time) { order = append(order, "CreateFamily") }).
+		Return(&models.RefreshTokenFamily{ID: uuid.New(), UserID: resetUser.ID}, nil)
+
+	w := doResetPassword(m.router, map[string]string{"token": "some-opaque-token", "newPassword": resetPasswordPlaintext})
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotEmpty(t, decodeJSONBody(t, w)["accessToken"])
+	require.NotNil(t, refreshCookieFrom(w), "expected refreshToken cookie to be set")
+	assert.Equal(t, []string{"MarkUsed", "UpdatePassword", "MarkEmailConfirmed", "RevokeAllFamiliesForUser", "DeleteStaleFamiliesForUser", "CreateFamily"}, order)
+}
+
+func TestResetPassword_Fails(t *testing.T) {
+	resetUser := &models.User{
+		ID: uuid.MustParse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"), Email: "reset@example.com",
+		PasswordHash: ptr(loginUserPasswordHash), Role: "FREE",
+	}
+
+	cases := []struct {
+		name      string
+		body      map[string]string
+		setup     func(resetTokenRepo *genmocks.MockPasswordResetTokenRepository)
+		wantCode  int
+		wantError string
+	}{
+		{
+			name:      "malformed body",
+			body:      map[string]string{"newPassword": resetPasswordPlaintext},
+			wantCode:  http.StatusBadRequest,
+			wantError: "invalid_request",
+		},
+		{
+			name: "invalid token",
+			body: map[string]string{"token": "bogus-token", "newPassword": resetPasswordPlaintext},
+			setup: func(resetTokenRepo *genmocks.MockPasswordResetTokenRepository) {
+				resetTokenRepo.EXPECT().FindActiveByTokenHash(mock.Anything, mock.AnythingOfType("string")).Return(nil, models.ErrNoActivePasswordResetToken)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "token_invalid",
+		},
+		{
+			name: "expired token",
+			body: map[string]string{"token": "expired-token", "newPassword": resetPasswordPlaintext},
+			setup: func(resetTokenRepo *genmocks.MockPasswordResetTokenRepository) {
+				resetTokenRepo.EXPECT().FindActiveByTokenHash(mock.Anything, mock.AnythingOfType("string")).Return(&models.PasswordResetToken{
+					ID: uuid.New(), UserID: resetUser.ID, ExpiresAt: time.Now().Add(-time.Minute),
+				}, nil)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "token_expired",
+		},
+		{
+			name: "password too short",
+			body: map[string]string{"token": "valid-token", "newPassword": "short"},
+			setup: func(resetTokenRepo *genmocks.MockPasswordResetTokenRepository) {
+				resetTokenRepo.EXPECT().FindActiveByTokenHash(mock.Anything, mock.AnythingOfType("string")).Return(&models.PasswordResetToken{
+					ID: uuid.New(), UserID: resetUser.ID, ExpiresAt: time.Now().Add(30 * time.Minute),
+				}, nil)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "password_too_short",
+		},
+		{
+			name: "password too long",
+			body: map[string]string{"token": "valid-token", "newPassword": strings.Repeat("a", 73)},
+			setup: func(resetTokenRepo *genmocks.MockPasswordResetTokenRepository) {
+				resetTokenRepo.EXPECT().FindActiveByTokenHash(mock.Anything, mock.AnythingOfType("string")).Return(&models.PasswordResetToken{
+					ID: uuid.New(), UserID: resetUser.ID, ExpiresAt: time.Now().Add(30 * time.Minute),
+				}, nil)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "password_too_long",
+		},
+		{
+			// Simulates a concurrent request winning the race to claim the same token first —
+			// MarkUsed's atomic conditional UPDATE reports 0 rows affected.
+			name: "token claimed by a concurrent request",
+			body: map[string]string{"token": "valid-token", "newPassword": resetPasswordPlaintext},
+			setup: func(resetTokenRepo *genmocks.MockPasswordResetTokenRepository) {
+				token := &models.PasswordResetToken{
+					ID: uuid.New(), UserID: resetUser.ID, ExpiresAt: time.Now().Add(30 * time.Minute),
+				}
+				resetTokenRepo.EXPECT().FindActiveByTokenHash(mock.Anything, mock.AnythingOfType("string")).Return(token, nil)
+				resetTokenRepo.EXPECT().MarkUsed(mock.Anything, token.ID.String()).Return(false, nil)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "token_invalid",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMocks(t, config.EnvDevelopment)
+			if tc.setup != nil {
+				tc.setup(m.resetTokenRepo)
+			}
+
+			w := doResetPassword(m.router, tc.body)
+
+			assert.Equal(t, tc.wantCode, w.Code)
+			assert.Equal(t, tc.wantError, decodeJSONBodyAny(t, w)["error"])
+			assert.Nil(t, refreshCookieFrom(w), "no refresh cookie must be set on a failed reset")
 		})
 	}
 }

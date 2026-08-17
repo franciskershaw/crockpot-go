@@ -65,8 +65,10 @@ func main() {
 	userRepo := repository.NewPostgresUserRepository(db.DB)
 	refreshTokenRepo := repository.NewPostgresRefreshTokenRepository(db.DB)
 	emailVerificationTokenRepo := repository.NewPostgresEmailVerificationTokenRepository(db.DB)
+	passwordResetTokenRepo := repository.NewPostgresPasswordResetTokenRepository(db.DB)
+	transactor := repository.NewPostgresTransactor(db.DB)
 	emailSender := email.NewResendClient(cfg.ResendAPIKey, cfg.EmailFrom)
-	authHandler := handler.NewAuthHandler(userRepo, oauthManager, refreshTokenRepo, emailVerificationTokenRepo, emailSender, cfg)
+	authHandler := handler.NewAuthHandler(userRepo, oauthManager, refreshTokenRepo, emailVerificationTokenRepo, passwordResetTokenRepo, emailSender, transactor, cfg)
 
 	// Initialize Gin server
 	gin.SetMode(configureGinMode(string(cfg.Environment)))
@@ -93,6 +95,8 @@ func main() {
 		authTight.POST("/confirm", authHandler.ConfirmEmail)
 		authTight.POST("/resend-confirmation", authHandler.ResendConfirmation)
 		authTight.POST("/login", authHandler.Login)
+		authTight.POST("/forgot-password", authHandler.ForgotPassword)
+		authTight.POST("/reset-password", authHandler.ResetPassword)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

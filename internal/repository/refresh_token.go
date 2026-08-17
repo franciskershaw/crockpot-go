@@ -11,11 +11,11 @@ import (
 )
 
 type PostgresRefreshTokenRepository struct {
-	q *sqlc.Queries
+	db sqlc.DBTX
 }
 
 func NewPostgresRefreshTokenRepository(db sqlc.DBTX) *PostgresRefreshTokenRepository {
-	return &PostgresRefreshTokenRepository{q: sqlc.New(db)}
+	return &PostgresRefreshTokenRepository{db: db}
 }
 
 func (r *PostgresRefreshTokenRepository) CreateFamily(ctx context.Context, id, userID, tokenHash string, expiresAt time.Time) (*models.RefreshTokenFamily, error) {
@@ -28,7 +28,7 @@ func (r *PostgresRefreshTokenRepository) CreateFamily(ctx context.Context, id, u
 		return nil, fmt.Errorf("invalid user id: %w", err)
 	}
 
-	created, err := r.q.CreateRefreshTokenFamily(ctx, sqlc.CreateRefreshTokenFamilyParams{
+	created, err := queriesFor(ctx, r.db).CreateRefreshTokenFamily(ctx, sqlc.CreateRefreshTokenFamilyParams{
 		ID:        idUUID,
 		UserID:    userUUID,
 		TokenHash: tokenHash,
@@ -45,8 +45,19 @@ func (r *PostgresRefreshTokenRepository) DeleteStaleFamiliesForUser(ctx context.
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
 	}
-	if err := r.q.DeleteStaleRefreshTokenFamiliesForUser(ctx, userUUID); err != nil {
+	if err := queriesFor(ctx, r.db).DeleteStaleRefreshTokenFamiliesForUser(ctx, userUUID); err != nil {
 		return fmt.Errorf("failed to delete stale refresh token families: %w", err)
+	}
+	return nil
+}
+
+func (r *PostgresRefreshTokenRepository) RevokeAllFamiliesForUser(ctx context.Context, userID string) error {
+	userUUID, err := uuidParam(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+	if err := queriesFor(ctx, r.db).RevokeAllRefreshTokenFamiliesForUser(ctx, userUUID); err != nil {
+		return fmt.Errorf("failed to revoke refresh token families: %w", err)
 	}
 	return nil
 }

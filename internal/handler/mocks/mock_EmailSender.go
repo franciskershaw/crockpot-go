@@ -69,6 +69,54 @@ func (_c *MockEmailSender_SendConfirmationCode_Call) RunAndReturn(run func(conte
 	return _c
 }
 
+// SendPasswordResetLink provides a mock function with given fields: ctx, toEmail, resetURL
+func (_m *MockEmailSender) SendPasswordResetLink(ctx context.Context, toEmail string, resetURL string) error {
+	ret := _m.Called(ctx, toEmail, resetURL)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SendPasswordResetLink")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, toEmail, resetURL)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockEmailSender_SendPasswordResetLink_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SendPasswordResetLink'
+type MockEmailSender_SendPasswordResetLink_Call struct {
+	*mock.Call
+}
+
+// SendPasswordResetLink is a helper method to define mock.On call
+//   - ctx context.Context
+//   - toEmail string
+//   - resetURL string
+func (_e *MockEmailSender_Expecter) SendPasswordResetLink(ctx interface{}, toEmail interface{}, resetURL interface{}) *MockEmailSender_SendPasswordResetLink_Call {
+	return &MockEmailSender_SendPasswordResetLink_Call{Call: _e.mock.On("SendPasswordResetLink", ctx, toEmail, resetURL)}
+}
+
+func (_c *MockEmailSender_SendPasswordResetLink_Call) Run(run func(ctx context.Context, toEmail string, resetURL string)) *MockEmailSender_SendPasswordResetLink_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockEmailSender_SendPasswordResetLink_Call) Return(_a0 error) *MockEmailSender_SendPasswordResetLink_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockEmailSender_SendPasswordResetLink_Call) RunAndReturn(run func(context.Context, string, string) error) *MockEmailSender_SendPasswordResetLink_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockEmailSender creates a new instance of MockEmailSender. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockEmailSender(t interface {

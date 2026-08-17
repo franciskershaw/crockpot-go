@@ -89,3 +89,73 @@ func TestSendConfirmationCode_ReturnsErrorWhenRequestFails(t *testing.T) {
 		t.Fatal("expected an error when the request can't be made, got nil")
 	}
 }
+
+func TestSendPasswordResetLink_SendsExpectedRequest(t *testing.T) {
+	var gotMethod, gotAuth, gotContentType string
+	var gotBody map[string]string
+	var decodeErr error
+
+	resetURL := "https://app.example.com/reset-password?token=abc123"
+
+	client := newTestResendClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotAuth = r.Header.Get("Authorization")
+		gotContentType = r.Header.Get("Content-Type")
+		decodeErr = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	if err := client.SendPasswordResetLink(context.Background(), "user@example.com", resetURL); err != nil {
+		t.Fatalf("SendPasswordResetLink returned unexpected error: %v", err)
+	}
+
+	if decodeErr != nil {
+		t.Fatalf("failed to decode request body: %v", decodeErr)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("method = %q, want %q", gotMethod, http.MethodPost)
+	}
+	if gotAuth != "Bearer test-api-key" {
+		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer test-api-key")
+	}
+	if gotContentType != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", gotContentType, "application/json")
+	}
+	if gotBody["from"] != "noreply@example.com" {
+		t.Errorf("from = %q, want %q", gotBody["from"], "noreply@example.com")
+	}
+	if gotBody["to"] != "user@example.com" {
+		t.Errorf("to = %q, want %q", gotBody["to"], "user@example.com")
+	}
+	if !strings.Contains(gotBody["html"], resetURL) {
+		t.Errorf("html body does not contain the reset URL: %q", gotBody["html"])
+	}
+	if !strings.Contains(gotBody["text"], resetURL) {
+		t.Errorf("text body does not contain the reset URL: %q", gotBody["text"])
+	}
+}
+
+func TestSendPasswordResetLink_ReturnsErrorOnNonSuccessStatus(t *testing.T) {
+	client := newTestResendClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"statusCode":422,"message":"domain is not verified","name":"validation_error"}`))
+	})
+
+	err := client.SendPasswordResetLink(context.Background(), "user@example.com", "https://app.example.com/reset-password?token=abc123")
+	if err == nil {
+		t.Fatal("expected an error for a non-2xx response, got nil")
+	}
+	if !strings.Contains(err.Error(), "domain is not verified") {
+		t.Errorf("expected error to include Resend's response body, got: %v", err)
+	}
+}
+
+func TestSendPasswordResetLink_ReturnsErrorWhenRequestFails(t *testing.T) {
+	client := newTestResendClient(t, func(w http.ResponseWriter, r *http.Request) {})
+	client.apiURL = "http://127.0.0.1:0" // nothing listening here
+
+	err := client.SendPasswordResetLink(context.Background(), "user@example.com", "https://app.example.com/reset-password?token=abc123")
+	if err == nil {
+		t.Fatal("expected an error when the request can't be made, got nil")
+	}
+}
