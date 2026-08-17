@@ -110,6 +110,8 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 	m.router.POST("/auth/login", h.Login)
 	m.router.POST("/auth/forgot-password", h.ForgotPassword)
 	m.router.POST("/auth/reset-password", h.ResetPassword)
+	m.router.POST("/auth/refresh", h.RefreshToken)
+	m.router.POST("/auth/logout", h.Logout)
 	return m
 }
 
@@ -1160,6 +1162,269 @@ func TestResetPassword_Fails(t *testing.T) {
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.Equal(t, tc.wantError, decodeJSONBodyAny(t, w)["error"])
 			assert.Nil(t, refreshCookieFrom(w), "no refresh cookie must be set on a failed reset")
+		})
+	}
+}
+
+// --- Refresh / Logout ---
+
+var (
+	refreshTestUserID   = uuid.MustParse("44444444-4444-4444-4444-444444444444")
+	refreshTestFamilyID = "55555555-5555-5555-5555-555555555555"
+	refreshTestUser     = &models.User{ID: refreshTestUserID, Email: "refresh@example.com", Role: "FREE"}
+)
+
+// mustRefreshToken generates a real, validly-signed refresh JWT for refreshTestUserID/refreshTestFamilyID — the handler decodes it for real, only the repository lookups are mocked.
+func mustRefreshToken(t *testing.T) string {
+	t.Helper()
+	token, err := auth.GenerateRefreshToken(refreshTestUserID.String(), refreshTestFamilyID, testutil.TestRefreshSecret)
+	require.NoError(t, err)
+	return token
+}
+
+func doRefresh(r *gin.Engine, cookieValue *string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
+	if cookieValue != nil {
+		req.AddCookie(&http.Cookie{Name: "refreshToken", Value: *cookieValue})
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func doLogout(r *gin.Engine, cookieValue *string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	if cookieValue != nil {
+		req.AddCookie(&http.Cookie{Name: "refreshToken", Value: *cookieValue})
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestRefreshToken_RotatesOnCurrentHash(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	token := mustRefreshToken(t)
+	family := &models.RefreshTokenFamily{
+		ID:        uuid.MustParse(refreshTestFamilyID),
+		UserID:    refreshTestUserID,
+		TokenHash: auth.HashToken(token),
+	}
+
+	m.refreshTokenRepo.EXPECT().FindFamilyByID(mock.Anything, refreshTestFamilyID, refreshTestUserID.String()).Return(family, nil)
+	m.userRepo.EXPECT().FindByID(mock.Anything, refreshTestUserID.String()).Return(refreshTestUser, nil)
+	m.refreshTokenRepo.EXPECT().RotateFamily(mock.Anything, refreshTestFamilyID, mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(nil)
+
+	w := doRefresh(m.router, &token)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotEmpty(t, decodeJSONBody(t, w)["accessToken"])
+	newCookie := refreshCookieFrom(w)
+	require.NotNil(t, newCookie, "expected a rotated refreshToken cookie to be set")
+	assert.NotEqual(t, token, newCookie.Value, "expected a rotated refresh token, not the one presented")
+}
+
+func TestRefreshToken_RotatesWithinGraceWindowOnPreviousHash(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	token := mustRefreshToken(t)
+	rotatedAt := time.Now().Add(-5 * time.Second)
+	family := &models.RefreshTokenFamily{
+		ID:                     uuid.MustParse(refreshTestFamilyID),
+		UserID:                 refreshTestUserID,
+		TokenHash:              "repo-test-current-hash-not-matching",
+		PreviousTokenHash:      ptr(auth.HashToken(token)),
+		PreviousTokenRotatedAt: &rotatedAt,
+	}
+
+	m.refreshTokenRepo.EXPECT().FindFamilyByID(mock.Anything, refreshTestFamilyID, refreshTestUserID.String()).Return(family, nil)
+	m.userRepo.EXPECT().FindByID(mock.Anything, refreshTestUserID.String()).Return(refreshTestUser, nil)
+	m.refreshTokenRepo.EXPECT().RotateFamily(mock.Anything, refreshTestFamilyID, mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(nil)
+
+	w := doRefresh(m.router, &token)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotEmpty(t, decodeJSONBody(t, w)["accessToken"])
+}
+
+func TestRefreshToken_RevokesOnStaleReuseOutsideGraceWindow(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	token := mustRefreshToken(t)
+	rotatedAt := time.Now().Add(-15 * time.Second)
+	family := &models.RefreshTokenFamily{
+		ID:                     uuid.MustParse(refreshTestFamilyID),
+		UserID:                 refreshTestUserID,
+		TokenHash:              "repo-test-current-hash-not-matching",
+		PreviousTokenHash:      ptr(auth.HashToken(token)),
+		PreviousTokenRotatedAt: &rotatedAt,
+	}
+
+	m.refreshTokenRepo.EXPECT().FindFamilyByID(mock.Anything, refreshTestFamilyID, refreshTestUserID.String()).Return(family, nil)
+	m.refreshTokenRepo.EXPECT().RevokeFamily(mock.Anything, refreshTestFamilyID).Return(nil)
+
+	w := doRefresh(m.router, &token)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	assert.Equal(t, "invalid_refresh_token", decodeJSONBody(t, w)["error"])
+	assert.Nil(t, refreshCookieFrom(w))
+}
+
+func TestRefreshToken_RevokesOnMultiGenerationStaleReuse(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	token := mustRefreshToken(t)
+	family := &models.RefreshTokenFamily{
+		ID:        uuid.MustParse(refreshTestFamilyID),
+		UserID:    refreshTestUserID,
+		TokenHash: "repo-test-current-hash-not-matching",
+		// No previous_token_hash at all — a token from 2+ rotations ago matches neither.
+	}
+
+	m.refreshTokenRepo.EXPECT().FindFamilyByID(mock.Anything, refreshTestFamilyID, refreshTestUserID.String()).Return(family, nil)
+	m.refreshTokenRepo.EXPECT().RevokeFamily(mock.Anything, refreshTestFamilyID).Return(nil)
+
+	w := doRefresh(m.router, &token)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	assert.Equal(t, "invalid_refresh_token", decodeJSONBody(t, w)["error"])
+}
+
+func TestRefreshToken_RejectsAlreadyRevokedFamily(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	token := mustRefreshToken(t)
+	revokedAt := time.Now().Add(-time.Minute)
+	family := &models.RefreshTokenFamily{
+		ID:        uuid.MustParse(refreshTestFamilyID),
+		UserID:    refreshTestUserID,
+		TokenHash: auth.HashToken(token),
+		RevokedAt: &revokedAt,
+	}
+
+	// No RevokeFamily expectation — asserts an already-revoked family isn't re-revoked.
+	m.refreshTokenRepo.EXPECT().FindFamilyByID(mock.Anything, refreshTestFamilyID, refreshTestUserID.String()).Return(family, nil)
+
+	w := doRefresh(m.router, &token)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	assert.Equal(t, "invalid_refresh_token", decodeJSONBody(t, w)["error"])
+}
+
+// A failed user lookup must never leave a rotated-but-unusable session behind.
+func TestRefreshToken_FailsBeforeRotatingWhenUserLookupFails(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	token := mustRefreshToken(t)
+	family := &models.RefreshTokenFamily{
+		ID:        uuid.MustParse(refreshTestFamilyID),
+		UserID:    refreshTestUserID,
+		TokenHash: auth.HashToken(token),
+	}
+
+	m.refreshTokenRepo.EXPECT().FindFamilyByID(mock.Anything, refreshTestFamilyID, refreshTestUserID.String()).Return(family, nil)
+	m.userRepo.EXPECT().FindByID(mock.Anything, refreshTestUserID.String()).Return(nil, errors.New("db exploded"))
+	// RotateFamily deliberately has no expectation.
+
+	w := doRefresh(m.router, &token)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, "server_error", decodeJSONBody(t, w)["error"])
+	assert.Nil(t, refreshCookieFrom(w), "no rotated cookie should be set when the user lookup fails")
+}
+
+func TestRefreshToken_Fails(t *testing.T) {
+	validToken := mustRefreshToken(t)
+	malformed := "not-a-jwt"
+
+	cases := []struct {
+		name      string
+		cookie    *string
+		setup     func(refreshTokenRepo *genmocks.MockRefreshTokenRepository)
+		wantCode  int
+		wantError string
+	}{
+		{
+			name:      "missing cookie",
+			wantCode:  http.StatusUnauthorized,
+			wantError: "invalid_refresh_token",
+		},
+		{
+			name:      "malformed token",
+			cookie:    &malformed,
+			wantCode:  http.StatusUnauthorized,
+			wantError: "invalid_refresh_token",
+		},
+		{
+			name:   "family not found",
+			cookie: &validToken,
+			setup: func(refreshTokenRepo *genmocks.MockRefreshTokenRepository) {
+				refreshTokenRepo.EXPECT().FindFamilyByID(mock.Anything, refreshTestFamilyID, refreshTestUserID.String()).
+					Return(nil, models.ErrRefreshTokenFamilyNotFound)
+			},
+			wantCode:  http.StatusUnauthorized,
+			wantError: "invalid_refresh_token",
+		},
+		{
+			name:   "FindFamilyByID generic error",
+			cookie: &validToken,
+			setup: func(refreshTokenRepo *genmocks.MockRefreshTokenRepository) {
+				refreshTokenRepo.EXPECT().FindFamilyByID(mock.Anything, refreshTestFamilyID, refreshTestUserID.String()).
+					Return(nil, errors.New("db exploded"))
+			},
+			wantCode:  http.StatusInternalServerError,
+			wantError: "server_error",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMocks(t, config.EnvDevelopment)
+			if tc.setup != nil {
+				tc.setup(m.refreshTokenRepo)
+			}
+
+			w := doRefresh(m.router, tc.cookie)
+
+			assert.Equal(t, tc.wantCode, w.Code)
+			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])
+		})
+	}
+}
+
+func TestLogout_RevokesMatchingFamily(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	token := mustRefreshToken(t)
+
+	m.refreshTokenRepo.EXPECT().RevokeFamily(mock.Anything, refreshTestFamilyID).Return(nil)
+
+	w := doLogout(m.router, &token)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotEmpty(t, decodeJSONBody(t, w)["message"])
+	cookie := refreshCookieFrom(w)
+	require.NotNil(t, cookie, "expected the refreshToken cookie to be cleared")
+	assert.Empty(t, cookie.Value)
+	assert.True(t, cookie.MaxAge < 0)
+}
+
+func TestLogout_ClearsCookieEvenWithoutValidRefreshToken(t *testing.T) {
+	malformed := "not-a-jwt"
+	cases := []struct {
+		name   string
+		cookie *string
+	}{
+		{name: "no cookie", cookie: nil},
+		{name: "malformed cookie", cookie: &malformed},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMocks(t, config.EnvDevelopment)
+			// No RevokeFamily expectation — asserts it's never called for a missing/invalid cookie.
+
+			w := doLogout(m.router, tc.cookie)
+
+			assert.Equal(t, http.StatusOK, w.Code)
+			cookie := refreshCookieFrom(w)
+			require.NotNil(t, cookie, "expected the refreshToken cookie to be cleared")
+			assert.Empty(t, cookie.Value)
+			assert.True(t, cookie.MaxAge < 0)
 		})
 	}
 }

@@ -736,3 +736,11 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 
 // errPasswordResetTokenAlreadyClaimed signals MarkUsed's atomic claim lost a race to a concurrent ResetPassword call.
 var errPasswordResetTokenAlreadyClaimed = errors.New("password reset token already claimed")
+
+func (h *AuthHandler) RefreshToken(c *gin.Context) {
+	c.JSON(http.StatusTeapot, gin.H{"error": "stub_not_implemented"})
+}
+
+func (h *AuthHandler) Logout(c *gin.Context) {
+	c.JSON(http.StatusTeapot, gin.H{"error": "stub_not_implemented"})
+}
