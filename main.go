@@ -94,6 +94,8 @@ func main() {
 		authTight.POST("/confirm", authHandler.ConfirmEmail)
 		authTight.POST("/resend-confirmation", authHandler.ResendConfirmation)
 		authTight.POST("/login", authHandler.Login)
+		authTight.POST("/forgot-password", authHandler.ForgotPassword)
+		authTight.POST("/reset-password", authHandler.ResetPassword)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

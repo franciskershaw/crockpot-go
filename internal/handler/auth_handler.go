@@ -609,5 +609,80 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusTeapot, gin.H{"error": "STUB_NOT_IMPLEMENTED"})
+	ctx := c.Request.Context()
+
+	token, err := h.passwordResetTokenRepo.FindActiveByTokenHash(ctx, auth.HashToken(req.Token))
+	if err != nil {
+		if !errors.Is(err, models.ErrNoActivePasswordResetToken) {
+			_ = c.Error(fmt.Errorf("failed to look up password reset token: %w", err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "token_invalid"})
+		return
+	}
+
+	if time.Now().After(token.ExpiresAt) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "token_expired"})
+		return
+	}
+
+	if len(req.NewPassword) < minPasswordLength {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password_too_short"})
+		return
+	}
+	if len(req.NewPassword) > maxPasswordBytes {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password_too_long"})
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		_ = c.Error(fmt.Errorf("failed to hash password: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	userID := token.UserID.String()
+
+	user, err := h.userRepo.UpdatePassword(ctx, userID, string(hash))
+	if err != nil {
+		_ = c.Error(fmt.Errorf("failed to update password: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	if _, err := h.userRepo.MarkEmailConfirmed(ctx, userID); err != nil {
+		_ = c.Error(fmt.Errorf("failed to mark email confirmed: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	if err := h.passwordResetTokenRepo.MarkUsed(ctx, token.ID.String()); err != nil {
+		_ = c.Error(fmt.Errorf("failed to mark password reset token used: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	if err := h.refreshTokenRepo.RevokeAllFamiliesForUser(ctx, userID); err != nil {
+		_ = c.Error(fmt.Errorf("failed to revoke existing sessions: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	accessToken, err := auth.GenerateAccessToken(user.Email, user.ID.String(), user.Role, h.cfg.JWTSecretAccess)
+	if err != nil {
+		_ = c.Error(fmt.Errorf("failed to generate access token: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	// Session issuance stays last — it's the one step that sets a live cookie.
+	if err := h.issueRefreshSession(ctx, c, userID); err != nil {
+		_ = c.Error(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"accessToken": accessToken})
 }
