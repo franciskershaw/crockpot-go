@@ -100,6 +100,7 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 	m.router.POST("/auth/confirm", h.ConfirmEmail)
 	m.router.POST("/auth/resend-confirmation", h.ResendConfirmation)
 	m.router.POST("/auth/login", h.Login)
+	m.router.POST("/auth/forgot-password", h.ForgotPassword)
 	return m
 }
 
@@ -900,6 +901,107 @@ func TestLogin_Fails(t *testing.T) {
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])
 			assert.Nil(t, refreshCookieFrom(w), "no refresh cookie must be set on a failed login")
+		})
+	}
+}
+
+// --- ForgotPassword ---
+
+func doForgotPassword(r *gin.Engine, body any) *httptest.ResponseRecorder {
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/auth/forgot-password", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestForgotPassword_SuccessNoExistingToken(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	forgotUser := &models.User{ID: uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc"), Email: "forgot@example.com", PasswordHash: ptr(loginUserPasswordHash)}
+
+	m.userRepo.EXPECT().FindByEmail(mock.Anything, "forgot@example.com").Return(forgotUser, nil)
+	m.resetTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, forgotUser.ID.String()).Return(nil, models.ErrNoActivePasswordResetToken)
+	m.resetTokenRepo.EXPECT().DeleteActiveForUser(mock.Anything, forgotUser.ID.String()).Return(nil)
+	m.resetTokenRepo.EXPECT().Create(mock.Anything, forgotUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(&models.PasswordResetToken{}, nil)
+	m.emailSender.EXPECT().SendPasswordResetLink(mock.Anything, "forgot@example.com", mock.AnythingOfType("string")).Return(nil)
+
+	w := doForgotPassword(m.router, map[string]string{"email": "forgot@example.com"})
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotEmpty(t, decodeJSONBody(t, w)["message"])
+}
+
+func TestForgotPassword_Fails(t *testing.T) {
+	forgotUser := &models.User{ID: uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc"), Email: "forgot@example.com", PasswordHash: ptr(loginUserPasswordHash)}
+	googleOnlyUser := &models.User{ID: uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd"), Email: "google@example.com", GoogleID: ptr("google-123")}
+
+	cases := []struct {
+		name      string
+		email     string
+		setup     func(userRepo *genmocks.MockUserRepository, resetTokenRepo *genmocks.MockPasswordResetTokenRepository)
+		wantCode  int
+		wantError string
+	}{
+		{
+			name:      "malformed body",
+			email:     "not-an-email",
+			wantCode:  http.StatusBadRequest,
+			wantError: "invalid_request",
+		},
+		{
+			name:  "unknown email",
+			email: "ghost@example.com",
+			setup: func(userRepo *genmocks.MockUserRepository, _ *genmocks.MockPasswordResetTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "ghost@example.com").Return(nil, models.ErrUserNotFound)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "email_not_found",
+		},
+		{
+			name:  "FindByEmail generic error",
+			email: "ghost@example.com",
+			setup: func(userRepo *genmocks.MockUserRepository, _ *genmocks.MockPasswordResetTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "ghost@example.com").Return(nil, errors.New("db exploded"))
+			},
+			wantCode:  http.StatusInternalServerError,
+			wantError: "server_error",
+		},
+		{
+			name:  "google-only account has no password to reset",
+			email: "google@example.com",
+			setup: func(userRepo *genmocks.MockUserRepository, _ *genmocks.MockPasswordResetTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "google@example.com").Return(googleOnlyUser, nil)
+			},
+			wantCode:  http.StatusUnauthorized,
+			wantError: "google_account_no_password",
+		},
+		{
+			name:  "within cooldown",
+			email: "forgot@example.com",
+			setup: func(userRepo *genmocks.MockUserRepository, resetTokenRepo *genmocks.MockPasswordResetTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "forgot@example.com").Return(forgotUser, nil)
+				resetTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, forgotUser.ID.String()).Return(&models.PasswordResetToken{
+					ID: uuid.New(), UserID: forgotUser.ID, ExpiresAt: time.Now().Add(50 * time.Minute),
+					CreatedAt: time.Now().Add(-10 * time.Second),
+				}, nil)
+			},
+			wantCode:  http.StatusTooManyRequests,
+			wantError: "resend_too_soon",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMocks(t, config.EnvDevelopment)
+			if tc.setup != nil {
+				tc.setup(m.userRepo, m.resetTokenRepo)
+			}
+
+			w := doForgotPassword(m.router, map[string]string{"email": tc.email})
+
+			assert.Equal(t, tc.wantCode, w.Code)
+			assert.Equal(t, tc.wantError, decodeJSONBodyAny(t, w)["error"])
 		})
 	}
 }
