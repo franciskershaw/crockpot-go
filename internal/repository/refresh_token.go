@@ -52,6 +52,13 @@ func (r *PostgresRefreshTokenRepository) DeleteStaleFamiliesForUser(ctx context.
 }
 
 func (r *PostgresRefreshTokenRepository) RevokeAllFamiliesForUser(ctx context.Context, userID string) error {
+	userUUID, err := uuidParam(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+	if err := r.q.RevokeAllRefreshTokenFamiliesForUser(ctx, userUUID); err != nil {
+		return fmt.Errorf("failed to revoke refresh token families: %w", err)
+	}
 	return nil
 }
 
