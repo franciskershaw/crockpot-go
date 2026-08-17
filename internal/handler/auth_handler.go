@@ -44,7 +44,7 @@ type RefreshTokenRepository interface {
 	DeleteStaleFamiliesForUser(ctx context.Context, userID string) error
 	RevokeAllFamiliesForUser(ctx context.Context, userID string) error
 	FindFamilyByID(ctx context.Context, id, userID string) (*models.RefreshTokenFamily, error)
-	RotateFamily(ctx context.Context, familyID, newTokenHash string, newExpiresAt time.Time) error
+	RotateFamily(ctx context.Context, familyID, presentedHash, newTokenHash string, newExpiresAt, graceWindowCutoff time.Time) (bool, error)
 	RevokeFamily(ctx context.Context, familyID string) error
 }
 
@@ -773,23 +773,6 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	presentedHash := auth.HashToken(cookie)
-	isCurrent := presentedHash == family.TokenHash
-	isWithinGraceWindow := family.PreviousTokenHash != nil && presentedHash == *family.PreviousTokenHash &&
-		family.PreviousTokenRotatedAt != nil && time.Since(*family.PreviousTokenRotatedAt) <= refreshGraceWindow
-
-	if !isCurrent && !isWithinGraceWindow {
-		// Reuse of a stale token — either the immediately-prior one outside the grace window, or one from
-		// 2+ rotations ago — kills the whole family, not just this request.
-		if err := h.refreshTokenRepo.RevokeFamily(ctx, claims.FamilyID); err != nil {
-			_ = c.Error(fmt.Errorf("failed to revoke reused refresh token family: %w", err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
-			return
-		}
-		h.invalidRefreshToken(c)
-		return
-	}
-
 	// User lookup happens before rotation — rotation is what grants the continued session (new cookie),
 	// so a failure here must never leave a rotated-but-unusable family behind.
 	user, err := h.userRepo.FindByID(ctx, claims.Subject)
@@ -813,9 +796,22 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	if err := h.refreshTokenRepo.RotateFamily(ctx, claims.FamilyID, auth.HashToken(newRefreshToken), time.Now().Add(refreshTokenTTL)); err != nil {
+	// RotateFamily re-validates the presented hash atomically against the live row at write time,
+	// not the possibly-stale read above. rotated=false means it no longer qualifies: revoke, don't retry.
+	presentedHash := auth.HashToken(cookie)
+	rotated, err := h.refreshTokenRepo.RotateFamily(ctx, claims.FamilyID, presentedHash, auth.HashToken(newRefreshToken), time.Now().Add(refreshTokenTTL), time.Now().Add(-refreshGraceWindow))
+	if err != nil {
 		_ = c.Error(fmt.Errorf("failed to rotate refresh token family: %w", err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+	if !rotated {
+		if err := h.refreshTokenRepo.RevokeFamily(ctx, claims.FamilyID); err != nil {
+			_ = c.Error(fmt.Errorf("failed to revoke reused refresh token family: %w", err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			return
+		}
+		h.invalidRefreshToken(c)
 		return
 	}
 
@@ -827,12 +823,17 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	if cookie, err := c.Cookie("refreshToken"); err == nil {
 		if claims, err := auth.ValidateRefreshToken(cookie, h.cfg.JWTSecretRefresh); err == nil {
 			if err := h.refreshTokenRepo.RevokeFamily(c.Request.Context(), claims.FamilyID); err != nil {
+				// Cookie is still cleared below — but a presented, valid token that fails to revoke
+				// must not report success, or the family stays live while the client thinks it's safe.
 				_ = c.Error(fmt.Errorf("failed to revoke refresh token family: %w", err))
+				h.setRefreshCookie(c, "", -1)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+				return
 			}
 		}
 	}
 
-	// Cookie is always cleared, even if the token above was missing, invalid, or failed to revoke.
+	// Cookie is always cleared, even if the token above was missing or invalid.
 	h.setRefreshCookie(c, "", -1)
 	c.JSON(http.StatusOK, gin.H{"message": "logged out"})
 }

@@ -121,7 +121,7 @@ func TestRevokeAllFamiliesForUser_RevokesLive_LeavesAlreadyRevokedAndExpiredUnto
 	assert.Nil(t, assertRevokedAt(expiredUnrevokedID), "expired-but-unrevoked family should not be touched")
 }
 
-func TestRotateFamily_ShiftsCurrentIntoPrevious(t *testing.T) {
+func TestRotateFamily_SucceedsWhenPresentedHashMatchesCurrent(t *testing.T) {
 	ctx := context.Background()
 	id := uuid.NewString()
 	originalHash := "repo-test-hash-" + uuid.NewString()
@@ -132,8 +132,9 @@ func TestRotateFamily_ShiftsCurrentIntoPrevious(t *testing.T) {
 	require.NoError(t, err)
 	cleanupExec(t, `DELETE FROM refresh_tokens WHERE id = $1`, id)
 
-	err = refreshTokenRepo.RotateFamily(ctx, id, newHash, newExpiresAt)
+	rotated, err := refreshTokenRepo.RotateFamily(ctx, id, originalHash, newHash, newExpiresAt, time.Now().Add(-10*time.Second))
 	require.NoError(t, err)
+	assert.True(t, rotated)
 
 	var tokenHash string
 	var previousTokenHash *string
@@ -148,6 +149,94 @@ func TestRotateFamily_ShiftsCurrentIntoPrevious(t *testing.T) {
 	require.NotNil(t, previousTokenRotatedAt)
 	assert.WithinDuration(t, time.Now(), *previousTokenRotatedAt, 5*time.Second)
 	assert.WithinDuration(t, newExpiresAt, expiresAt, time.Second)
+}
+
+func TestRotateFamily_SucceedsWhenPresentedHashMatchesPreviousWithinGraceWindow(t *testing.T) {
+	ctx := context.Background()
+	id := uuid.NewString()
+	staleHash := "repo-test-hash-" + uuid.NewString()
+	currentHash := "repo-test-hash-" + uuid.NewString()
+	newHash := "repo-test-hash-" + uuid.NewString()
+
+	_, err := refreshTokenRepo.CreateFamily(ctx, id, repoUserID.String(), staleHash, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM refresh_tokens WHERE id = $1`, id)
+
+	// First rotation shifts staleHash into previous_token_hash.
+	rotated, err := refreshTokenRepo.RotateFamily(ctx, id, staleHash, currentHash, time.Now().Add(time.Hour), time.Now().Add(-10*time.Second))
+	require.NoError(t, err)
+	require.True(t, rotated)
+
+	// A second request presenting the now-previous hash within the grace window is a benign
+	// concurrent-refresh race, not reuse — it must still rotate.
+	rotated, err = refreshTokenRepo.RotateFamily(ctx, id, staleHash, newHash, time.Now().Add(7*24*time.Hour), time.Now().Add(-10*time.Second))
+	require.NoError(t, err)
+	assert.True(t, rotated)
+
+	var tokenHash string
+	row := db.DB.QueryRow(ctx, `SELECT token_hash FROM refresh_tokens WHERE id = $1`, id)
+	require.NoError(t, row.Scan(&tokenHash))
+	assert.Equal(t, newHash, tokenHash)
+}
+
+func TestRotateFamily_FailsWhenPresentedHashMatchesPreviousOutsideGraceWindow(t *testing.T) {
+	ctx := context.Background()
+	id := uuid.NewString()
+	staleHash := "repo-test-hash-" + uuid.NewString()
+	currentHash := "repo-test-hash-" + uuid.NewString()
+
+	_, err := refreshTokenRepo.CreateFamily(ctx, id, repoUserID.String(), staleHash, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM refresh_tokens WHERE id = $1`, id)
+
+	rotated, err := refreshTokenRepo.RotateFamily(ctx, id, staleHash, currentHash, time.Now().Add(time.Hour), time.Now().Add(-10*time.Second))
+	require.NoError(t, err)
+	require.True(t, rotated)
+
+	// A cutoff in the future means the just-completed rotation never counts as "within window" —
+	// simulates the real grace window having elapsed, without an actual sleep.
+	rotated, err = refreshTokenRepo.RotateFamily(ctx, id, staleHash, "repo-test-hash-"+uuid.NewString(), time.Now().Add(7*24*time.Hour), time.Now().Add(time.Second))
+	require.NoError(t, err)
+	assert.False(t, rotated)
+
+	var tokenHash string
+	row := db.DB.QueryRow(ctx, `SELECT token_hash FROM refresh_tokens WHERE id = $1`, id)
+	require.NoError(t, row.Scan(&tokenHash))
+	assert.Equal(t, currentHash, tokenHash, "a rejected rotation must not mutate the row")
+}
+
+func TestRotateFamily_FailsWhenPresentedHashMatchesNeither(t *testing.T) {
+	ctx := context.Background()
+	id := uuid.NewString()
+	currentHash := "repo-test-hash-" + uuid.NewString()
+
+	_, err := refreshTokenRepo.CreateFamily(ctx, id, repoUserID.String(), currentHash, time.Now().Add(7*24*time.Hour))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM refresh_tokens WHERE id = $1`, id)
+
+	rotated, err := refreshTokenRepo.RotateFamily(ctx, id, "repo-test-hash-completely-unrelated", "repo-test-hash-"+uuid.NewString(), time.Now().Add(7*24*time.Hour), time.Now().Add(-10*time.Second))
+	require.NoError(t, err)
+	assert.False(t, rotated)
+
+	var tokenHash string
+	row := db.DB.QueryRow(ctx, `SELECT token_hash FROM refresh_tokens WHERE id = $1`, id)
+	require.NoError(t, row.Scan(&tokenHash))
+	assert.Equal(t, currentHash, tokenHash, "a rejected rotation must not mutate the row")
+}
+
+func TestRotateFamily_FailsWhenFamilyAlreadyRevoked(t *testing.T) {
+	ctx := context.Background()
+	id := uuid.NewString()
+	currentHash := "repo-test-hash-" + uuid.NewString()
+
+	_, err := refreshTokenRepo.CreateFamily(ctx, id, repoUserID.String(), currentHash, time.Now().Add(7*24*time.Hour))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM refresh_tokens WHERE id = $1`, id)
+	require.NoError(t, refreshTokenRepo.RevokeFamily(ctx, id))
+
+	rotated, err := refreshTokenRepo.RotateFamily(ctx, id, currentHash, "repo-test-hash-"+uuid.NewString(), time.Now().Add(7*24*time.Hour), time.Now().Add(-10*time.Second))
+	require.NoError(t, err)
+	assert.False(t, rotated, "a revoked family must never rotate, even with the correct current hash")
 }
 
 func TestFindFamilyByID_ReturnsFamily(t *testing.T) {

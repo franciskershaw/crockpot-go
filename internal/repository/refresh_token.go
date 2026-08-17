@@ -87,19 +87,24 @@ func (r *PostgresRefreshTokenRepository) FindFamilyByID(ctx context.Context, id,
 	return toModelRefreshTokenFamily(found), nil
 }
 
-func (r *PostgresRefreshTokenRepository) RotateFamily(ctx context.Context, familyID, newTokenHash string, newExpiresAt time.Time) error {
+// RotateFamily mutates only if presentedHash still matches the live row at write time, re-validated
+// atomically in the UPDATE's WHERE clause. A false return means nothing was mutated — treat as reuse.
+func (r *PostgresRefreshTokenRepository) RotateFamily(ctx context.Context, familyID, presentedHash, newTokenHash string, newExpiresAt, graceWindowCutoff time.Time) (bool, error) {
 	idUUID, err := uuidParam(familyID)
 	if err != nil {
-		return fmt.Errorf("invalid family id: %w", err)
+		return false, fmt.Errorf("invalid family id: %w", err)
 	}
-	if err := queriesFor(ctx, r.db).RotateRefreshTokenFamily(ctx, sqlc.RotateRefreshTokenFamilyParams{
-		ID:        idUUID,
-		TokenHash: newTokenHash,
-		ExpiresAt: pgtype.Timestamptz{Time: newExpiresAt, Valid: true},
-	}); err != nil {
-		return fmt.Errorf("failed to rotate refresh token family: %w", err)
+	rows, err := queriesFor(ctx, r.db).RotateRefreshTokenFamily(ctx, sqlc.RotateRefreshTokenFamilyParams{
+		ID:                idUUID,
+		TokenHash:         newTokenHash,
+		ExpiresAt:         pgtype.Timestamptz{Time: newExpiresAt, Valid: true},
+		PresentedHash:     presentedHash,
+		GraceWindowCutoff: pgtype.Timestamptz{Time: graceWindowCutoff, Valid: true},
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to rotate refresh token family: %w", err)
 	}
-	return nil
+	return rows > 0, nil
 }
 
 func (r *PostgresRefreshTokenRepository) RevokeFamily(ctx context.Context, familyID string) error {

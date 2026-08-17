@@ -103,22 +103,41 @@ func (q *Queries) RevokeRefreshTokenFamily(ctx context.Context, id pgtype.UUID) 
 	return err
 }
 
-const rotateRefreshTokenFamily = `-- name: RotateRefreshTokenFamily :exec
+const rotateRefreshTokenFamily = `-- name: RotateRefreshTokenFamily :execrows
 UPDATE refresh_tokens
 SET previous_token_hash = token_hash,
     previous_token_rotated_at = CURRENT_TIMESTAMP,
     token_hash = $2,
     expires_at = $3
 WHERE id = $1
+  AND revoked_at IS NULL
+  AND (
+    token_hash = $4::text
+    OR (previous_token_hash = $4::text AND previous_token_rotated_at > $5::timestamptz)
+  )
 `
 
 type RotateRefreshTokenFamilyParams struct {
-	ID        pgtype.UUID
-	TokenHash string
-	ExpiresAt pgtype.Timestamptz
+	ID                pgtype.UUID
+	TokenHash         string
+	ExpiresAt         pgtype.Timestamptz
+	PresentedHash     string
+	GraceWindowCutoff pgtype.Timestamptz
 }
 
-func (q *Queries) RotateRefreshTokenFamily(ctx context.Context, arg RotateRefreshTokenFamilyParams) error {
-	_, err := q.db.Exec(ctx, rotateRefreshTokenFamily, arg.ID, arg.TokenHash, arg.ExpiresAt)
-	return err
+// Only rotates if the presented hash still matches the live row at write time (current token_hash,
+// or previous_token_hash within the grace window) — re-validates atomically instead of trusting an
+// earlier read, closing the gap a concurrent rotation could otherwise race through.
+func (q *Queries) RotateRefreshTokenFamily(ctx context.Context, arg RotateRefreshTokenFamilyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, rotateRefreshTokenFamily,
+		arg.ID,
+		arg.TokenHash,
+		arg.ExpiresAt,
+		arg.PresentedHash,
+		arg.GraceWindowCutoff,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

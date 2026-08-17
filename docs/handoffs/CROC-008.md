@@ -220,9 +220,9 @@ identical regardless of which login method created the family.
 
 Sequence, run right after the existing `Login` section: refresh (rotate,
 capture new cookie) → refresh again (rotate again, proves rotation) →
-replay the *original* pre-rotation cookie (saved via `@name` before the
-first refresh) after the 10s grace window has passed (expect 401, family
-revoked) → refresh with the latest cookie (expect 401, proves the whole
+replay the *original* pre-rotation cookie (copied by hand from the
+Login response's `Set-Cookie` header before the first refresh) after the
+10s grace window has passed (expect 401, family revoked) → refresh with the latest cookie (expect 401, proves the whole
 family is dead, not just the replayed token) → separately, `POST
 /auth/logout` on a fresh session → refresh (expect 401, proves
 server-side revocation, not just cookie clearing). Also exercises the
@@ -255,6 +255,47 @@ a benign concurrent-refresh race and rotates normally, per this ticket's
 own grace-window decision). Founder called this gate complete on that
 basis rather than re-running the full timed replay sequence.
 
-Outstanding before this ticket can close, per `crockpot-go/CLAUDE.md`:
-open a PR to get CodeRabbit's review (the per-ticket gate for AI-driven
-tickets), fix anything real.
+CodeRabbit's review on the PR found 3 real issues, all fixed:
+
+- **Doc**: this file's "Manual verification" section claimed the
+  original pre-rotation cookie was saved via REST Client's `@name`
+  syntax — it isn't, `requests/auth.http` always used a manual
+  copy-paste into a placeholder. Wording corrected.
+- **`Logout` swallowed a `RevokeFamily` failure and still returned 200.**
+  A presented, valid token whose revoke genuinely fails now returns
+  `500 server_error` (cookie still cleared either way) instead of
+  silently reporting success while the family stays live server-side.
+  New test: `TestLogout_ReturnsErrorWhenRevocationFails`.
+- **`RotateFamily`'s `UPDATE ... WHERE id = $1` had a TOCTOU race.**
+  The presented-hash/grace-window decision was made in Go against an
+  earlier read, then written unconditionally — a concurrent rotation
+  landing in between could let a stale token "win" a rotation instead of
+  triggering revocation. Fixed by moving the hash/grace-window check
+  into the `UPDATE`'s `WHERE` clause itself (`internal/sqlc/queries/refresh_tokens.sql`,
+  now `:execrows`), re-validated atomically against the live row at
+  write time. `RotateFamily`'s signature changed to
+  `(ctx, familyID, presentedHash, newTokenHash string, newExpiresAt,
+  graceWindowCutoff time.Time) (bool, error)` — a `false` return (zero
+  rows affected) means the hash no longer qualified at write time, and
+  the handler now revokes on that signal instead of on a Go-side branch.
+  This also collapses `RefreshToken`'s four Go-side branches (current
+  hash / previous-within-grace / previous-outside-grace / matches
+  neither) down to two (rotated / not rotated) — the hash/grace-window
+  distinction itself now lives entirely in the SQL, tested by 5 new
+  repository tests (`TestRotateFamily_Succeeds*`/`Fails*`) rather than
+  in handler-level mocks. `internal/handler/auth_handler_test.go`'s
+  Refresh tests were rewritten to match — the old
+  `RotatesOnCurrentHash`/`RotatesWithinGraceWindowOnPreviousHash`/
+  `RevokesOnStaleReuseOutsideGraceWindow`/`RevokesOnMultiGenerationStaleReuse`
+  tests collapsed into `RotatesWhenAtomicRotateSucceeds`/
+  `RevokesWhenAtomicRotateReportsNoMatch`, plus a new
+  `FailsWhenAtomicRotateErrors` distinguishing a genuine DB error from an
+  atomic no-match (must not be treated as reuse).
+
+All green after the fix: `go build ./...`, `go vet ./...`, `gofmt -l .`,
+`go test ./internal/handler/...`, `./scripts/test-repo.sh`,
+`golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`
+(0 issues), `go mod tidy -diff` (no changes). `go tool mockery` re-run
+for the changed `RefreshTokenRepository` signature.
+
+Completed 2026-08-17.
