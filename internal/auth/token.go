@@ -17,7 +17,11 @@ func GenerateConfirmationCode() (string, error) {
 }
 
 func GenerateResetToken() (string, error) {
-	return "NOTAREALRESETTOKEN", nil
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func HashToken(token string) string {
