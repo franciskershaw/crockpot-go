@@ -15,6 +15,7 @@ import (
 	"github.com/franciskershaw/crockpot-go/internal/auth"
 	"github.com/franciskershaw/crockpot-go/internal/handler"
 	genmocks "github.com/franciskershaw/crockpot-go/internal/handler/mocks"
+	"github.com/franciskershaw/crockpot-go/internal/middleware"
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/testutil"
 	"github.com/gin-gonic/gin"
@@ -112,6 +113,9 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 	m.router.POST("/auth/reset-password", h.ResetPassword)
 	m.router.POST("/auth/refresh", h.RefreshToken)
 	m.router.POST("/auth/logout", h.Logout)
+	authed := m.router.Group("/")
+	authed.Use(middleware.AuthMiddleware(testutil.TestAccessSecret))
+	authed.GET("/me", h.Me)
 	return m
 }
 
@@ -1302,6 +1306,26 @@ func TestRefreshToken_FailsBeforeRotatingWhenUserLookupFails(t *testing.T) {
 	assert.Nil(t, refreshCookieFrom(w), "no rotated cookie should be set when the user lookup fails")
 }
 
+func TestRefreshToken_ReturnsUnauthorizedWhenUserNotFound(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	token := mustRefreshToken(t)
+	family := &models.RefreshTokenFamily{
+		ID:        uuid.MustParse(refreshTestFamilyID),
+		UserID:    refreshTestUserID,
+		TokenHash: auth.HashToken(token),
+	}
+
+	m.refreshTokenRepo.EXPECT().FindFamilyByID(mock.Anything, refreshTestFamilyID, refreshTestUserID.String()).Return(family, nil)
+	m.userRepo.EXPECT().FindByID(mock.Anything, refreshTestUserID.String()).Return(nil, models.ErrUserNotFound)
+	// RotateFamily deliberately has no expectation.
+
+	w := doRefresh(m.router, &token)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	assert.Equal(t, "unauthorized", decodeJSONBody(t, w)["error"])
+	assert.Nil(t, refreshCookieFrom(w), "no rotated cookie should be set when the user is gone")
+}
+
 func TestRefreshToken_Fails(t *testing.T) {
 	validToken := mustRefreshToken(t)
 	malformed := "not-a-jwt"
@@ -1419,4 +1443,80 @@ func TestLogout_ClearsCookieEvenWithoutValidRefreshToken(t *testing.T) {
 			assert.True(t, cookie.MaxAge < 0)
 		})
 	}
+}
+
+// --- Me ---
+
+var (
+	meTestUserID = uuid.MustParse("55555555-5555-5555-5555-555555555555")
+	meTestName   = "Me Test User"
+	meTestImage  = "https://example.com/avatar.png"
+	meTestUser   = &models.User{
+		ID:    meTestUserID,
+		Email: "me@example.com",
+		Name:  &meTestName,
+		Image: &meTestImage,
+		Role:  "FREE",
+	}
+)
+
+func doMe(r *gin.Engine, authHeaderValue string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/me", nil)
+	if authHeaderValue != "" {
+		req.Header.Set("Authorization", authHeaderValue)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestMe_ReturnsProfile(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	m.userRepo.EXPECT().FindByID(mock.Anything, meTestUserID.String()).Return(meTestUser, nil)
+
+	w := doMe(m.router, testutil.AuthHeader(t, meTestUser.Email, meTestUserID.String(), meTestUser.Role))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := decodeJSONBodyAny(t, w)
+	assert.Equal(t, meTestUserID.String(), body["id"])
+	assert.Equal(t, meTestUser.Email, body["email"])
+	assert.Equal(t, meTestName, body["name"])
+	assert.Equal(t, meTestImage, body["image"])
+	assert.Equal(t, meTestUser.Role, body["role"])
+}
+
+func TestMe_ReturnsUnauthorizedWhenUserNotFound(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	m.userRepo.EXPECT().FindByID(mock.Anything, meTestUserID.String()).Return(nil, models.ErrUserNotFound)
+
+	w := doMe(m.router, testutil.AuthHeader(t, meTestUser.Email, meTestUserID.String(), meTestUser.Role))
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	assert.Equal(t, "unauthorized", decodeJSONBody(t, w)["error"])
+}
+
+func TestMe_ReturnsServerErrorOnOtherRepositoryError(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	m.userRepo.EXPECT().FindByID(mock.Anything, meTestUserID.String()).Return(nil, errors.New("db exploded"))
+
+	w := doMe(m.router, testutil.AuthHeader(t, meTestUser.Email, meTestUserID.String(), meTestUser.Role))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, "server_error", decodeJSONBody(t, w)["error"])
+}
+
+// Defensive branch: unreachable through the wired router (AuthMiddleware always sets userID
+// before Me runs), exercised by calling the handler directly against a bare context instead.
+func TestMe_ReturnsUnauthorizedWhenUserIDMissingFromContext(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	h := handler.NewAuthHandler(m.userRepo, m.oauthMgr, m.refreshTokenRepo, m.emailTokenRepo, m.resetTokenRepo, m.emailSender, m.transactor, &config.Config{})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/me", nil)
+
+	h.Me(c)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	assert.Equal(t, "unauthorized", decodeJSONBody(t, w)["error"])
 }

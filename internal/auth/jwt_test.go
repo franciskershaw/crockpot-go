@@ -1,16 +1,17 @@
-package auth
+package auth_test
 
 import (
 	"testing"
 	"time"
 
+	"github.com/franciskershaw/crockpot-go/internal/auth"
 	"github.com/franciskershaw/crockpot-go/internal/testutil"
 	"github.com/golang-jwt/jwt/v5"
 )
 
 func mustGenerateAccessToken(t *testing.T, secret string) string {
 	t.Helper()
-	token, err := GenerateAccessToken(testutil.TestEmail, testutil.TestUserID, testutil.TestRole, secret)
+	token, err := auth.GenerateAccessToken(testutil.TestEmail, testutil.TestUserID, testutil.TestRole, secret)
 	if err != nil {
 		t.Fatalf("failed to generate access token: %v", err)
 	}
@@ -19,7 +20,7 @@ func mustGenerateAccessToken(t *testing.T, secret string) string {
 
 func mustGenerateRefreshToken(t *testing.T, secret string) string {
 	t.Helper()
-	token, err := GenerateRefreshToken(testutil.TestUserID, testutil.TestFamilyID, secret)
+	token, err := auth.GenerateRefreshToken(testutil.TestUserID, testutil.TestFamilyID, secret)
 	if err != nil {
 		t.Fatalf("failed to generate refresh token: %v", err)
 	}
@@ -42,7 +43,7 @@ func tamperSignature(token string) string {
 }
 
 func TestGenerateAccessToken(t *testing.T) {
-	token, err := GenerateAccessToken(testutil.TestEmail, testutil.TestUserID, testutil.TestRole, testutil.TestAccessSecret)
+	token, err := auth.GenerateAccessToken(testutil.TestEmail, testutil.TestUserID, testutil.TestRole, testutil.TestAccessSecret)
 	if err != nil {
 		t.Errorf("GenerateAccessToken failed: %v", err)
 	}
@@ -51,7 +52,7 @@ func TestGenerateAccessToken(t *testing.T) {
 		t.Errorf("expected token, got empty string")
 	}
 
-	claims, err := ValidateAccessToken(token, testutil.TestAccessSecret)
+	claims, err := auth.ValidateAccessToken(token, testutil.TestAccessSecret)
 	if err != nil {
 		t.Errorf("ValidateAccessToken failed: %v", err)
 	}
@@ -70,7 +71,7 @@ func TestGenerateAccessToken(t *testing.T) {
 }
 
 func TestGenerateRefreshToken(t *testing.T) {
-	token, err := GenerateRefreshToken(testutil.TestUserID, testutil.TestFamilyID, testutil.TestRefreshSecret)
+	token, err := auth.GenerateRefreshToken(testutil.TestUserID, testutil.TestFamilyID, testutil.TestRefreshSecret)
 	if err != nil {
 		t.Errorf("GenerateRefreshToken failed: %v", err)
 	}
@@ -79,7 +80,7 @@ func TestGenerateRefreshToken(t *testing.T) {
 		t.Errorf("expected token, got empty string")
 	}
 
-	claims, err := ValidateRefreshToken(token, testutil.TestRefreshSecret)
+	claims, err := auth.ValidateRefreshToken(token, testutil.TestRefreshSecret)
 	if err != nil {
 		t.Errorf("ValidateRefreshToken failed: %v", err)
 	}
@@ -94,14 +95,14 @@ func TestGenerateRefreshToken(t *testing.T) {
 }
 
 func TestGenerateAccessToken_EmptySecret(t *testing.T) {
-	_, err := GenerateAccessToken(testutil.TestEmail, testutil.TestUserID, testutil.TestRole, "")
+	_, err := auth.GenerateAccessToken(testutil.TestEmail, testutil.TestUserID, testutil.TestRole, "")
 	if err == nil {
 		t.Error("expected error for empty secret, got nil")
 	}
 }
 
 func TestGenerateRefreshToken_EmptySecret(t *testing.T) {
-	_, err := GenerateRefreshToken(testutil.TestUserID, testutil.TestFamilyID, "")
+	_, err := auth.GenerateRefreshToken(testutil.TestUserID, testutil.TestFamilyID, "")
 	if err == nil {
 		t.Error("expected error for empty secret, got nil")
 	}
@@ -110,7 +111,7 @@ func TestGenerateRefreshToken_EmptySecret(t *testing.T) {
 func TestValidateAccessToken_EmptySecret(t *testing.T) {
 	token := mustGenerateAccessToken(t, testutil.TestAccessSecret)
 
-	_, err := ValidateAccessToken(token, "")
+	_, err := auth.ValidateAccessToken(token, "")
 	if err == nil {
 		t.Error("expected error for empty secret, got nil")
 	}
@@ -119,14 +120,14 @@ func TestValidateAccessToken_EmptySecret(t *testing.T) {
 func TestValidateRefreshToken_EmptySecret(t *testing.T) {
 	token := mustGenerateRefreshToken(t, testutil.TestRefreshSecret)
 
-	_, err := ValidateRefreshToken(token, "")
+	_, err := auth.ValidateRefreshToken(token, "")
 	if err == nil {
 		t.Error("expected error for empty secret, got nil")
 	}
 }
 
 func TestValidateAccessToken_ExpiredToken(t *testing.T) {
-	claims := CustomClaims{
+	claims := auth.CustomClaims{
 		Email:  testutil.TestEmail,
 		UserID: testutil.TestUserID,
 		Role:   testutil.TestRole,
@@ -137,14 +138,14 @@ func TestValidateAccessToken_ExpiredToken(t *testing.T) {
 	}
 	tokenString := mustSign(t, claims, testutil.TestAccessSecret)
 
-	_, err := ValidateAccessToken(tokenString, testutil.TestAccessSecret)
+	_, err := auth.ValidateAccessToken(tokenString, testutil.TestAccessSecret)
 	if err == nil {
 		t.Error("expected error for expired token, got nil")
 	}
 }
 
 func TestValidateAccessToken_RejectsNonHS256Signature(t *testing.T) {
-	claims := CustomClaims{
+	claims := auth.CustomClaims{
 		Email:  testutil.TestEmail,
 		UserID: testutil.TestUserID,
 		Role:   testutil.TestRole,
@@ -158,7 +159,7 @@ func TestValidateAccessToken_RejectsNonHS256Signature(t *testing.T) {
 		t.Fatalf("failed to sign test token: %v", err)
 	}
 
-	_, err = ValidateAccessToken(tokenString, testutil.TestAccessSecret)
+	_, err = auth.ValidateAccessToken(tokenString, testutil.TestAccessSecret)
 	if err == nil {
 		t.Error("expected error for a token signed with HS384, got nil")
 	}
@@ -168,14 +169,14 @@ func TestValidateAccessToken_TamperedSignature(t *testing.T) {
 	token := mustGenerateAccessToken(t, testutil.TestAccessSecret)
 	tampered := tamperSignature(token)
 
-	_, err := ValidateAccessToken(tampered, testutil.TestAccessSecret)
+	_, err := auth.ValidateAccessToken(tampered, testutil.TestAccessSecret)
 	if err == nil {
 		t.Error("expected error for tampered token, got nil")
 	}
 }
 
 func TestValidateRefreshToken_ExpiredToken(t *testing.T) {
-	claims := RefreshClaims{
+	claims := auth.RefreshClaims{
 		FamilyID: testutil.TestFamilyID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   testutil.TestUserID,
@@ -185,7 +186,7 @@ func TestValidateRefreshToken_ExpiredToken(t *testing.T) {
 	}
 	tokenString := mustSign(t, claims, testutil.TestRefreshSecret)
 
-	_, err := ValidateRefreshToken(tokenString, testutil.TestRefreshSecret)
+	_, err := auth.ValidateRefreshToken(tokenString, testutil.TestRefreshSecret)
 	if err == nil {
 		t.Error("expected error for expired token, got nil")
 	}
@@ -195,7 +196,7 @@ func TestValidateRefreshToken_TamperedSignature(t *testing.T) {
 	token := mustGenerateRefreshToken(t, testutil.TestRefreshSecret)
 	tampered := tamperSignature(token)
 
-	_, err := ValidateRefreshToken(tampered, testutil.TestRefreshSecret)
+	_, err := auth.ValidateRefreshToken(tampered, testutil.TestRefreshSecret)
 	if err == nil {
 		t.Error("expected error for tampered token, got nil")
 	}
