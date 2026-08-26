@@ -110,12 +110,21 @@ in both `Me` and `RefreshToken`.
   helpers (per the folder layout) instead of splitting across
   per-avoided-cycle subpackages as more cross-package needs show up
   later.
-- **`.http` coverage lands in `requests/auth.http`**, not a new
-  `requests/me.http`, matching `packing-list-go/requests/auth.http`'s own
-  placement of `GET /me` — it's part of the same
-  token-acquisition-and-verification flow file, chaining off the same
-  `Login`-captured access token, despite the route not being under
-  `/auth`.
+- **`.http` coverage lands in its own `requests/me.http`, not
+  `requests/auth.http`.** Reversed after implementation: originally
+  recorded as landing in `auth.http` (matching `packing-list-go`'s own
+  placement), but the founder found hunting through `auth.http`'s ~500
+  lines to find where to fill in credentials and grab a token too much
+  friction in practice. This also surfaces a real technical reason, not
+  just ergonomics: REST Client scopes captured variables and cookies per
+  file, so a `GET /me` section living in a separate file could never
+  have chained off `auth.http`'s `Login` anyway — it needs its own
+  `Login` at the top regardless of which file it's in. `me.http` reuses
+  the same confirmed password account `auth.http` sets up (documented as
+  a prerequisite) rather than registering a second throwaway account.
+  `requests/README.md` gets a new note on this per-file variable/cookie
+  scoping, since every future protected-route `.http` file hits the same
+  constraint.
 - **New ticket added to the backlog: self-service account deletion**
   (see master-spec addition below). Raised during this ticket's grill
   while reasoning about the missing-user edge case — there is currently
@@ -150,13 +159,17 @@ in both `Me` and `RefreshToken`.
       `auth.GenerateAccessToken`; `internal/auth/jwt_test.go` converted to
       black-box `package auth_test` to allow it (mechanical change only,
       identical test results before/after)
-- [ ] `requests/auth.http` extended: a `GET /me` section with a ✅ 200
-      case chained off `Login`'s captured token, a 🔒 401 case with no
-      token, a 🔒 401 case with a malformed token, and a 🔒 401 case
-      where the user row is deleted via a manual `psql`/SQL statement
-      after capturing a valid token (mirrors the file's existing pattern
-      of manual SQL for edge cases it can't trigger live, e.g. the
-      expired-reset-token case)
+- [ ] `requests/me.http` (new file): its own `Login` at the top (same
+      shared password account `auth.http` sets up), then a `GET /me`
+      section (✅ 200, 🔒 401 no token, 🔒 401 malformed token). The
+      valid-token-but-deleted-user 401 case rides this file's own
+      `Cleanup` section: re-run `Login` once more immediately before
+      `DELETE FROM users` (fresh `@authToken`, well inside its 15-minute
+      expiry), delete, then one more `GET /me` with that same token
+      right after — a 401 there is unambiguous proof of the
+      `ErrUserNotFound` path, not ordinary expiry. `requests/README.md`
+      updated with a note on why protected-route `.http` files need
+      their own `Login` (variables/cookies don't cross files)
 - [ ] `docs/specs/master-spec.md`: Epic 2 marked complete; new backlog
       epic/ticket added for self-service account deletion (design +
       implementation, its own future grill — not built here)
@@ -183,9 +196,9 @@ in both `Me` and `RefreshToken`.
   new `TestRefreshToken_ReturnsUnauthorizedWhenUserNotFound` alongside the
   existing (unchanged) `TestRefreshToken_FailsBeforeRotatingWhenUserLookupFails`.
 - **A real request against the real dependency**: `go run main.go`, then
-  run `requests/auth.http`'s new `GET /me` sections top-to-bottom against
-  the live server and real Neon dev DB — this is the actual proof that
-  `AuthMiddleware` (`CROC-003`) works end-to-end, which no test to date
+  run `requests/me.http` top-to-bottom against the live server and real
+  Neon dev DB — this is the actual proof that `AuthMiddleware`
+  (`CROC-003`) works end-to-end, which no test to date
   has exercised against a live request. Includes the manual-SQL-delete
   401 case described above.
 - **Lint/format/build**, same as every prior ticket: `gofmt -l .`,
@@ -207,4 +220,10 @@ in both `Me` and `RefreshToken`.
 
 ## Close-out
 
-Pending implementation.
+Implementation done (TDD: red confirmed for all 5 new tests before real
+bodies existed, all green after). `go build`, `go vet`, `gofmt -l .`,
+`golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`
+(0 issues), `go mod tidy -diff` (no changes — no new dependency) all
+clean. Pending: the manual `requests/me.http` run against a live server +
+real Neon dev DB (the actual `AuthMiddleware` end-to-end proof), PR +
+CodeRabbit review, then the `close-out` skill.

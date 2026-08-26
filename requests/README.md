@@ -30,6 +30,13 @@ with a **Cleanup** section that removes anything real it created (e.g. a
 test user row), so a re-run from a clean server behaves the same way
 twice.
 
+**Variables and cookies don't cross files** — REST Client scopes both
+per `.http` file, so a file exercising a protected route can't chain off
+another file's `Login`. Each such file (e.g. `me.http`) does its own
+short `Login` at the top instead, against the same confirmed password
+account `auth.http` sets up — run `auth.http`'s ✅ register + ✅ confirm
+sections once first on a fresh dev DB if that account doesn't exist yet.
+
 ## What's deliberately not covered
 
 - **Google login/callback** — needs a real browser round-trip, can't be

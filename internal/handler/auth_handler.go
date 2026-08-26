@@ -777,6 +777,10 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	// so a failure here must never leave a rotated-but-unusable family behind.
 	user, err := h.userRepo.FindByID(ctx, claims.Subject)
 	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
 		_ = c.Error(fmt.Errorf("failed to look up user: %w", err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
 		return
@@ -839,5 +843,28 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 }
 
 func (h *AuthHandler) Me(c *gin.Context) {
-	c.JSON(http.StatusTeapot, gin.H{"error": "me_not_implemented_stub"})
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	user, err := h.userRepo.FindByID(c.Request.Context(), userID)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		_ = c.Error(fmt.Errorf("failed to look up user: %w", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":    user.ID.String(),
+		"email": user.Email,
+		"name":  user.Name,
+		"image": user.Image,
+		"role":  user.Role,
+	})
 }

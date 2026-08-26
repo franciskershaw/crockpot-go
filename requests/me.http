@@ -1,0 +1,72 @@
+# Crockpot API — GET /me
+#
+# Own file, own login: REST Client's captured variables and cookie jar
+# are scoped per .http file, not shared across files, so this can't
+# chain off requests/auth.http's login — it does its own, right at the
+# top, using the same confirmed password account auth.http sets up (run
+# its ✅ register + ✅ confirm sections once first if you haven't on
+# this dev DB). Fill in your real email/password below.
+#
+# Also the real end-to-end proof that AuthMiddleware (CROC-003) works
+# against a live request — no prior ticket exercised it outside its own
+# unit tests. See requests/README.md for setup/running instructions.
+
+
+# ══════════════════════════════════════════
+#  GET /me
+# ══════════════════════════════════════════
+
+### Login, to get a token for the checks below.
+# @name login
+POST http://localhost:{{$dotenv PORT}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "password": "correcthorsebattery"
+}
+
+###
+
+@authToken = {{login.response.body.accessToken}}
+
+### ✅ 200 — returns the authenticated user's profile
+GET http://localhost:{{$dotenv PORT}}/me
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🔒 401 — no token
+GET http://localhost:{{$dotenv PORT}}/me
+
+###
+
+### 🔒 401 — malformed token
+GET http://localhost:{{$dotenv PORT}}/me
+Authorization: Bearer not-a-valid-token
+
+
+# ══════════════════════════════════════════
+#  Cleanup
+# ══════════════════════════════════════════
+
+### Re-run the Login request above once more first, so @authToken is
+### freshly issued (well inside its 15-minute expiry) going into the
+### check below — otherwise a 401 there could just mean the token
+### expired, not that the user is gone.
+
+### Deletes the same shared test account requests/auth.http uses — only
+### run this once you're done testing against it for this session; run
+### auth.http's own ✅ register + ✅ confirm sections again afterward
+### before its account-dependent sections will work. Connect via
+### psql/a DB client:
+#
+#   DELETE FROM users WHERE email = 'REPLACE_WITH_YOUR_REAL_EMAIL';
+#
+
+### 🔒 401 — GET /me with the now-stale @authToken from the freshly
+### re-issued login above, run immediately after the DELETE. Proves the
+### valid-token-but-deleted-user path (CROC-009's RefreshToken/Me fix)
+### for real, not just against a mock.
+GET http://localhost:{{$dotenv PORT}}/me
+Authorization: Bearer {{authToken}}
