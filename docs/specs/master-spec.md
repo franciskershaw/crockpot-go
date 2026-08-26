@@ -294,6 +294,15 @@ session.*
 - **CROC-009** — `GET /me` profile endpoint (id, email, name, image,
   role); first route to prove `CROC-003`'s `AuthMiddleware` end-to-end.
   **Done.** See `docs/handoffs/CROC-009.md`.
+- **CROC-009a** — CORS middleware. Surfaced by `crockpot-react`'s
+  CFE-002 grill (2026-08-26): `CROC-001` deferred CORS to "later
+  tickets" and it was never picked up — `internal/middleware/` has no
+  `cors.go`, and the frontend's cross-origin `POST /auth/refresh` /
+  `GET /me` calls can't work without it. Straight port of
+  `packing-list-go/internal/middleware/cors.go` (+ `cors_test.go`) —
+  single allowed origin `cfg.FrontendURL`, `Allow-Credentials: true`,
+  preflight short-circuit — wired in `main.go` as
+  `middleware.CORS(cfg.FrontendURL)`. See `docs/handoffs/CROC-009a.md`.
 
 ### Epic 3: Reference Data
 - **CROC-010** — Item categories CRUD (admin-only writes, public reads).

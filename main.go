@@ -78,6 +78,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "SetTrustedProxies failed: %v\n", err)
 		os.Exit(1)
 	}
+	// CORS before the rate limiter so preflight OPTIONS aren't charged against the global bucket.
+	server.Use(middleware.CORS(cfg.FrontendURL))
 	server.Use(middleware.NewRateLimitMiddleware(memory.NewStore(), globalRateLimit).Handler())
 
 	server.GET("/health", func(c *gin.Context) {
