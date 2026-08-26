@@ -1,7 +1,7 @@
 # CROC-009a — CORS middleware
 
-Grilled 2026-08-26 (as part of `crockpot-react` CFE-002's grill). Not
-implemented yet.
+Grilled 2026-08-26 (as part of `crockpot-react` CFE-002's grill).
+Completed 2026-08-26.
 
 **Implementation mode: hand-written (founder).** Small, mechanical port
 with a direct precedent. `grill-me` produced this doc; Claude writes no
@@ -131,3 +131,17 @@ endpoints the SPA calls with `fetch`.
    ./...`, `go mod tidy -diff`.
 5. Open a PR (CodeRabbit), or ask about `/code-review` — per `CLAUDE.md`,
    don't auto-run it.
+
+## Close-out
+
+Implemented AI-driven (flipped from hand-written on request) — TDD
+red→green clean, no rework. Wired in `main.go` **before** the global
+rate limiter so preflight `OPTIONS` don't spend the bucket. CodeRabbit
+raised one finding, `Vary: Origin` (cache correctness — preventive, not
+a live bug given single-origin + credentialed non-cacheable endpoints);
+added it test-first. Also added `.coderabbit.yaml` with a
+`docs/handoffs/**` path instruction so handoff status lines stop drawing
+review findings. `go test ./internal/middleware/...`, `go build`,
+`gofmt`, `go vet`, `golangci-lint` (0 issues), `go mod tidy -diff` all
+clean; PR #9 CI green. Browser cross-origin proof still owed by CFE-002a
+per the verification plan above. Completed 2026-08-26.

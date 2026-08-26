@@ -195,3 +195,17 @@ implementation quality until CROC-001 lands.
   reference project — both already-standing rules (verify claims;
   `packing-list-go` is a starting point, not a mandate) did their job
   here, no new rule needed.
+
+## 2026-08-26 — CROC-009a — CORS middleware shipped; clean port, but branch ordering caused one conflict three times
+
+- Clean TDD port (30-line `cors.go`, 3 tests, one `main.go` line);
+  CodeRabbit's only finding (`Vary: Origin`) was preventive, not a bug.
+  Mode flipped hand-written → AI-driven mid-ticket with no friction.
+- The CROC-009 / CROC-009a spec bullets conflicted three separate times:
+  the CROC-009 branch's work was locally merged into this ticket branch
+  before its own PR #8 landed in `main`, so `main` later re-merged the
+  same commits via a different merge commit — bloating this PR's diff to
+  14 files until `main` was merged back in.
+- **Pattern**: don't local-merge an unmerged feature branch into your
+  ticket branch — wait for its PR to hit `main`, then branch or merge
+  from `main`.
