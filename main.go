@@ -107,6 +107,12 @@ func main() {
 		authRefresh.POST("/refresh", authHandler.RefreshToken)
 	}
 
+	authed := server.Group("/")
+	authed.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess))
+	{
+		authed.GET("/me", authHandler.Me)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
