@@ -83,13 +83,33 @@ in both `Me` and `RefreshToken`.
   marshaling the struct ties `/me`'s public contract to every future
   `json:"-"` tag on `models.User` staying correct forever, and would
   silently add `createdAt` beyond the five fields the ticket names.
-- **Shared `testutil.AuthHeader(t, email, userID, role string) string`
-  helper added** (mirrors `packing-list-go/internal/testutil`'s own),
-  since this is the first handler test needing a valid bearer token —
-  every future protected-route test needs the same thing, and hand-rolling
-  it per test file (as `middleware/auth_test.go`'s local
-  `expiredAccessToken` does for the *invalid*-token case) doesn't scale
-  past one file.
+- **`testutil.AuthHeader(t, email, userID, role string) string` added**,
+  matching the original plan (mirrors `packing-list-go/internal/testutil`'s
+  own) — reached via a brief detour. First attempt hit a real
+  `go vet`-confirmed import cycle: `internal/auth/jwt_test.go` was
+  `package auth` (white-box) and already imported `testutil` for its
+  constants, so `testutil` importing `auth` back (for
+  `auth.GenerateAccessToken`) cycled. `packing-list-go` never hits this
+  because its own `auth` package's tests don't import its `testutil`.
+  Root-caused rather than routed around: `jwt_test.go` was the *only*
+  `internal/auth` test file importing `testutil` (`token_test.go`,
+  `google_test.go` don't), and every symbol it uses from `auth`
+  (`GenerateAccessToken`, `GenerateRefreshToken`, `ValidateAccessToken`,
+  `ValidateRefreshToken`, `CustomClaims`, `RefreshClaims`) is already
+  exported — so it converts to black-box `package auth_test` with a
+  purely mechanical change (package clause + `auth.` prefixes, no logic
+  change), which removes it from `auth`'s own compilation unit entirely.
+  Go allows white-box and black-box test files to coexist in one
+  directory, so `google_test.go` (which does need one unexported
+  constructor, `newGoogleOAuthManager`) stays untouched as `package auth`.
+  Verified before and after: `go test ./internal/auth/...` produces the
+  identical 25 pass/fail result lines either way. Rejected: a new
+  `internal/testutil/authtoken` subpackage, or scoping the helper inside
+  `internal/handler` — both work, but only route around the cycle rather
+  than fix it, and `testutil` stays the one real home for shared test
+  helpers (per the folder layout) instead of splitting across
+  per-avoided-cycle subpackages as more cross-package needs show up
+  later.
 - **`.http` coverage lands in `requests/auth.http`**, not a new
   `requests/me.http`, matching `packing-list-go/requests/auth.http`'s own
   placement of `GET /me` — it's part of the same
@@ -125,9 +145,11 @@ in both `Me` and `RefreshToken`.
 - [ ] `main.go`: new `authed := server.Group("/")` +
       `middleware.AuthMiddleware(cfg.JWTSecretAccess)`; `GET /me` is its
       first member
-- [ ] `testutil.AuthHeader(t *testing.T, email, userID, role string)
-      string` added, generating a real signed access token via
-      `auth.GenerateAccessToken`
+- [ ] `internal/testutil.AuthHeader(t *testing.T, email, userID, role
+      string) string` added, generating a real signed access token via
+      `auth.GenerateAccessToken`; `internal/auth/jwt_test.go` converted to
+      black-box `package auth_test` to allow it (mechanical change only,
+      identical test results before/after)
 - [ ] `requests/auth.http` extended: a `GET /me` section with a ✅ 200
       case chained off `Login`'s captured token, a 🔒 401 case with no
       token, a 🔒 401 case with a malformed token, and a 🔒 401 case
@@ -180,6 +202,8 @@ in both `Me` and `RefreshToken`.
   `TestMe_ReturnsServerErrorOnOtherRepositoryError`,
   `TestRefreshToken_ReturnsUnauthorizedWhenUserNotFound`
 - `internal/testutil/fixtures.go` — extended: `AuthHeader` helper
+- `internal/auth/jwt_test.go` — converted to `package auth_test`
+  (mechanical only)
 
 ## Close-out
 

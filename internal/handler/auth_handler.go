@@ -837,3 +837,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	h.setRefreshCookie(c, "", -1)
 	c.JSON(http.StatusOK, gin.H{"message": "logged out"})
 }
+
+func (h *AuthHandler) Me(c *gin.Context) {
+	c.JSON(http.StatusTeapot, gin.H{"error": "me_not_implemented_stub"})
+}
