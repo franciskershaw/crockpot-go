@@ -173,3 +173,25 @@ implementation quality until CROC-001 lands.
   formality — third ticket running where it catches something a clean
   first-pass implementation missed. No mechanization needed; founder
   confirmed this is the intended shape of the process.
+
+## 2026-08-26 — CROC-009 — GET /me shipped; caught a masked-500 bug in CROC-008 and an import cycle before either shipped
+
+- `RefreshToken`'s `ErrUserNotFound` handling was masking a real 401 as
+  a generic 500 (never deliberate, just a leftover catch-all branch) —
+  caught while grilling `/me`'s own missing-user case, fixed in both
+  places since same root cause. Separately, `testutil.AuthHeader`
+  mirroring `packing-list-go` would have been a real import cycle in
+  this repo specifically — caught by running `go vet` against a scratch
+  file before committing to the plan, not by trusting the borrowed
+  precedent.
+- The `.http` coverage plan (append to `auth.http`, matching
+  `packing-list-go`) didn't survive actual use — REST Client scopes
+  variables/cookies per file, so a protected-route `.http` file always
+  needs its own `Login` regardless of which file it lives in. Reversed
+  to a standalone `me.http` post-implementation.
+- **Pattern**: a borrowed precedent (`packing-list-go`, or a decision
+  recorded at grill time) still needs checking against this repo's own
+  structure and against actually using the thing, not just against the
+  reference project — both already-standing rules (verify claims;
+  `packing-list-go` is a starting point, not a mandate) did their job
+  here, no new rule needed.

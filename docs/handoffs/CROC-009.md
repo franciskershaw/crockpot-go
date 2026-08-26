@@ -224,6 +224,9 @@ Implementation done (TDD: red confirmed for all 5 new tests before real
 bodies existed, all green after). `go build`, `go vet`, `gofmt -l .`,
 `golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`
 (0 issues), `go mod tidy -diff` (no changes — no new dependency) all
-clean. Pending: the manual `requests/me.http` run against a live server +
-real Neon dev DB (the actual `AuthMiddleware` end-to-end proof), PR +
-CodeRabbit review, then the `close-out` skill.
+clean. Manual `requests/me.http` run against a live server + real Neon
+dev DB confirmed. PR reviewed by CodeRabbit — one comment (about not
+marking the epic done), deliberately dismissed since review was still in
+progress at the time.
+
+Completed 2026-08-26.
