@@ -41,6 +41,9 @@ func TestCORS_AllowsConfiguredOrigin(t *testing.T) {
 	if got := w.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
 		t.Errorf("expected Access-Control-Allow-Credentials=true, got %q", got)
 	}
+	if got := w.Header().Get("Vary"); got != "Origin" {
+		t.Errorf("expected Vary=Origin, got %q", got)
+	}
 }
 
 func TestCORS_OmitsHeadersForUnconfiguredOrigin(t *testing.T) {
@@ -60,6 +63,9 @@ func TestCORS_OmitsHeadersForUnconfiguredOrigin(t *testing.T) {
 	}
 	if got := w.Header().Get("Access-Control-Allow-Credentials"); got != "" {
 		t.Errorf("expected no Access-Control-Allow-Credentials for an unconfigured origin, got %q", got)
+	}
+	if got := w.Header().Get("Vary"); got != "Origin" {
+		t.Errorf("expected Vary=Origin even for an unconfigured origin, got %q", got)
 	}
 }
 
@@ -81,5 +87,8 @@ func TestCORS_HandlesPreflightWithoutCallingHandler(t *testing.T) {
 	}
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
 		t.Errorf("expected Access-Control-Allow-Origin=http://localhost:5173 on preflight response, got %q", got)
+	}
+	if got := w.Header().Get("Vary"); got != "Origin" {
+		t.Errorf("expected Vary=Origin on preflight response, got %q", got)
 	}
 }

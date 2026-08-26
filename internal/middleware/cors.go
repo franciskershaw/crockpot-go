@@ -9,6 +9,10 @@ import (
 // CORS allows cross-origin requests only from allowedOrigin, with credentials.
 func CORS(allowedOrigin string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// The Allow-Origin header below is emitted conditionally on the request Origin,
+		// so every response through here varies by it — keep caches from crossing origins.
+		c.Writer.Header().Add("Vary", "Origin")
+
 		origin := c.Request.Header.Get("Origin")
 		if origin != allowedOrigin {
 			c.Next()
