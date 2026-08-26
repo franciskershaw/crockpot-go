@@ -185,6 +185,17 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   either merging accounts or surfacing a raw 500 — the direct, foreseeable
   consequence of the "mutually exclusive, no linking" decision above, not
   a hypothetical deferred until password auth ships.
+  **A valid, unexpired access/refresh token whose user row no longer
+  exists gets `401`, not `500`** — decided at `CROC-009`
+  (`docs/handoffs/CROC-009.md`), correcting `CROC-008`'s `RefreshToken`,
+  which had masked `models.ErrUserNotFound` behind the same generic `500`
+  used for genuine unexpected errors (never a deliberate choice — the
+  code just fell into the generic catch-all block). A token that names no
+  real user fails to establish identity the same way a missing/malformed/
+  expired one does; the enumeration-defense reasoning behind this
+  codebase's other generic-error collapses doesn't apply, since the
+  caller already possesses a token naming that exact user ID. Applies to
+  every authenticated-user-lookup path (`GET /me`, `POST /auth/refresh`).
 - **Ownership model**: reference data (`item_categories`, `items`, `units`,
   `recipe_categories`) is system-level, visible to everyone, admin-managed
   only — no per-user copies (unlike `packing-list-go`, which let users
@@ -369,3 +380,21 @@ not a demotion.*
   `customer.subscription.updated` / `customer.subscription.deleted`
   webhooks, update `role` accordingly.
 - **CROC-029** — Customer portal / cancel flow + billing-history endpoint.
+
+### Epic 12: Account Deletion
+*Added at `CROC-009`'s grill (`docs/handoffs/CROC-009.md`): raised while
+reasoning about what happens to a live token when its user row is gone —
+there was no way for a user to delete their own account anywhere in this
+spec, not even as a stated non-goal. Design is deliberately deferred to
+its own ticket rather than decided inline here — it has real open
+questions (hard vs. soft delete, given this spec's current "no soft-delete
+requirement identified yet" stance; cascade behaviour for owned recipes/
+favourites/menu/shopping-list/planner rows; whether an ADMIN or a user
+with pending-approval recipes needs different handling; email confirmation
+of intent; session revocation) that deserve their own grill, not a
+few-line addendum to a `GET /me` ticket.*
+- **CROC-030** — Design + implement self-service account deletion. Output
+  of the design half: hard-delete vs. soft-delete decision (and why,
+  against this spec's existing no-soft-delete default), what happens to
+  the deleted user's recipes/favourites/menu/shopping-list/planner rows,
+  confirmation mechanism, and full session revocation on completion.
