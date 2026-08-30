@@ -23,3 +23,11 @@ var ErrItemCategoryInUse = errors.New("item category is in use")
 var ErrItemCategoryNameTaken = errors.New("item category name already taken")
 
 var ErrItemCategoryIconTaken = errors.New("item category icon already taken")
+
+var ErrUnitNotFound = errors.New("unit not found")
+
+var ErrUnitInUse = errors.New("unit is in use")
+
+var ErrUnitNameTaken = errors.New("unit name already taken")
+
+var ErrUnitAbbreviationTaken = errors.New("unit abbreviation already taken")
