@@ -229,3 +229,42 @@ implementation quality until CROC-001 lands.
   needs checking against the real dependency same as a design claim —
   don't downgrade live-verified evidence because a reviewer without DB
   access contradicts it.
+
+## 2026-08-30 — CROC-011 — Units CRUD shipped; clean template application, one real tooling snag
+
+- No rework in the TDD layers — the `23001` catch from `CROC-010`
+  applied correctly first-attempt, no rediscovery needed. One real
+  data-quality catch: the MongoDB export had a blank
+  `{name:"",abbreviation:""}` row, excluded at grill time before the
+  seed migration was written.
+- `go run main.go` fails to compile — this package's `main` is split
+  across `main.go` and `lifecycle.go`; `go run <file>.go` only builds
+  the named file. Use `go run .` to start the server ad-hoc.
+- `/code-review medium`'s one finding (the `item_allowed_units` `CASCADE`
+  gap) was factually correct but not new — already a deliberate,
+  recorded grill decision; the review just exposed that the code didn't
+  self-document why. Fixed with a one-line comment, not a behavior
+  change.
+- **Pattern**: a review agent has no visibility into the handoff doc — a
+  finding that restates an already-made, documented decision isn't a
+  bug, but is a signal the code should say why inline, not just in the
+  doc.
+
+## 2026-08-30 — First tech-debt pass, whole codebase (11 tickets in)
+
+- First-ever periodic pass, requested after CROC-011 rather than waiting
+  for a fixed cadence. Covered `internal/`, `db/`, `config/`, `main.go`,
+  `lifecycle.go`, `.githooks/`. 9 findings, 7 tickets (`CROC-031`–
+  `CROC-037`), full detail `docs/findings/2026-08-30-tech-debt.md`. One
+  real correctness bug found (`CROC-031`, latent — a repository silently
+  ignoring an active transaction), not yet exploited since nothing calls
+  it inside `WithinTx` today.
+- Reconciled three already-decided, already-documented tradeoffs
+  (`item_allowed_units` CASCADE, no soft deletes, repo-interfaces-in-
+  -handler) without re-filing them — the `CLAUDE.md`/`LESSONS.md` read
+  before filing anything did its job.
+- **Pattern**: a decision "flagged... out of scope" in a closed ticket's
+  handoff doc (`auth_handler.go`'s helper retrofit, flagged at `CROC-010`)
+  can quietly never become a real backlog item — a tech-debt pass is
+  where that gets caught; grep the backlog for a flagged item's own
+  wording before assuming it's tracked.

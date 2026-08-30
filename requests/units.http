@@ -1,0 +1,136 @@
+# Crockpot API — /units
+#
+# Same shape as requests/item-categories.http: GET is public, POST/PATCH/
+# DELETE are ADMIN-only via middleware.RequireRole("ADMIN") — its 401/403
+# behavior is already covered by internal/middleware's own unit tests, so
+# this file focuses on the wiring: public read, ADMIN CRUD happy path,
+# and the 409/404 translations, run against a live server + real DB.
+#
+# Reuses the same one-time ADMIN bump as item-categories.http (see
+# requests/README.md) — no separate setup needed if you've already run
+# that file.
+
+
+# ══════════════════════════════════════════
+#  Login (ADMIN account)
+# ══════════════════════════════════════════
+
+### Login, to get a token for the checks below.
+# @name login
+POST http://localhost:{{$dotenv PORT}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "password": "correcthorsebattery"
+}
+
+###
+
+@authToken = {{login.response.body.accessToken}}
+
+
+# ══════════════════════════════════════════
+#  GET /units (public)
+# ══════════════════════════════════════════
+
+### ✅ 200 — no token needed, returns the seeded units ordered by name
+GET http://localhost:{{$dotenv PORT}}/units
+
+###
+
+
+# ══════════════════════════════════════════
+#  POST /units (ADMIN)
+# ══════════════════════════════════════════
+
+### ✅ 201 — creates the unit this file exercises below
+# @name create
+POST http://localhost:{{$dotenv PORT}}/units
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-unit",
+  "abbreviation": "htu"
+}
+
+###
+
+@unitId = {{create.response.body.id}}
+
+### 🚫 409 name_taken — same name as above, different abbreviation
+POST http://localhost:{{$dotenv PORT}}/units
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-unit",
+  "abbreviation": "htu-2"
+}
+
+###
+
+### 🚫 409 abbreviation_taken — different name, same abbreviation as above
+POST http://localhost:{{$dotenv PORT}}/units
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-unit-2",
+  "abbreviation": "htu"
+}
+
+###
+
+
+# ══════════════════════════════════════════
+#  PATCH /units/:id (ADMIN)
+# ══════════════════════════════════════════
+
+### ✅ 200 — partial update, name only
+PATCH http://localhost:{{$dotenv PORT}}/units/{{unitId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-unit-renamed"
+}
+
+###
+
+### 🚫 404 not_found — a random id that doesn't exist
+PATCH http://localhost:{{$dotenv PORT}}/units/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "doesn't matter"
+}
+
+###
+
+
+# ══════════════════════════════════════════
+#  DELETE /units/:id (ADMIN)
+# ══════════════════════════════════════════
+
+### ✅ 204 — deletes the unit created above (also this file's cleanup)
+DELETE http://localhost:{{$dotenv PORT}}/units/{{unitId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 404 not_found — already deleted by the request above
+DELETE http://localhost:{{$dotenv PORT}}/units/{{unitId}}
+Authorization: Bearer {{authToken}}
+
+
+# ══════════════════════════════════════════
+#  Cleanup
+# ══════════════════════════════════════════
+
+### Nothing dangling: the ✅ 204 delete above already removes the one
+### unit this file creates, so a re-run from a clean server behaves the
+### same way twice. No separate ADMIN-bump revert needed here — see
+### item-categories.http's Cleanup section if you want to revert that.

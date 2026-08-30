@@ -315,7 +315,8 @@ session.*
   helper extraction, and the `item_categories.fa_icon` → `icon` rename +
   real seed data — reused by every Epic 3–6 ticket after it. **Done.**
   See `docs/handoffs/CROC-010.md`.
-- **CROC-011** — Units CRUD (admin-only writes, public reads).
+- **CROC-011** — Units CRUD (admin-only writes, public reads). **Done.**
+  See `docs/handoffs/CROC-011.md`.
 - **CROC-012** — Items CRUD, with allowed-units association (admin-only
   writes, public reads).
 - **CROC-013** — Recipe categories CRUD (admin-only writes, public reads).
@@ -417,3 +418,32 @@ few-line addendum to a `GET /me` ticket.*
   against this spec's existing no-soft-delete default), what happens to
   the deleted user's recipes/favourites/menu/shopping-list/planner rows,
   confirmation mechanism, and full session revocation on completion.
+
+### Tech Debt & Production Readiness
+*From the first whole-codebase tech-debt pass, 2026-08-30. Full detail:
+`docs/findings/2026-08-30-tech-debt.md`.*
+- **CROC-031** — Fix `PostgresEmailVerificationTokenRepository` to honor
+  an active `WithinTx` transaction (matches every other repository's
+  `queriesFor(ctx, r.db)` pattern). Not currently exploitable, but a
+  silent atomicity trap for the next ticket that wraps it in a
+  transaction. Finding 1.
+- **CROC-032** — Add indexes for the 10 FK columns in the base schema not
+  covered by any existing index/PK/unique constraint. Mostly
+  forward-looking (Epic 4-6 tables), but `items.category_id` and
+  `item_allowed_units.unit_id` go live at `CROC-012`. Finding 2.
+- **CROC-033** — Decide and implement (or deliberately drop) periodic
+  cleanup of stale/expired rows in `refresh_tokens`,
+  `email_verification_tokens`, `password_reset_tokens` — currently only
+  opportunistic, per-user, on next login. Resolve `lifecycle.go`'s dead,
+  stale-against-current-interfaces sweeper code either way. Finding 3.
+- **CROC-034** — Add a request body-size-limit middleware — promised by
+  `CLAUDE.md`'s folder-layout doc, never built. Finding 4.
+- **CROC-035** — Collapse `email.ResendClient`'s two near-identical
+  send methods into one shared helper. Finding 5.
+- **CROC-036** — Convention-consistency cleanup: rate-limit error bodies
+  → the established `snake_case_code` shape; `db.go`'s `fmt.Print*` →
+  `slog`; retrofit `auth_handler.go` onto `handler/errors.go`/
+  `validation.go` (promised at `CROC-010`, never tracked). Findings 6-8.
+- **CROC-037** — Drop the `lib/pq` dependency: switch `db.go`'s migrator
+  to `golang-migrate`'s native `database/pgx/v5` driver, reusing the
+  app's existing pgx stack. Finding 9.

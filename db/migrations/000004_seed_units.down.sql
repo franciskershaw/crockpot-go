@@ -1,0 +1,22 @@
+DELETE FROM units WHERE name IN (
+    'grams',
+    'tablespoons',
+    'cup',
+    'kilogram',
+    'cobs',
+    'pint',
+    'pack',
+    'rolls',
+    'bottle',
+    'box',
+    'fillets',
+    'milliliters',
+    'jars',
+    'slices',
+    'loaves',
+    'cans',
+    'teaspoons',
+    'litres',
+    'sachet',
+    'cloves'
+);

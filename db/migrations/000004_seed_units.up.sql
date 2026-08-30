@@ -1,0 +1,22 @@
+INSERT INTO units (name, abbreviation) VALUES
+    ('grams', 'g'),
+    ('tablespoons', 'tbsp'),
+    ('cup', 'c'),
+    ('kilogram', 'kg'),
+    ('cobs', 'cobs'),
+    ('pint', 'pt'),
+    ('pack', 'pack'),
+    ('rolls', 'rolls'),
+    ('bottle', 'btl'),
+    ('box', 'box'),
+    ('fillets', 'fillets'),
+    ('milliliters', 'ml'),
+    ('jars', 'jars'),
+    ('slices', 'slices'),
+    ('loaves', 'loaves'),
+    ('cans', 'cans'),
+    ('teaspoons', 'tsp'),
+    ('litres', 'L'),
+    ('sachet', 'sachet'),
+    ('cloves', 'cloves')
+ON CONFLICT (name) DO NOTHING;
