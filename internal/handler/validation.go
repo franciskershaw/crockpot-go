@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // bindJSON binds the request body JSON into target, writing a 400 response and
@@ -57,6 +58,29 @@ func validateAbbreviation(c *gin.Context, raw string) (string, bool) {
 	}
 	if len(trimmed) > 32 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "abbreviation_too_long"})
+		return "", false
+	}
+	return trimmed, true
+}
+
+// parseID checks raw is a well-formed UUID (not that it exists — the DB confirms that), writing 400 invalid_request and returning ok=false if malformed.
+func parseID(c *gin.Context, raw string) bool {
+	if _, err := uuid.Parse(raw); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		return false
+	}
+	return true
+}
+
+// validateCategoryID trims and format-checks a required category id, writing the
+// appropriate error response and returning ok=false if invalid.
+func validateCategoryID(c *gin.Context, raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "category_id_required"})
+		return "", false
+	}
+	if !parseID(c, trimmed) {
 		return "", false
 	}
 	return trimmed, true
