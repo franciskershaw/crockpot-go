@@ -31,3 +31,13 @@ var ErrUnitInUse = errors.New("unit is in use")
 var ErrUnitNameTaken = errors.New("unit name already taken")
 
 var ErrUnitAbbreviationTaken = errors.New("unit abbreviation already taken")
+
+var ErrItemNotFound = errors.New("item not found")
+
+var ErrItemInUse = errors.New("item is in use")
+
+var ErrItemNameTaken = errors.New("item name already taken")
+
+var ErrItemInvalidCategory = errors.New("item category does not exist")
+
+var ErrItemInvalidUnit = errors.New("allowed unit does not exist")
