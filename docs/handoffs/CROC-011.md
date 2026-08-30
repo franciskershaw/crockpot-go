@@ -162,3 +162,5 @@ resource on create/update.
    the writes, same shape as `item-categories`) +
    `requests/units.http`. Manual `.http` (founder) + migration up/down
    verification.
+
+Completed 2026-08-30.

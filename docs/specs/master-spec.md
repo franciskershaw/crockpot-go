@@ -315,8 +315,8 @@ session.*
   helper extraction, and the `item_categories.fa_icon` → `icon` rename +
   real seed data — reused by every Epic 3–6 ticket after it. **Done.**
   See `docs/handoffs/CROC-010.md`.
-- **CROC-011** — Units CRUD (admin-only writes, public reads). Grilled
-  2026-08-30, `docs/handoffs/CROC-011.md`.
+- **CROC-011** — Units CRUD (admin-only writes, public reads). **Done.**
+  See `docs/handoffs/CROC-011.md`.
 - **CROC-012** — Items CRUD, with allowed-units association (admin-only
   writes, public reads).
 - **CROC-013** — Recipe categories CRUD (admin-only writes, public reads).

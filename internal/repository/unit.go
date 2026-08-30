@@ -78,8 +78,8 @@ func (r *PostgresUnitRepository) Delete(ctx context.Context, id string) error {
 			return models.ErrUnitNotFound
 		}
 		var pgErr *pgconn.PgError
-		// 23001 (restrict_violation): fires from either recipe_ingredients or
-		// shopping_list_items, both ON DELETE RESTRICT — same domain error either way.
+		// 23001 (restrict_violation) from recipe_ingredients/shopping_list_items (both RESTRICT);
+		// item_allowed_units is CASCADE and deliberately not caught here.
 		if errors.As(err, &pgErr) && pgErr.Code == "23001" {
 			return models.ErrUnitInUse
 		}

@@ -229,3 +229,23 @@ implementation quality until CROC-001 lands.
   needs checking against the real dependency same as a design claim —
   don't downgrade live-verified evidence because a reviewer without DB
   access contradicts it.
+
+## 2026-08-30 — CROC-011 — Units CRUD shipped; clean template application, one real tooling snag
+
+- No rework in the TDD layers — the `23001` catch from `CROC-010`
+  applied correctly first-attempt, no rediscovery needed. One real
+  data-quality catch: the MongoDB export had a blank
+  `{name:"",abbreviation:""}` row, excluded at grill time before the
+  seed migration was written.
+- `go run main.go` fails to compile — this package's `main` is split
+  across `main.go` and `lifecycle.go`; `go run <file>.go` only builds
+  the named file. Use `go run .` to start the server ad-hoc.
+- `/code-review medium`'s one finding (the `item_allowed_units` `CASCADE`
+  gap) was factually correct but not new — already a deliberate,
+  recorded grill decision; the review just exposed that the code didn't
+  self-document why. Fixed with a one-line comment, not a behavior
+  change.
+- **Pattern**: a review agent has no visibility into the handoff doc — a
+  finding that restates an already-made, documented decision isn't a
+  bug, but is a signal the code should say why inline, not just in the
+  doc.
