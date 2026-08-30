@@ -87,7 +87,7 @@ func TestCreateItem_WithAllowedUnits(t *testing.T) {
 	cleanupExec(t, `DELETE FROM items WHERE id = $1`, item.ID)
 
 	assert.ElementsMatch(t, []uuid.UUID{unit1, unit2}, item.AllowedUnitIDs)
-	assert.Equal(t, []uuid.UUID{unit1, unit2}, sortedUUIDs(getItemAllowedUnitIDs(t, item.ID)))
+	assert.Equal(t, sortedUUIDs([]uuid.UUID{unit1, unit2}), sortedUUIDs(getItemAllowedUnitIDs(t, item.ID)))
 }
 
 func TestCreateItem_DuplicateName(t *testing.T) {
@@ -112,8 +112,12 @@ func TestCreateItem_InvalidCategory(t *testing.T) {
 func TestCreateItem_InvalidUnit(t *testing.T) {
 	ctx := context.Background()
 	categoryID := insertTestItemCategory(t, "repo-test-category-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	name := "repo-test-item-" + uuid.NewString()
+	// Called unwrapped (no transactor), so the items row from step 1 legitimately
+	// persists despite the allowed-unit insert failing — clean it up by name.
+	cleanupExec(t, `DELETE FROM items WHERE name = $1`, name)
 
-	item, err := itemRepo.Create(ctx, "repo-test-item-"+uuid.NewString(), categoryID.String(), []string{uuid.NewString()})
+	item, err := itemRepo.Create(ctx, name, categoryID.String(), []string{uuid.NewString()})
 	assert.Nil(t, item)
 	assert.ErrorIs(t, err, models.ErrItemInvalidUnit)
 }

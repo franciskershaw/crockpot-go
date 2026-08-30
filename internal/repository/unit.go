@@ -7,9 +7,14 @@ import (
 
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/sqlc"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
+
+var unitConstraintErrors = map[string]error{
+	"units_name_key":         models.ErrUnitNameTaken,
+	"units_abbreviation_key": models.ErrUnitAbbreviationTaken,
+}
 
 type PostgresUnitRepository struct {
 	db sqlc.DBTX
@@ -37,7 +42,7 @@ func (r *PostgresUnitRepository) Create(ctx context.Context, name, abbreviation 
 		Abbreviation: abbreviation,
 	})
 	if err != nil {
-		if constraintErr := unitConstraintError(err); constraintErr != nil {
+		if constraintErr := pgConstraintError(err, unitConstraintErrors); constraintErr != nil {
 			return nil, constraintErr
 		}
 		return nil, fmt.Errorf("failed to create unit: %w", err)
@@ -59,7 +64,7 @@ func (r *PostgresUnitRepository) Update(ctx context.Context, id, name, abbreviat
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, models.ErrUnitNotFound
 		}
-		if constraintErr := unitConstraintError(err); constraintErr != nil {
+		if constraintErr := pgConstraintError(err, unitConstraintErrors); constraintErr != nil {
 			return nil, constraintErr
 		}
 		return nil, fmt.Errorf("failed to update unit: %w", err)
@@ -77,31 +82,14 @@ func (r *PostgresUnitRepository) Delete(ctx context.Context, id string) error {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return models.ErrUnitNotFound
 		}
-		var pgErr *pgconn.PgError
-		// 23001 (restrict_violation) from recipe_ingredients/shopping_list_items (both RESTRICT);
+		// Fires from either recipe_ingredients or shopping_list_items (both RESTRICT);
 		// item_allowed_units is CASCADE and deliberately not caught here.
-		if errors.As(err, &pgErr) && pgErr.Code == "23001" {
+		if pgErrorCode(err, pgerrcode.RestrictViolation) {
 			return models.ErrUnitInUse
 		}
 		return fmt.Errorf("failed to delete unit: %w", err)
 	}
 	return nil
-}
-
-// unitConstraintError maps a 23505 unique-violation to its domain error by constraint name, or returns nil for any other error.
-func unitConstraintError(err error) error {
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
-		return nil
-	}
-	switch pgErr.ConstraintName {
-	case "units_name_key":
-		return models.ErrUnitNameTaken
-	case "units_abbreviation_key":
-		return models.ErrUnitAbbreviationTaken
-	default:
-		return nil
-	}
 }
 
 func toModelUnit(u sqlc.Unit) *models.Unit {

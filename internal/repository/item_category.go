@@ -7,9 +7,14 @@ import (
 
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/sqlc"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
+
+var itemCategoryConstraintErrors = map[string]error{
+	"item_categories_name_key": models.ErrItemCategoryNameTaken,
+	"item_categories_icon_key": models.ErrItemCategoryIconTaken,
+}
 
 type PostgresItemCategoryRepository struct {
 	db sqlc.DBTX
@@ -37,7 +42,7 @@ func (r *PostgresItemCategoryRepository) Create(ctx context.Context, name, icon 
 		Icon: icon,
 	})
 	if err != nil {
-		if constraintErr := itemCategoryConstraintError(err); constraintErr != nil {
+		if constraintErr := pgConstraintError(err, itemCategoryConstraintErrors); constraintErr != nil {
 			return nil, constraintErr
 		}
 		return nil, fmt.Errorf("failed to create item category: %w", err)
@@ -59,7 +64,7 @@ func (r *PostgresItemCategoryRepository) Update(ctx context.Context, id, name, i
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, models.ErrItemCategoryNotFound
 		}
-		if constraintErr := itemCategoryConstraintError(err); constraintErr != nil {
+		if constraintErr := pgConstraintError(err, itemCategoryConstraintErrors); constraintErr != nil {
 			return nil, constraintErr
 		}
 		return nil, fmt.Errorf("failed to update item category: %w", err)
@@ -77,30 +82,13 @@ func (r *PostgresItemCategoryRepository) Delete(ctx context.Context, id string) 
 		if errors.Is(err, pgx.ErrNoRows) {
 			return models.ErrItemCategoryNotFound
 		}
-		var pgErr *pgconn.PgError
-		// 23001 (restrict_violation), not 23503 (foreign_key_violation): the FK is ON DELETE RESTRICT.
-		if errors.As(err, &pgErr) && pgErr.Code == "23001" {
+		// items.category_id is ON DELETE RESTRICT, so this is RestrictViolation, not ForeignKeyViolation.
+		if pgErrorCode(err, pgerrcode.RestrictViolation) {
 			return models.ErrItemCategoryInUse
 		}
 		return fmt.Errorf("failed to delete item category: %w", err)
 	}
 	return nil
-}
-
-// itemCategoryConstraintError maps a 23505 unique-violation to its domain error by constraint name, or returns nil for any other error.
-func itemCategoryConstraintError(err error) error {
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
-		return nil
-	}
-	switch pgErr.ConstraintName {
-	case "item_categories_name_key":
-		return models.ErrItemCategoryNameTaken
-	case "item_categories_icon_key":
-		return models.ErrItemCategoryIconTaken
-	default:
-		return nil
-	}
 }
 
 func toModelItemCategory(c sqlc.ItemCategory) *models.ItemCategory {
