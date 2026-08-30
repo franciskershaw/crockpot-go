@@ -213,7 +213,7 @@ application, same reasoning as CROC-011/012's AI-driven calls.
 | Full wiring | Manual `.http` regression | `requests/recipe-categories.http` top-to-bottom in VS Code REST Client: public GET (no token), ADMIN CRUD happy path, the 409/404 translations, in-use delete against a real tagged recipe once CROC-014 exists (until then, exercise in-use via a manually inserted `recipe_categories_recipes` row), Cleanup |
 | Migrations | Manual | `migrate up` then `migrate down` one step for `000005` and `000006`; confirm reversibility, confirm `\d recipe_categories_recipes` shows RESTRICT, confirm idempotent re-seed |
 | Lint / format | Gate | `golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`; `gofmt` |
-| Review | Gate | `/code-review` (CodeRabbit trial ended mid-CROC-010, per `LESSONS.md`), fix in one pass, then close-out |
+| Review | Gate | `/code-review medium main` — done, zero findings across the full ~1460-line/18-file diff |
 
 ## Piece order (AI-driven)
 
@@ -288,3 +288,5 @@ turned into the `000006` seed `INSERT` verbatim, Mongo export order.
   (CASCADE→RESTRICT) is local to `recipe_categories_recipes` and doesn't
   change any documented architecture, so it's recorded here only, not
   duplicated into the spec.
+
+Completed 2026-08-30.

@@ -322,6 +322,7 @@ session.*
   (`item_allowed_units`) and first non-`AuthHandler` consumer of
   `handler.Transactor`. **Done.** See `docs/handoffs/CROC-012.md`.
 - **CROC-013** — Recipe categories CRUD (admin-only writes, public reads).
+  **Done.** See `docs/handoffs/CROC-013.md`.
 
 ### Epic 4: Recipes
 - **CROC-014** — Recipe creation (name, time, serves, instructions, notes,

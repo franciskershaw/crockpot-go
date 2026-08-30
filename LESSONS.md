@@ -290,3 +290,18 @@ implementation quality until CROC-001 lands.
   can quietly never become a real backlog item — a tech-debt pass is
   where that gets caught; grep the backlog for a flagged item's own
   wording before assuming it's tracked.
+
+## 2026-08-30 — CROC-013 — Recipe categories CRUD shipped; one real schema decision, one self-caught process slip
+
+- No implementation rework — repo and handler TDD both passed green
+  first attempt, including the `23001` RESTRICT SQLSTATE reused without
+  rediscovery. One process slip: skipped the stub/red step on the
+  repository piece, went straight to a full implementation — self-caught
+  before any test ran, backed out to a proper stub, redid it test-first.
+- Real schema divergence caught before it shipped: unlike
+  `item_categories`/`units`, `recipe_categories_recipes`'s FK was
+  `ON DELETE CASCADE` (silent unlink) — confirmed live via
+  `pg_constraint`, not assumed, then flipped to `RESTRICT`.
+- **Pattern**: the AI-driven stub/red/stop gate applies to every piece
+  of a ticket, not just the first one of a session — template-reuse
+  familiarity is not a reason to skip it.
