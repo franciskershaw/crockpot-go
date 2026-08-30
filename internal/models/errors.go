@@ -15,3 +15,11 @@ var ErrNoActivePasswordResetToken = errors.New("no active password reset token")
 var ErrUserNotFound = errors.New("user not found")
 
 var ErrRefreshTokenFamilyNotFound = errors.New("refresh token family not found")
+
+var ErrItemCategoryNotFound = errors.New("item category not found")
+
+var ErrItemCategoryInUse = errors.New("item category is in use")
+
+var ErrItemCategoryNameTaken = errors.New("item category name already taken")
+
+var ErrItemCategoryIconTaken = errors.New("item category icon already taken")
