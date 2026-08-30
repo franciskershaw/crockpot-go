@@ -139,6 +139,27 @@ func TestCreateItem_RollsBackOnInvalidUnitID(t *testing.T) {
 	assert.Equal(t, 0, count, "expected no item row to survive the rolled-back transaction")
 }
 
+func TestUpdateItem_RollsBackOnInvalidUnitID(t *testing.T) {
+	ctx := context.Background()
+	originalCategory := insertTestItemCategory(t, "repo-test-category-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	newCategory := insertTestItemCategory(t, "repo-test-category-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	originalName := "repo-test-item-" + uuid.NewString()
+	id := insertTestItem(t, originalName, originalCategory)
+
+	txErr := transactor.WithinTx(ctx, func(ctx context.Context) error {
+		_, err := itemRepo.Update(ctx, id.String(), "repo-test-item-"+uuid.NewString(), newCategory.String(), []string{uuid.NewString()})
+		return err
+	})
+	assert.ErrorIs(t, txErr, models.ErrItemInvalidUnit)
+
+	var name string
+	var categoryID uuid.UUID
+	row := db.DB.QueryRow(ctx, `SELECT name, category_id FROM items WHERE id = $1`, id)
+	require.NoError(t, row.Scan(&name, &categoryID))
+	assert.Equal(t, originalName, name, "expected the name change to be rolled back")
+	assert.Equal(t, originalCategory, categoryID, "expected the category change to be rolled back")
+}
+
 func TestListItems_OrderedByName_GroupsAllowedUnitsCorrectly(t *testing.T) {
 	ctx := context.Background()
 	categoryID := insertTestItemCategory(t, "repo-test-category-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())

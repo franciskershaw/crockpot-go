@@ -250,6 +250,28 @@ implementation quality until CROC-001 lands.
   bug, but is a signal the code should say why inline, not just in the
   doc.
 
+## 2026-08-30 — CROC-012 — Items CRUD + first many-to-many join table shipped
+
+- No implementation rework — three bugs caught along the way were all in
+  my own test code (a nil-map panic, an unsorted-comparison assertion, a
+  test not accounting for `Create`'s non-atomic-without-tx behavior), not
+  the repository/handler. The `medium` review's one finding (missing
+  `Update`-side rollback coverage) was real this time, fixed and
+  verified.
+- Founder's mid-ticket pushback on magic SQLSTATE strings led to a real
+  simplification: `pgerrcode` named constants + a shared
+  `pgConstraintError` helper, collapsing three near-duplicate functions
+  across all three reference-data repositories — including already-
+  shipped `CROC-010`/`CROC-011` code.
+- Two verification-hygiene misses, both self-caught: a stale server from
+  an earlier session's `pkill` was still bound to the port, causing false
+  404s until checked via `lsof -ti:PORT`; leaked test rows from an
+  earlier debugging cycle sat in the shared dev DB until swept.
+- **Pattern**: verifying against a long-lived shared resource (a
+  background server, a dev DB) needs checking the resource's actual
+  state — port binding, a `LIKE 'repo-test-%'` sweep — not trusting an
+  earlier cleanup step succeeded.
+
 ## 2026-08-30 — First tech-debt pass, whole codebase (11 tickets in)
 
 - First-ever periodic pass, requested after CROC-011 rather than waiting

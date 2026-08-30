@@ -318,9 +318,9 @@ session.*
 - **CROC-011** — Units CRUD (admin-only writes, public reads). **Done.**
   See `docs/handoffs/CROC-011.md`.
 - **CROC-012** — Items CRUD, with allowed-units association (admin-only
-  writes, public reads). Grilled 2026-08-30, `docs/handoffs/CROC-012.md`.
-  First many-to-many join table (`item_allowed_units`) and first
-  non-`AuthHandler` consumer of `handler.Transactor`.
+  writes, public reads). First many-to-many join table
+  (`item_allowed_units`) and first non-`AuthHandler` consumer of
+  `handler.Transactor`. **Done.** See `docs/handoffs/CROC-012.md`.
 - **CROC-013** — Recipe categories CRUD (admin-only writes, public reads).
 
 ### Epic 4: Recipes

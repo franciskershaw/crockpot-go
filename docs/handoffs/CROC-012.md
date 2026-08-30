@@ -271,3 +271,5 @@ unmodified from `CROC-002`'s base schema (`000001_init.up.sql:83-96`).
 4. **Wire `main.go`** (public `GET` on `server`; an ADMIN-gated group for
    the writes, passing the existing `transactor` into `NewItemHandler`
    too) + `requests/items.http`. Manual `.http` verification (founder).
+
+Completed 2026-08-30.
