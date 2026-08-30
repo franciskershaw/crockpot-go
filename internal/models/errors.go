@@ -41,3 +41,9 @@ var ErrItemNameTaken = errors.New("item name already taken")
 var ErrItemInvalidCategory = errors.New("item category does not exist")
 
 var ErrItemInvalidUnit = errors.New("allowed unit does not exist")
+
+var ErrRecipeCategoryNotFound = errors.New("recipe category not found")
+
+var ErrRecipeCategoryInUse = errors.New("recipe category is in use")
+
+var ErrRecipeCategoryNameTaken = errors.New("recipe category name already taken")
