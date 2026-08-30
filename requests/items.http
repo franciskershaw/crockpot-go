@@ -1,0 +1,207 @@
+# Crockpot API — /items
+#
+# Same shape as item-categories.http/units.http: GET is public, POST/
+# PATCH/DELETE are ADMIN-only via middleware.RequireRole("ADMIN") — its
+# 401/403 behavior is already covered by internal/middleware's own unit
+# tests, so this file focuses on the wiring: public read, ADMIN CRUD
+# happy path including allowed-units management, and the 409/404/400
+# translations, run against a live server + real DB.
+#
+# Reuses the same one-time ADMIN bump as item-categories.http/units.http
+# (see requests/README.md) — no separate setup needed if you've already
+# run one of those files. Also needs one real item category and one real
+# unit to reference — run item-categories.http and units.http first (or
+# just note any real id from GET /item-categories / GET /units below).
+
+
+# ══════════════════════════════════════════
+#  Login (ADMIN account)
+# ══════════════════════════════════════════
+
+### Login, to get a token for the checks below.
+# @name login
+POST http://localhost:{{$dotenv PORT}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "password": "correcthorsebattery"
+}
+
+###
+
+@authToken = {{login.response.body.accessToken}}
+
+
+# ══════════════════════════════════════════
+#  Fixtures — a real category and two real units to reference
+# ══════════════════════════════════════════
+
+### Real item category id to reference below.
+# @name category
+GET http://localhost:{{$dotenv PORT}}/item-categories
+
+###
+
+@categoryId = {{category.response.body.$[0].id}}
+
+### Real unit ids to reference below.
+# @name units
+GET http://localhost:{{$dotenv PORT}}/units
+
+###
+
+@unitId1 = {{units.response.body.$[0].id}}
+@unitId2 = {{units.response.body.$[1].id}}
+
+
+# ══════════════════════════════════════════
+#  GET /items (public)
+# ══════════════════════════════════════════
+
+### ✅ 200 — no token needed
+GET http://localhost:{{$dotenv PORT}}/items
+
+###
+
+
+# ══════════════════════════════════════════
+#  POST /items (ADMIN)
+# ══════════════════════════════════════════
+
+### ✅ 201 — creates the item this file exercises below, with two allowed units
+# @name create
+POST http://localhost:{{$dotenv PORT}}/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-item",
+  "categoryId": "{{categoryId}}",
+  "allowedUnitIds": ["{{unitId1}}", "{{unitId2}}"]
+}
+
+###
+
+@itemId = {{create.response.body.id}}
+
+### 🚫 409 name_taken — same name as above
+POST http://localhost:{{$dotenv PORT}}/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-item",
+  "categoryId": "{{categoryId}}"
+}
+
+###
+
+### 🚫 400 invalid_category_id — well-formed but nonexistent category
+POST http://localhost:{{$dotenv PORT}}/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-item-2",
+  "categoryId": "00000000-0000-0000-0000-000000000000"
+}
+
+###
+
+### 🚫 400 invalid_unit_id — well-formed but nonexistent unit
+POST http://localhost:{{$dotenv PORT}}/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-item-3",
+  "categoryId": "{{categoryId}}",
+  "allowedUnitIds": ["00000000-0000-0000-0000-000000000000"]
+}
+
+###
+
+### 🚫 400 category_id_required — missing categoryId
+POST http://localhost:{{$dotenv PORT}}/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-item-4"
+}
+
+###
+
+
+# ══════════════════════════════════════════
+#  PATCH /items/:id (ADMIN)
+# ══════════════════════════════════════════
+
+### ✅ 200 — partial update, name only (allowed units untouched)
+PATCH http://localhost:{{$dotenv PORT}}/items/{{itemId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-item-renamed"
+}
+
+###
+
+### ✅ 200 — replace allowed units with just the first unit
+PATCH http://localhost:{{$dotenv PORT}}/items/{{itemId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "allowedUnitIds": ["{{unitId1}}"]
+}
+
+###
+
+### ✅ 200 — clear allowed units entirely
+PATCH http://localhost:{{$dotenv PORT}}/items/{{itemId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "allowedUnitIds": []
+}
+
+###
+
+### 🚫 404 not_found — a random id that doesn't exist
+PATCH http://localhost:{{$dotenv PORT}}/items/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "doesn't matter"
+}
+
+###
+
+
+# ══════════════════════════════════════════
+#  DELETE /items/:id (ADMIN)
+# ══════════════════════════════════════════
+
+### ✅ 204 — deletes the item created above (also this file's cleanup)
+DELETE http://localhost:{{$dotenv PORT}}/items/{{itemId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 404 not_found — already deleted by the request above
+DELETE http://localhost:{{$dotenv PORT}}/items/{{itemId}}
+Authorization: Bearer {{authToken}}
+
+
+# ══════════════════════════════════════════
+#  Cleanup
+# ══════════════════════════════════════════
+
+### Nothing dangling: the ✅ 204 delete above already removes the one
+### item this file creates (and its item_allowed_units rows cascade with
+### it), so a re-run from a clean server behaves the same way twice.
