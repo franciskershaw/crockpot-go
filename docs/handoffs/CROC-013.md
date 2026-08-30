@@ -155,19 +155,30 @@ application, same reasoning as CROC-011/012's AI-driven calls.
 
 ## Acceptance criteria
 
-- [ ] `middleware.RequireRole("ADMIN")` gates `POST`/`PATCH`/`DELETE`;
-      non-ADMIN → 403 `forbidden`; no token → 401.
-- [ ] `GET /recipe-categories` needs no token, returns all rows ordered
-      by `name`, shape `[{id, name, createdAt}]`.
-- [ ] `POST` with a valid ADMIN token + `{name}` → 201 + the bare
-      resource.
-- [ ] `POST` / `PATCH` duplicate `name` → 409 `name_taken`.
-- [ ] `POST` / `PATCH` missing/blank `name` → 400 `name_required`; over
-      length → `name_too_long`.
-- [ ] `PATCH` unknown id → 404 `not_found`.
-- [ ] `DELETE` unknown id → 404 `not_found`; `DELETE` a category still
+- [x] `middleware.RequireRole("ADMIN")` gates `POST`/`PATCH`/`DELETE`;
+      non-ADMIN → 403 `forbidden` (middleware's own unit tests, reused
+      unchanged from `CROC-010`, not re-tested per-resource — same
+      scope `item-categories.http`/`units.http` use); no token → 401,
+      confirmed live (`curl`, no `Authorization` header → 401
+      `missing authorization header`).
+- [x] `GET /recipe-categories` needs no token, returns all rows ordered
+      by `name`, shape `[{id, name, createdAt}]` — confirmed live
+      against Neon (28 seeded rows, alphabetical).
+- [x] `POST` with a valid ADMIN token + `{name}` → 201 + the bare
+      resource — confirmed live.
+- [x] `POST` / `PATCH` duplicate `name` → 409 `name_taken` — `POST`
+      confirmed live; `PATCH` confirmed via
+      `TestRecipeCategoryUpdate_NameTaken`.
+- [x] `POST` / `PATCH` missing/blank `name` → 400 `name_required`; over
+      length → `name_too_long` — confirmed via
+      `TestRecipeCategoryCreate_NameRequired`/`_NameTooLong`,
+      `TestRecipeCategoryUpdate_NameRequired`.
+- [x] `PATCH` unknown id → 404 `not_found` — confirmed live.
+- [x] `DELETE` unknown id → 404 `not_found`; `DELETE` a category still
       tagged on a recipe → 409 `category_in_use`; `DELETE` an unused
-      category → 204.
+      category → 204 — all three confirmed live against Neon, including
+      `category_in_use` through the full HTTP stack (scratch `recipes` +
+      `recipe_categories_recipes` row, cleaned up after).
 - [x] `000005` migration is reversible (`migrate down` one step restores
       CASCADE) — confirmed live against Neon (`confdeltype` r→c).
       RESTRICT raising `23001` (not `23503`) confirmed at the repository
@@ -178,8 +189,8 @@ application, same reasoning as CROC-011/012's AI-driven calls.
 - [x] `000006` seed is idempotent (`migrate up` a second time was a
       `no change`) and matches the MongoDB `RecipeCategory.name` values
       (all 28, verified against the export).
-- [ ] `requests/recipe-categories.http` added.
-- [ ] `golangci-lint` clean, `gofmt` clean, `go mod tidy -diff` clean.
+- [x] `requests/recipe-categories.http` added.
+- [x] `golangci-lint` clean, `gofmt` clean, `go mod tidy -diff` clean.
 
 ## Non-goals
 
@@ -217,11 +228,32 @@ application, same reasoning as CROC-011/012's AI-driven calls.
    green first attempt, no rework. Full repo suite re-run clean, no
    regressions.
 3. **`handler/recipe_category_handler.go`** +
-   `RecipeCategoryRepository` interface — mocked-repo handler tests,
-   stub, red → stop → green → stop. Re-run `mockery`.
+   `RecipeCategoryRepository` interface — done. 13 tests (list; create
+   invalid-json/name-required/name-too-long/name-taken/success; update
+   name-required/success/not-found/name-taken; delete
+   success/not-found/in-use) red on a `418 STUB_NOT_IMPLEMENTED` stub →
+   stop → real implementation (mirrors `item_category_handler.go` minus
+   the icon field/partial-update branching) → all green first attempt,
+   no rework. `mockery` re-run to generate
+   `mock_RecipeCategoryRepository.go`. Full handler suite re-run clean,
+   no regressions.
 4. **Wire `main.go`** (public `GET` on `server`; the existing
-   ADMIN-gated group for the writes) + `requests/recipe-categories.http`.
-   Manual `.http` + migration up/down verification.
+   ADMIN-gated group for the writes) + `requests/recipe-categories.http`
+   — done. Manual verification run live against the real dev server +
+   Neon DB (no VS Code REST Client in this environment, so exercised via
+   `curl` against a locally-run `go run .`, using an access token minted
+   directly with `internal/auth.GenerateAccessToken` for the existing
+   ADMIN test account rather than the real password, which isn't stored
+   anywhere Claude can read): public `GET` (no token, 28 seeded
+   categories ordered by name) → `POST` 201 → `POST` duplicate 409
+   `name_taken` → `PATCH` 200 rename → `PATCH` unknown id 404
+   `not_found` → `DELETE` 204 → `DELETE` again 404 `not_found` → no-token
+   write attempt 401. Also drove the `409 category_in_use` path
+   end-to-end through the live HTTP stack (not just the repository unit
+   test): inserted a real `recipes` row + `recipe_categories_recipes`
+   join row for a scratch category, `DELETE` on that category → 409
+   `category_in_use`, confirmed. All scratch rows (category, recipe,
+   join row) cleaned up afterward — none left in the dev DB.
 
 ## Founder action — MongoDB export (done)
 

@@ -1,0 +1,138 @@
+# Crockpot API — /recipe-categories
+#
+# GET is public (no token). POST/PATCH/DELETE are ADMIN-only, gated by
+# middleware.RequireRole("ADMIN") — the 401/403 shape of that gate is
+# already covered by internal/middleware's own unit tests, so this file
+# focuses on the wiring: public read, ADMIN CRUD happy path, and the
+# 409/404 translations, run against a live server + real DB.
+#
+# Unlike /item-categories and /units, there's a single mutable field
+# (name) — PATCH always requires it, no partial-update case to exercise.
+# The 409 category_in_use delete-guard (recipe_categories_recipes is
+# ON DELETE RESTRICT) needs a real recipe row to trigger, which this
+# file doesn't create — covered instead by
+# internal/repository/recipe_category_test.go's TestDeleteRecipeCategory_InUse.
+#
+# One-time setup: this repo's dev DB has no ADMIN user yet. Bump the
+# same shared test account requests/auth.http / me.http use:
+#
+#   UPDATE users SET role = 'ADMIN' WHERE email = 'REPLACE_WITH_YOUR_REAL_EMAIL';
+#
+# Harmless to auth.http / me.http — neither asserts on role. See
+# requests/README.md for setup/running instructions.
+
+
+# ══════════════════════════════════════════
+#  Login (ADMIN account)
+# ══════════════════════════════════════════
+
+### Login, to get a token for the checks below.
+# @name login
+POST http://localhost:{{$dotenv PORT}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "password": "correcthorsebattery"
+}
+
+###
+
+@authToken = {{login.response.body.accessToken}}
+
+
+# ══════════════════════════════════════════
+#  GET /recipe-categories (public)
+# ══════════════════════════════════════════
+
+### ✅ 200 — no token needed, returns the seeded categories ordered by name
+GET http://localhost:{{$dotenv PORT}}/recipe-categories
+
+###
+
+
+# ══════════════════════════════════════════
+#  POST /recipe-categories (ADMIN)
+# ══════════════════════════════════════════
+
+### ✅ 201 — creates the category this file exercises below
+# @name create
+POST http://localhost:{{$dotenv PORT}}/recipe-categories
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-recipe-category"
+}
+
+###
+
+@categoryId = {{create.response.body.id}}
+
+### 🚫 409 name_taken — same name as above
+POST http://localhost:{{$dotenv PORT}}/recipe-categories
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-recipe-category"
+}
+
+###
+
+
+# ══════════════════════════════════════════
+#  PATCH /recipe-categories/:id (ADMIN)
+# ══════════════════════════════════════════
+
+### ✅ 200 — name is required, no partial-update case for this resource
+PATCH http://localhost:{{$dotenv PORT}}/recipe-categories/{{categoryId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-recipe-category-renamed"
+}
+
+###
+
+### 🚫 404 not_found — a random id that doesn't exist
+PATCH http://localhost:{{$dotenv PORT}}/recipe-categories/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "doesn't matter"
+}
+
+###
+
+
+# ══════════════════════════════════════════
+#  DELETE /recipe-categories/:id (ADMIN)
+# ══════════════════════════════════════════
+
+### ✅ 204 — deletes the category created above (also this file's cleanup)
+DELETE http://localhost:{{$dotenv PORT}}/recipe-categories/{{categoryId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 404 not_found — already deleted by the request above
+DELETE http://localhost:{{$dotenv PORT}}/recipe-categories/{{categoryId}}
+Authorization: Bearer {{authToken}}
+
+
+# ══════════════════════════════════════════
+#  Cleanup
+# ══════════════════════════════════════════
+
+### Nothing dangling: the ✅ 204 delete above already removes the one
+### category this file creates, so a re-run from a clean server behaves
+### the same way twice.
+###
+### Optional — revert the one-time ADMIN bump if you don't want the
+### shared test account staying ADMIN:
+#
+#   UPDATE users SET role = 'FREE' WHERE email = 'REPLACE_WITH_YOUR_REAL_EMAIL';
+#
