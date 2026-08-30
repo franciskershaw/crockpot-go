@@ -71,11 +71,13 @@ func main() {
 	itemCategoryRepo := repository.NewPostgresItemCategoryRepository(db.DB)
 	unitRepo := repository.NewPostgresUnitRepository(db.DB)
 	itemRepo := repository.NewPostgresItemRepository(db.DB)
+	recipeCategoryRepo := repository.NewPostgresRecipeCategoryRepository(db.DB)
 	emailSender := email.NewResendClient(cfg.ResendAPIKey, cfg.EmailFrom)
 	authHandler := handler.NewAuthHandler(userRepo, oauthManager, refreshTokenRepo, emailVerificationTokenRepo, passwordResetTokenRepo, emailSender, transactor, cfg)
 	itemCategoryHandler := handler.NewItemCategoryHandler(itemCategoryRepo)
 	unitHandler := handler.NewUnitHandler(unitRepo)
 	itemHandler := handler.NewItemHandler(itemRepo, transactor)
+	recipeCategoryHandler := handler.NewRecipeCategoryHandler(recipeCategoryRepo)
 
 	// Initialize Gin server
 	gin.SetMode(configureGinMode(string(cfg.Environment)))
@@ -150,6 +152,16 @@ func main() {
 		itemsAdmin.POST("", itemHandler.Create)
 		itemsAdmin.PATCH("/:id", itemHandler.Update)
 		itemsAdmin.DELETE("/:id", itemHandler.Delete)
+	}
+
+	server.GET("/recipe-categories", recipeCategoryHandler.List)
+
+	recipeCategoriesAdmin := server.Group("/recipe-categories")
+	recipeCategoriesAdmin.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess), middleware.RequireRole("ADMIN"))
+	{
+		recipeCategoriesAdmin.POST("", recipeCategoryHandler.Create)
+		recipeCategoriesAdmin.PATCH("/:id", recipeCategoryHandler.Update)
+		recipeCategoriesAdmin.DELETE("/:id", recipeCategoryHandler.Delete)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
