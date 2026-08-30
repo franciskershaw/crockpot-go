@@ -311,11 +311,10 @@ session.*
 
 ### Epic 3: Reference Data
 - **CROC-010** — Item categories CRUD (admin-only writes, public reads).
-  Grilled 2026-08-29, `docs/handoffs/CROC-010.md`. Also lands
-  `middleware.RequireRole`, the `handler/{errors,validation}.go` helper
-  extraction, renames `item_categories.fa_icon` → `icon` (it holds
-  lucide names, not FontAwesome), and seeds the real category list from
-  the old app's MongoDB.
+  Also lands `middleware.RequireRole`, the `handler/{errors,validation}.go`
+  helper extraction, and the `item_categories.fa_icon` → `icon` rename +
+  real seed data — reused by every Epic 3–6 ticket after it. **Done.**
+  See `docs/handoffs/CROC-010.md`.
 - **CROC-011** — Units CRUD (admin-only writes, public reads).
 - **CROC-012** — Items CRUD, with allowed-units association (admin-only
   writes, public reads).

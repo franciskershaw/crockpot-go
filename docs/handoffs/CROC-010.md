@@ -348,3 +348,5 @@ Claude turns the `{name, faIcon}` pairs into the `000003` seed `INSERT`
   ADMIN-gated via `middleware.RequireRole`.
 - Non-goal wording about the "Pricing page placeholder" is untouched
   (that's a crockpot-react concern).
+
+Completed 2026-08-30.
