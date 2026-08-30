@@ -168,12 +168,15 @@ application, same reasoning as CROC-011/012's AI-driven calls.
 - [ ] `DELETE` unknown id → 404 `not_found`; `DELETE` a category still
       tagged on a recipe → 409 `category_in_use`; `DELETE` an unused
       category → 204.
-- [ ] `000005` migration is reversible (`migrate down` one step restores
-      CASCADE); confirmed live against Neon that RESTRICT actually
-      raises `23001` (not assumed from CROC-010's prior discovery —
-      verify per-ticket, different table).
-- [ ] `000006` seed is idempotent (second run is a no-op) and matches
-      the MongoDB `RecipeCategory.name` values.
+- [x] `000005` migration is reversible (`migrate down` one step restores
+      CASCADE) — confirmed live against Neon (`confdeltype` r→c). RESTRICT
+      raising `23001` (not `23503`) still needs confirming from the
+      repository layer's actual `DELETE` in step 2 — the migration-level
+      check above only confirmed the constraint mode, not the SQLSTATE a
+      live delete-in-use raises through this specific table.
+- [x] `000006` seed is idempotent (`migrate up` a second time was a
+      `no change`) and matches the MongoDB `RecipeCategory.name` values
+      (all 28, verified against the export).
 - [ ] `requests/recipe-categories.http` added.
 - [ ] `golangci-lint` clean, `gofmt` clean, `go mod tidy -diff` clean.
 
@@ -202,11 +205,10 @@ application, same reasoning as CROC-011/012's AI-driven calls.
 
 ## Piece order (AI-driven)
 
-1. **Migrations `000005` + `000006`** (`000006` with a placeholder
-   single row until the founder's export lands) + `internal/sqlc/
-   queries/recipe_categories.sql` + `sqlc generate` +
-   `models/recipe_category.go` + `models/errors.go` entries +
-   `toModelRecipeCategory`. Mechanical; generated code isn't
+1. **Migrations `000005` + `000006`** — done, see "Step 1 status" above.
+   Still open: `internal/sqlc/queries/recipe_categories.sql` +
+   `sqlc generate` + `models/recipe_category.go` + `models/errors.go`
+   entries + `toModelRecipeCategory`. Mechanical; generated code isn't
    TDD-stubbed — the repo tests in step 2 cover it.
 2. **`repository/recipe_category.go`** — real-DB repo tests, stub with
    fake sentinels, red → stop → green → stop.
@@ -217,20 +219,30 @@ application, same reasoning as CROC-011/012's AI-driven calls.
    ADMIN-gated group for the writes) + `requests/recipe-categories.http`.
    Manual `.http` + migration up/down verification.
 
-## Founder action — MongoDB export (before step 1 completes)
+## Founder action — MongoDB export (done)
 
-Claude will **stop and ask** for this, same as CROC-010/011. From
-MongoDB Compass, connected to the production DB:
+Founder provided the `RecipeCategory` collection export
+(`crockpotV3.RecipeCategory.json`, 28 documents). All 28 `name` values
+checked clean — no blank/malformed rows (per CROC-011's lesson) — and
+turned into the `000006` seed `INSERT` verbatim, Mongo export order.
 
-- Confirm the collection name is `RecipeCategory` in the sidebar.
-- **mongosh tab:** `db.RecipeCategory.find({}, { name: 1, _id: 0
-  }).toArray()` — paste the array here.
-- **Or GUI:** select `RecipeCategory` → **Export Data** → full
-  collection → **JSON** → paste or attach.
+## Step 1 status — done and verified live
 
-Claude turns the `{name}` values into the `000006` seed `INSERT`,
-excluding any blank/malformed rows found (per CROC-011's lesson — check
-before writing the migration, don't assume the export is clean).
+- Confirmed the FK's actual constraint name against the real dev DB
+  before writing `000005`, rather than assuming it (per
+  `~/.claude/CLAUDE.md` rule 2): `pg_constraint` on
+  `recipe_categories_recipes` showed
+  `recipe_categories_recipes_category_id_fkey`, `confdeltype = 'c'`
+  (CASCADE) — matched what the migration assumed.
+- `migrate up` applied `000005` + `000006` cleanly against Neon dev.
+  Re-verified via `pg_constraint`: `confdeltype` now `'r'` (RESTRICT);
+  `recipe_categories` has all 28 seeded rows.
+- `migrate up` a second time: `no change` (idempotent at head).
+- `migrate down 2`: both migrations reverse cleanly —
+  `confdeltype` back to `'c'`, `recipe_categories` back to 0 rows.
+  Reapplied `migrate up` to leave dev DB at head afterward.
+- Acceptance criteria's `000005`/`000006` reversibility + idempotency
+  checkboxes are satisfied by this run.
 
 ## Master-spec changes made alongside this handoff
 
