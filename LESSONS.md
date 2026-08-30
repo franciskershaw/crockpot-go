@@ -249,3 +249,22 @@ implementation quality until CROC-001 lands.
   finding that restates an already-made, documented decision isn't a
   bug, but is a signal the code should say why inline, not just in the
   doc.
+
+## 2026-08-30 — First tech-debt pass, whole codebase (11 tickets in)
+
+- First-ever periodic pass, requested after CROC-011 rather than waiting
+  for a fixed cadence. Covered `internal/`, `db/`, `config/`, `main.go`,
+  `lifecycle.go`, `.githooks/`. 9 findings, 7 tickets (`CROC-031`–
+  `CROC-037`), full detail `docs/findings/2026-08-30-tech-debt.md`. One
+  real correctness bug found (`CROC-031`, latent — a repository silently
+  ignoring an active transaction), not yet exploited since nothing calls
+  it inside `WithinTx` today.
+- Reconciled three already-decided, already-documented tradeoffs
+  (`item_allowed_units` CASCADE, no soft deletes, repo-interfaces-in-
+  -handler) without re-filing them — the `CLAUDE.md`/`LESSONS.md` read
+  before filing anything did its job.
+- **Pattern**: a decision "flagged... out of scope" in a closed ticket's
+  handoff doc (`auth_handler.go`'s helper retrofit, flagged at `CROC-010`)
+  can quietly never become a real backlog item — a tech-debt pass is
+  where that gets caught; grep the backlog for a flagged item's own
+  wording before assuming it's tracked.
