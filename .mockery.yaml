@@ -20,3 +20,4 @@ packages:
       ItemCategoryRepository:
       UnitRepository:
       ItemRepository:
+      RecipeCategoryRepository:

@@ -169,11 +169,12 @@ application, same reasoning as CROC-011/012's AI-driven calls.
       tagged on a recipe → 409 `category_in_use`; `DELETE` an unused
       category → 204.
 - [x] `000005` migration is reversible (`migrate down` one step restores
-      CASCADE) — confirmed live against Neon (`confdeltype` r→c). RESTRICT
-      raising `23001` (not `23503`) still needs confirming from the
-      repository layer's actual `DELETE` in step 2 — the migration-level
-      check above only confirmed the constraint mode, not the SQLSTATE a
-      live delete-in-use raises through this specific table.
+      CASCADE) — confirmed live against Neon (`confdeltype` r→c).
+      RESTRICT raising `23001` (not `23503`) confirmed at the repository
+      layer: `TestDeleteRecipeCategory_InUse` passed first-attempt
+      against the real `pgErrorCode(err, pgerrcode.RestrictViolation)`
+      check, no rediscovery needed — same as `CROC-011`'s prior
+      confirmation of this SQLSTATE on a different table.
 - [x] `000006` seed is idempotent (`migrate up` a second time was a
       `no change`) and matches the MongoDB `RecipeCategory.name` values
       (all 28, verified against the export).
@@ -210,8 +211,11 @@ application, same reasoning as CROC-011/012's AI-driven calls.
    `sqlc generate` + `models/recipe_category.go` + `models/errors.go`
    entries + `toModelRecipeCategory`. Mechanical; generated code isn't
    TDD-stubbed — the repo tests in step 2 cover it.
-2. **`repository/recipe_category.go`** — real-DB repo tests, stub with
-   fake sentinels, red → stop → green → stop.
+2. **`repository/recipe_category.go`** — done. 9 tests (create ×2,
+   list-ordered, update ×3, delete ×3 incl. in-use) red on
+   `STUB_NOT_IMPLEMENTED` sentinels → stop → real implementation → all
+   green first attempt, no rework. Full repo suite re-run clean, no
+   regressions.
 3. **`handler/recipe_category_handler.go`** +
    `RecipeCategoryRepository` interface — mocked-repo handler tests,
    stub, red → stop → green → stop. Re-run `mockery`.
