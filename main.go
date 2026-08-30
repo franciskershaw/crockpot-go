@@ -70,10 +70,12 @@ func main() {
 	transactor := repository.NewPostgresTransactor(db.DB)
 	itemCategoryRepo := repository.NewPostgresItemCategoryRepository(db.DB)
 	unitRepo := repository.NewPostgresUnitRepository(db.DB)
+	itemRepo := repository.NewPostgresItemRepository(db.DB)
 	emailSender := email.NewResendClient(cfg.ResendAPIKey, cfg.EmailFrom)
 	authHandler := handler.NewAuthHandler(userRepo, oauthManager, refreshTokenRepo, emailVerificationTokenRepo, passwordResetTokenRepo, emailSender, transactor, cfg)
 	itemCategoryHandler := handler.NewItemCategoryHandler(itemCategoryRepo)
 	unitHandler := handler.NewUnitHandler(unitRepo)
+	itemHandler := handler.NewItemHandler(itemRepo, transactor)
 
 	// Initialize Gin server
 	gin.SetMode(configureGinMode(string(cfg.Environment)))
@@ -138,6 +140,16 @@ func main() {
 		unitsAdmin.POST("", unitHandler.Create)
 		unitsAdmin.PATCH("/:id", unitHandler.Update)
 		unitsAdmin.DELETE("/:id", unitHandler.Delete)
+	}
+
+	server.GET("/items", itemHandler.List)
+
+	itemsAdmin := server.Group("/items")
+	itemsAdmin.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess), middleware.RequireRole("ADMIN"))
+	{
+		itemsAdmin.POST("", itemHandler.Create)
+		itemsAdmin.PATCH("/:id", itemHandler.Update)
+		itemsAdmin.DELETE("/:id", itemHandler.Delete)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

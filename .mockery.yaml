@@ -19,3 +19,4 @@ packages:
       Transactor:
       ItemCategoryRepository:
       UnitRepository:
+      ItemRepository:
