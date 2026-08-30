@@ -46,3 +46,18 @@ func validateIconToken(c *gin.Context, raw string) (string, bool) {
 	}
 	return trimmed, true
 }
+
+// validateAbbreviation trims and validates a unit abbreviation, writing the appropriate
+// error response and returning ok=false if invalid.
+func validateAbbreviation(c *gin.Context, raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "abbreviation_required"})
+		return "", false
+	}
+	if len(trimmed) > 32 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "abbreviation_too_long"})
+		return "", false
+	}
+	return trimmed, true
+}
