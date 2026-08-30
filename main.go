@@ -68,8 +68,10 @@ func main() {
 	emailVerificationTokenRepo := repository.NewPostgresEmailVerificationTokenRepository(db.DB)
 	passwordResetTokenRepo := repository.NewPostgresPasswordResetTokenRepository(db.DB)
 	transactor := repository.NewPostgresTransactor(db.DB)
+	itemCategoryRepo := repository.NewPostgresItemCategoryRepository(db.DB)
 	emailSender := email.NewResendClient(cfg.ResendAPIKey, cfg.EmailFrom)
 	authHandler := handler.NewAuthHandler(userRepo, oauthManager, refreshTokenRepo, emailVerificationTokenRepo, passwordResetTokenRepo, emailSender, transactor, cfg)
+	itemCategoryHandler := handler.NewItemCategoryHandler(itemCategoryRepo)
 
 	// Initialize Gin server
 	gin.SetMode(configureGinMode(string(cfg.Environment)))
@@ -113,6 +115,17 @@ func main() {
 	authed.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess))
 	{
 		authed.GET("/me", authHandler.Me)
+	}
+
+	// Public read: reference data, visible to anonymous browse/filter.
+	server.GET("/item-categories", itemCategoryHandler.List)
+
+	itemCategoriesAdmin := server.Group("/item-categories")
+	itemCategoriesAdmin.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess), middleware.RequireRole("ADMIN"))
+	{
+		itemCategoriesAdmin.POST("", itemCategoryHandler.Create)
+		itemCategoriesAdmin.PATCH("/:id", itemCategoryHandler.Update)
+		itemCategoriesAdmin.DELETE("/:id", itemCategoryHandler.Delete)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

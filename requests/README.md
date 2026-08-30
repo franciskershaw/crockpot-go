@@ -37,6 +37,19 @@ short `Login` at the top instead, against the same confirmed password
 account `auth.http` sets up — run `auth.http`'s ✅ register + ✅ confirm
 sections once first on a fresh dev DB if that account doesn't exist yet.
 
+## ADMIN-gated routes
+
+`item-categories.http`'s writes (`POST`/`PATCH`/`DELETE`) are gated by
+`middleware.RequireRole("ADMIN")`, and the dev DB has no ADMIN user by
+default — bump the shared test account once:
+
+```
+UPDATE users SET role = 'ADMIN' WHERE email = '<the shared test account>';
+```
+
+Harmless to `auth.http` / `me.http`, neither asserts on `role`. Any
+future ADMIN-gated resource file reuses the same bumped account.
+
 ## What's deliberately not covered
 
 - **Google login/callback** — needs a real browser round-trip, can't be
