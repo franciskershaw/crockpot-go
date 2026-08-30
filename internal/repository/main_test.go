@@ -16,6 +16,7 @@ var (
 	refreshTokenRepo           *repository.PostgresRefreshTokenRepository
 	emailVerificationTokenRepo *repository.PostgresEmailVerificationTokenRepository
 	passwordResetTokenRepo     *repository.PostgresPasswordResetTokenRepository
+	itemCategoryRepo           *repository.PostgresItemCategoryRepository
 	transactor                 *repository.PostgresTransactor
 	repoUserID                 uuid.UUID
 )
@@ -39,6 +40,7 @@ func TestMain(m *testing.M) {
 	refreshTokenRepo = repository.NewPostgresRefreshTokenRepository(db.DB)
 	emailVerificationTokenRepo = repository.NewPostgresEmailVerificationTokenRepository(db.DB)
 	passwordResetTokenRepo = repository.NewPostgresPasswordResetTokenRepository(db.DB)
+	itemCategoryRepo = repository.NewPostgresItemCategoryRepository(db.DB)
 	transactor = repository.NewPostgresTransactor(db.DB)
 	repoUserID = uuid.New()
 

@@ -34,7 +34,7 @@ type ItemAllowedUnit struct {
 type ItemCategory struct {
 	ID        pgtype.UUID
 	Name      string
-	FaIcon    string
+	Icon      string
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
 }

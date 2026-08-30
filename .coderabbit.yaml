@@ -1,9 +1,0 @@
-# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-reviews:
-  path_instructions:
-    - path: "docs/handoffs/**"
-      instructions: |
-        Handoff documents remain pre-review snapshots during pull-request review.
-        Do not request status updates such as "implemented", "complete", or
-        "not implemented yet" changes. The team updates handoff status only
-        after the review is complete.

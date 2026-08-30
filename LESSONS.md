@@ -209,3 +209,23 @@ implementation quality until CROC-001 lands.
 - **Pattern**: don't local-merge an unmerged feature branch into your
   ticket branch — wait for its PR to hit `main`, then branch or merge
   from `main`.
+
+## 2026-08-30 — CROC-010 — Item categories CRUD shipped; first resource-handler template, one real live-DB discovery
+
+- No rework in the TDD layers (RequireRole, repository, handler all
+  red→green clean). Real discovery: `ON DELETE RESTRICT` raises Postgres
+  `23001` (restrict_violation), not `23503` as the handoff assumed —
+  caught live against the real Neon DB (PG 18.6; PG 15+ split RESTRICT
+  into its own code), code fixed, not the test.
+- CodeRabbit's free trial ended mid-ticket; review moved back to
+  `/code-review`. Its `low` pass's one finding was a false positive —
+  flagged `23001` as wrong without live-DB access, defaulting to the
+  textbook `23503`; `medium`, asked for since this ticket is the
+  10-ticket template, independently re-derived the correct answer.
+- `/code-review` with no base given scoped itself to the latest commit
+  only, not this multi-commit ticket's full diff — self-caught, fixed by
+  passing `main` explicitly.
+- **Pattern**: a code-review finding about DB/runtime-specific behavior
+  needs checking against the real dependency same as a design claim —
+  don't downgrade live-verified evidence because a reviewer without DB
+  access contradicts it.

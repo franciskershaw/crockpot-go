@@ -204,6 +204,16 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   see/edit their own unapproved recipes; everyone can see approved ones;
   only ADMIN can flip `approved`, and ADMIN-created recipes are
   auto-approved.
+- **Reference-data access**: reads (`GET /item-categories`, `/units`,
+  `/recipe-categories`) are public — no auth middleware — because
+  anonymous users browse and filter recipes by category/ingredient.
+  Writes are ADMIN-only, gated by `middleware.RequireRole(roles ...string)`
+  (route-level, reads the `role` claim `AuthMiddleware` sets). Decided and
+  built at `CROC-010` (`docs/handoffs/CROC-010.md`), the first resource
+  handler. Rejected: pulling `CROC-023`'s tier-gate helper forward — that
+  is the data-dependent recipe-cap check (`role`-keyed limit + count),
+  a different shape from a static route gate. Revisit `RequireRole`'s
+  signature only when a `≥`-ordering gate is needed (`CROC-025`, planner).
 - **Repository pattern, handler structs, black-box handler tests**: same
   conventions as `packing-list-go` (interfaces owned by `handler`,
   `testify/mock` for repo mocks, `httptest` + `gin.New()`).
@@ -301,6 +311,10 @@ session.*
 
 ### Epic 3: Reference Data
 - **CROC-010** — Item categories CRUD (admin-only writes, public reads).
+  Also lands `middleware.RequireRole`, the `handler/{errors,validation}.go`
+  helper extraction, and the `item_categories.fa_icon` → `icon` rename +
+  real seed data — reused by every Epic 3–6 ticket after it. **Done.**
+  See `docs/handoffs/CROC-010.md`.
 - **CROC-011** — Units CRUD (admin-only writes, public reads).
 - **CROC-012** — Items CRUD, with allowed-units association (admin-only
   writes, public reads).
@@ -334,11 +348,14 @@ session.*
   (`PATCH /shopping-list/items/:id`), bulk mark-obtained.
 
 ### Epic 7: Roles & Tier Gating
-- **CROC-023** — Role field on user (`FREE`/`PREMIUM`/`PRO`/`ADMIN`,
-  default `FREE`), plus a reusable tier-gate helper (mirrors
-  `packing-list-go`'s `internal/handler/ownership.go` pattern) used by
-  Epic 4's recipe cap/approval, and later by Epics 9-10's PREMIUM gates.
-  `PRO` is a valid enum value but nothing checks for it yet.
+- **CROC-023** — The recipe-cap limit helper: a `role`-keyed limit
+  lookup + owned-recipe count backing Epic 4's FREE ≤5 cap (409 once
+  exceeded). Scope reduced at `CROC-010`'s grill (2026-08-29): the role
+  field already exists (`users.role`, JWT claim), and route-level role
+  gating landed as `middleware.RequireRole` in `CROC-010`, so this
+  ticket is now just the data-dependent cap check — could fold into
+  `CROC-014`. PREMIUM `≥`-ordering gates (Epics 9–10) extend
+  `RequireRole` when they land. `PRO` stays an unused enum value.
 
 ### Epic 8: Data Migration
 - **CROC-024** — `cmd/migrate-data`: reads every collection from the
