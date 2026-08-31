@@ -543,8 +543,14 @@ few-line addendum to a `GET /me` ticket.*
 - **CROC-037** — Drop the `lib/pq` dependency: switch `db.go`'s migrator
   to `golang-migrate`'s native `database/pgx/v5` driver, reusing the
   app's existing pgx stack. Finding 9.
-
-### Deferred: Default Items
+- **CROC-041** — `badRequest(c, code)` helper next to `internalError` in
+  `handler/errors.go`, and retrofit every handler's hand-written
+  `c.JSON(http.StatusBadRequest, gin.H{"error": code})` (and the
+  `NotFound`/`Conflict` equivalents) onto it. Raised at `CROC-014` —
+  the recipe handler's validation layer made the per-line noise
+  obvious. Small, cross-cutting, wants doing before Epic 4's remaining
+  endpoints (CROC-015–018) copy the verbose shape further. Do soon,
+  ideally next.
 
 *Parked 2026-08-31 — a loosely-scoped idea, not sequenced into a
 priority epic yet. Numbered out of physical order deliberately: this

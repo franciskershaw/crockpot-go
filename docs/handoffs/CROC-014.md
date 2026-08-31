@@ -461,14 +461,17 @@ surface to compare against.
    sentinels, red → stop → green → stop. Covers `Create` (check-then-insert
    allowed-unit check, `position`, FK + UNIQUE → domain errors) and
    `CountByCreator`. **Done** (commits `940317b` + green diff).
-3. **`handler/recipe_handler.go`** + `validateRecipeName` + the Cloudinary
-   image-URL check + the `RecipeRepository` interface +
-   `CreateRecipeInput` mapping from the request struct — mocked-repo
-   handler tests (mocking `RecipeRepository` and `Transactor`), stub,
-   red → stop → green → stop. Re-run `go tool mockery`.
+3. **`handler/recipe_handler.go`** + `recipe_requests.go` +
+   `RecipeRepository` interface — mocked-repo handler tests, stub → red
+   → stop → green → stop. **Done** (commit `b75eed9` + green + a
+   follow-up refactor: request DTOs and validators split into
+   `recipe_requests.go`, `Create` reduced to orchestration calling
+   `parseCreateRecipeInput` / `withinRecipeCap`; `CROC-041` filed for
+   the codebase-wide `badRequest(c, code)` helper).
 4. **Wire `main.go`** (new authed `/recipes` group, `NewRecipeHandler`
-   with the existing `transactor`) + `requests/recipes.http`. Manual
-   `.http` verification (founder).
+   with the existing `transactor`) + `requests/recipes.http`. **Done** —
+   awaiting manual `.http` verification (founder) then
+   `/code-review medium main`.
 
 ## Master-spec changes made alongside this handoff
 
