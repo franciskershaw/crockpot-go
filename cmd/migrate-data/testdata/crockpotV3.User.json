@@ -1,0 +1,5 @@
+[
+  {"_id":{"$oid":"68e93f253533a3d30146ba07"},"name":"Francis Kershaw","email":"franciskershaw.dev@gmail.com","emailVerified":null,"image":"https://example.com/f.jpg","role":"ADMIN","createdAt":{"$date":"2025-10-10T17:15:17.000Z"},"updatedAt":{"$date":"2025-10-10T17:15:17.000Z"},"favouriteRecipeIds":[]},
+  {"_id":{"$oid":"68eb87d8929571824b1516bd"},"name":"Zoe Thexton","email":"zoethexton.me@gmail.com","emailVerified":{"$date":"2025-10-12T10:50:00.000Z"},"image":null,"role":"ADMIN","createdAt":{"$date":"2025-10-12T10:50:00.000Z"},"updatedAt":{"$date":"2025-10-12T10:50:00.000Z"},"favouriteRecipeIds":[]},
+  {"_id":{"$oid":"6a9588ea145ec1bf75478873"},"name":null,"email":"spam@example.com","emailVerified":null,"image":null,"role":"FREE","createdAt":{"$date":"2026-01-01T00:00:00.000Z"},"updatedAt":{"$date":"2026-01-01T00:00:00.000Z"},"favouriteRecipeIds":[]}
+]

@@ -229,7 +229,8 @@ referentially sound; always report.
 | Same `itemId` twice in one recipe's `ingredients` | keep first, drop rest, report (2 known: BBQ Pulled Pork, Sweet & Sour Chicken — data-review doc) |
 | Item's `allowedUnitIds` has **any** entry that doesn't map to a seeded unit | drop the **whole** set → unconstrained (CROC-014 "faithful or empty, never partial"), report (0 expected — export is clean) |
 | A recipe ingredient's **item** doesn't resolve to an inserted `items` row | **skip the whole recipe**, loud report |
-| A recipe ingredient's **unit** id doesn't resolve to any seeded unit (e.g. references the CROC-011 junk row) | set `unitId: null` (unit is nullable/optional), report count |
+| A recipe ingredient's **unit** is the old blank `{name:""}` unit (the pre-existing "unitless" convention — ~620 ingredients) | set `unitId: null`, count as `unit-blank` (expected, omitted from the per-line report) |
+| A recipe ingredient's **unit** id resolves to nothing at all (not the blank row, genuinely absent) | set `unitId: null`, count as `unit-nulled` with per-line detail (suspicious) |
 | A recipe ingredient's **unit** (when set and resolved) isn't in that item's allowed set *after decision 7's additions are applied* | **skip the whole recipe**, loud report |
 | An item's **category** doesn't resolve (orphan ObjectId, not a name mismatch) | **skip the whole item**, loud report |
 
@@ -276,18 +277,25 @@ On each run, after the name maps validate (decision 5) and the guard
 passes:
 
 ```
-TRUNCATE recipe_categories_recipes, recipe_ingredients, recipes,
-         item_allowed_units, items
-  RESTART IDENTITY CASCADE;
+TRUNCATE
+    recipe_categories_recipes, recipe_ingredients, recipe_favourites,
+    recipe_menu_entries, menu_history_entries, shopping_list_items,
+    item_allowed_units, recipes, items
+RESTART IDENTITY;
 
 DELETE FROM users
   WHERE id = ANY($migratedUserIDs)          -- the 3 UUIDv5s
      OR google_id = ANY($migratedGoogleIDs); -- Francis/Zoe sub + 'seed-import'
 ```
 
-CASCADE on the `TRUNCATE` also clears the still-empty
-`recipe_favourites`, `recipe_menu_entries`, `menu_history_entries`,
-`shopping_list_items`. The `users` `DELETE` is **targeted** — only the 3
+Every table that FKs into `recipes`/`items` is named explicitly — **no
+`CASCADE`** (code-review finding) — so a table added against those
+references later fails this `TRUNCATE` loudly rather than being wiped
+silently. Includes `recipe_favourites` / `recipe_menu_entries` /
+`menu_history_entries` / `shopping_list_items`, which are empty now but
+would hold real user data once Epics 5–6 ship: a cutover rerun clears
+them, and the dry-run text says so. Keep the list in sync with
+`000001_init.up.sql`. The `users` `DELETE` is **targeted** — only the 3
 rows this tool owns, matched by id *or* `google_id` (so a prior real dev
 Google login by Francis/Zoe, which would hold a random id, is cleared
 and re-inserted canonically rather than colliding on the `google_id`
@@ -449,6 +457,30 @@ mode beyond the manual run above (there's no UI).
    (Verification row 2).
 6. **Manual full run + reconciliation + spot-checks** against the dev DB.
 
+## Code review (`/code-review medium main`)
+
+Run after the dev migration. Four findings, all fixed and re-verified by a
+second clean dev run (`source - skipped = built = in-db` for every entity):
+
+1. **`MigrateTruncate ... CASCADE`** reached user-data tables
+   (`recipe_favourites` etc.) it claimed never to touch — invisible while
+   they're empty, silent data loss at a post-Epic-5/6 cutover rerun. Now
+   every FK-referencing table is named explicitly, `CASCADE` dropped, and
+   the dry-run text discloses the reach.
+2. **Recipe category links weren't de-duped** (ingredients were), so a
+   repeated `categoryId` in one source recipe would violate
+   `recipe_categories_recipes` PK and roll back the whole migration. Added
+   the same `seen`-map guard the ingredient path has (`duplicate-category`
+   note). 0 occurrences in the current export.
+3. **Dry run always exited 0** even with skips printed. Now returns
+   `exitCode(res)` like the real run.
+4. **Reconciliation was tautological** (`skipped := source - dest`). Now
+   `skipped` is derived independently (skip-note counts + a
+   per-skipped-recipe ingredient/category tally), and `load()` runs
+   `SELECT count(*)` post-commit so the table shows real `in-db` numbers;
+   a `built != in-db` or `source - skipped != built` mismatch forces a
+   non-zero exit.
+
 ## Companion doc
 
 `docs/handoffs/CROC-024-data-review.md` — export profile, the 11-entry
@@ -461,6 +493,30 @@ Export the **`Account`** collection from Compass (the one collection not
 yet provided — it holds Francis's + Zoe's Google `sub`). The other 6
 exports already shared are usable as-is — no edits, no re-export.
 
+## Disposal (post prod cutover)
+
+This is a one-off tool; it is meant to be deleted once the real data is in
+prod and confirmed. It carries no runtime cost in the meantime —
+`cmd/migrate-data` is a separate binary the server never imports, it adds
+**zero** module dependencies, and the `Migrate*` sqlc queries are unused
+functions in the server binary (dead code, mostly stripped by DCE). The
+cost of keeping it is source-tree tidiness only.
+
+**Delete when:** the prod cutover run is done *and* prod has been live and
+correct for a settling period (a week, say) — not before, since a cutover
+problem means fix-and-rerun.
+
+**Deletion is one commit:**
+1. `rm -rf cmd/migrate-data/`
+2. `rm internal/sqlc/queries/migrate.sql` && `sqlc generate` (drops
+   `internal/sqlc/migrate.sql.go`)
+3. keep `docs/handoffs/CROC-024*.md` (documents a real decision, cheap) or
+   move to an archive dir
+
+Git history preserves the whole tool. If a fresh dev/staging DB ever needs
+the corpus again, `pg_dump` from prod is the better source than re-running
+this against Mongo.
+
 ## Master-spec changes made alongside this handoff
 
 - **Key architecture decisions / Data migration** — rewritten: reads a
@@ -471,4 +527,6 @@ exports already shared are usable as-is — no edits, no re-export.
 - **Epic 8 / CROC-024** — expanded from the one-line entry to the scoped
   block: 7 collections, 3-user migration, ghost→`Crockpot` alias,
   in-tool `allowedUnitAdditions` table, rerun guard, deferred entities,
-  AC.
+  AC. Trimmed to a Done entry at close-out.
+
+Completed 2026-08-31 (dev). Prod cutover pending, from a fresh export.

@@ -1,0 +1,4 @@
+[
+  {"_id":{"$oid":"6310a880b61a0ace3a1281da"},"name":"Meat","faIcon":"beef","createdAt":{"$date":"2025-07-13T12:00:00.000Z"},"updatedAt":{"$date":"2025-07-13T12:00:00.000Z"}},
+  {"_id":{"$oid":"6310a880b61a0ace3a1281db"},"name":"Veg","faIcon":"carrot","createdAt":{"$date":"2025-07-13T12:00:00.000Z"},"updatedAt":{"$date":"2025-07-13T12:00:00.000Z"}}
+]

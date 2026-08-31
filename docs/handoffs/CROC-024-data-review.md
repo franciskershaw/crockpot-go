@@ -72,6 +72,15 @@ rest, reporting each.
 | BBQ Pulled Pork | Burger Buns | `6` | `6` | keep `6` — looks like a double-entry bug ✓ |
 | Sweet & Sour Chicken | Cornflour | `3 tbsp` | `1.5 tbsp` | keep `3 tbsp` (tool default); tell Claude to special-case it to `4.5 tbsp` if both uses are real |
 
+## Blank-unit convention
+
+The `Unit` collection has a real `{name:"", abbreviation:""}` document
+(`68738ad4d5730ccdb15ca141`). The old app used it as the "unitless" value
+for count-based ingredients ("3 onions"). **~620 recipe ingredients**
+reference it; the migration maps them to `unit_id NULL` (correct — the
+new schema's `recipe_ingredients.unit_id` is nullable for exactly this).
+Reported as `unit-blank`, not a defect.
+
 ## Users not migrated (40)
 
 All role `FREE`, no `name`, no favourites, corporate/scraper email

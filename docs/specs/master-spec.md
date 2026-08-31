@@ -518,42 +518,18 @@ session.*
   unused enum value.
 
 ### Epic 8: Data Migration
-- **CROC-024** — `cmd/migrate-data`: imports the old app's **3 admin
-  users, items and recipes** (plus their child/join rows) from a MongoDB
-  Compass JSON export into the Postgres dev database. Grilled and scoped
-  at `docs/handoffs/CROC-024.md` + its `-data-review` companion
-  (**expensive-to-undo**: data shape + the contract later migration
-  passes build on). Key points:
-  - Source: 7 Compass JSON exports on disk (`ItemCategory`, `Unit`,
-    `RecipeCategory`, `User`, `Account`, `Item`, `Recipe`) — the three
-    reference collections + `Account` read only for lookups (old
-    ObjectId → seeded UUID by name; Google `sub` per user). No live
-    Mongo, no `mongo-driver` dependency.
-  - Users: Francis + Zoe (`google_id` from `Account`, real dev login
-    works) + a synthetic `Crockpot` account for the 189 bulk-seed
-    recipes — all `ADMIN`. Ghost creator id aliases to `Crockpot` via a
-    hard-coded constant.
-  - Writes via dedicated insert queries (see architecture note above),
-    preserving real `created_at`/`updated_at` and a stable UUIDv5 id.
-  - Reference-data name mismatch → abort before any write, listing every
-    unmatched name. Row-level problems → import as-is where sound, skip
-    the row where it can't be made referentially sound, always report;
-    non-zero exit if anything was skipped.
-  - `allowedUnitIds` imported faithfully; the source's 11 curation gaps
-    are widened by a hard-coded `allowedUnitAdditions` table in
-    `cmd/migrate-data/fixups.go` (founder-reviewed). A stray unit outside
-    that table still trips the skip-recipe rule.
-    `--ignore-item-allowed-units` kept as a safety valve for future
-    exports.
-  - Rerun = truncate-own-tables-and-reload behind a `MIGRATE_ALLOW` env +
-    `--yes` guard (`--allow-prod` for a real cutover). Ordering: build
-    name maps → abort on any miss → guard → truncate → insert, so a
-    mismatch or failed guard never leaves a partial DB.
-  - Deferred to a later pass: the 40 spam users, favourites, menus,
-    shopping lists, menu history.
-  *AC: per-entity source count − reported skips = destination count,
-  exactly; safe to rerun; prod cutover is a separate explicitly-approved
-  step.*
+- **CROC-024** — `cmd/migrate-data`: one-off CLI importing the old app's
+  users/items/recipes from a MongoDB Compass JSON export. **Done
+  (2026-08-31, dev).** Ran 0-skipped: 3 ADMIN users (Francis + Zoe with
+  real Google `sub`, a synthetic `Crockpot` owning the seed corpus), 387
+  items, 213 recipes. See `docs/handoffs/CROC-024.md` (+ its
+  `-data-review` companion) and the "Data migration" architecture bullet.
+  - **Not yet run against prod** — a separate explicitly-approved step at
+    real cutover, from a *fresh* export (`--allow-prod --yes`).
+  - **Still deferred to a later pass**: the 40 spam users, favourites,
+    `recipemenus`, `shoppinglists`, menu history.
+  - **Delete the tool** (`cmd/migrate-data/` + `internal/sqlc/migrate.sql*`)
+    once prod cutover is done and settled — disposal steps in the handoff.
 
 ### Epic 9: Premium — Weekly Planner
 - **CROC-025** — Planner schema + CRUD: day × meal-slot (breakfast/lunch/

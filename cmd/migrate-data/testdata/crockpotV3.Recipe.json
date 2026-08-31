@@ -1,0 +1,3 @@
+[
+  {"_id":{"$oid":"6348124fe85a13ae0e2fd186"},"name":"Bean and Halloumi Tacos","timeInMinutes":{"$numberLong":"30"},"instructions":["Step one","Step two"],"notes":[],"approved":true,"serves":{"$numberLong":"4"},"createdById":{"$oid":"68740e93cd88665fea847576"},"createdAt":{"$date":"2025-07-13T19:52:51.841Z"},"updatedAt":{"$date":"2025-07-13T19:52:51.841Z"},"categoryIds":[{"$oid":"65d0a7ac9c6a8fd7b7a9aef3"}],"image":{"url":"https://res.cloudinary.com/x/y.jpg","filename":"x/y"},"ingredients":[{"itemId":{"$oid":"6310ad7242687f4a1cf7f226"},"unitId":{"$oid":"68738ad4d5730ccdb15ca142"},"quantity":2}]}
+]
