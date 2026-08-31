@@ -106,13 +106,36 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   - One `recipe_menu` and one `shopping_list` row per user (matching the
     Mongo model's one-per-user constraint via a unique `user_id`)
 - **Data migration**: a one-off Go CLI (`cmd/migrate-data`) inside this
-  repo, not a throwaway external script — reads every collection from the
-  existing MongoDB instance and writes into the new Postgres schema via
-  the same repository layer the running API uses, so the same
-  create/validation logic applies to migrated rows as to rows created
-  normally. Rerunnable against the dev database (safe to wipe-and-reload)
-  so the founder always has real recipe data to build the frontend
-  against; run once for real at prod cutover. See Epic 8.
+  repo, not a throwaway external script. Reads a MongoDB Compass JSON
+  export (6 collections) from disk — no live Mongo connection, no
+  `mongo-driver` dependency in the module graph. Writes through
+  **dedicated insert queries, not the API's `repository` Create methods**
+  — decided at CROC-024's grill (`docs/handoffs/CROC-024.md`). Those
+  methods are shaped for live use (server-assigned id, `created_at =
+  now()`, `created_by_name` via a `users` subquery); forcing migration
+  through them flattens every recipe's real creation date, which is
+  genuine signal (`GET /recipes` sorts `created_at DESC, id`) and
+  load-bearing for the ranking work (CROC-042) this migration exists to
+  enable. The original intent — migrated rows can't be structurally
+  invalid — still holds without them: Postgres enforces every FK
+  automatically, and the one application-level check (`item_allowed_units`
+  membership per recipe ingredient) is reapplied in the tool. Migrated
+  users/recipes/items get a stable UUIDv5 id derived from the Mongo
+  `_id` (wipe-and-reload is byte-identical) and, for recipes/items, their
+  real `created_at` / `updated_at`. Three `users` are migrated, all
+  `ADMIN` — the two real accounts (Francis, Zoe; `google_id` from the
+  `Account` collection's Google `sub`, so a dev Google login lands on the
+  migrated row) plus a synthetic `Crockpot` account owning the 189
+  bulk-seed recipes. The 40 spam/scraper `User` docs, favourites,
+  `recipemenus`, `shoppinglists`, and menu history are deferred to later
+  passes (need the write endpoints from Epics 5–6). Rerunnable against
+  the dev database — the tool truncates its own tables (users, recipes,
+  items, and their child/join tables) behind a `MIGRATE_ALLOW` env +
+  `--yes` guard, never touching reference / auth tables — so the founder
+  always has real data to build the frontend and ranking against; run
+  once for real at prod cutover (`--allow-prod`, a separate
+  explicitly-approved step). See `docs/handoffs/CROC-024.md` (+ its
+  `-data-review` companion) and Epic 8.
 - **Auth**: Google OAuth2/OIDC *and* email/password, both issuing the same
   JWT pair as `packing-list-go` — 15 min access token (bearer header,
   stateless), 7-day sliding refresh token (httponly cookie, DB-backed,
@@ -495,17 +518,18 @@ session.*
   unused enum value.
 
 ### Epic 8: Data Migration
-- **CROC-024** — `cmd/migrate-data`: reads every collection from the
-  existing MongoDB instance and writes into Postgres via the repository
-  layer (see "Data migration" under Key architecture decisions). *AC: row
-  counts per entity match between source and destination; safe to rerun
-  against a wiped dev database; a real cutover run against prod is a
-  separate, explicitly-approved step, not something this ticket automates
-  unattended.* Note (from CROC-014): `item_allowed_units` data quality is
-  load-bearing for recipe creation — an item imported with a bad
-  *partial* `allowedUnitIds` set will block a legit unit on
-  `POST /recipes`. Import `allowedUnitIds` faithfully, or leave the set
-  empty (empty = unconstrained), never partial-wrong.
+- **CROC-024** — `cmd/migrate-data`: one-off CLI importing the old app's
+  users/items/recipes from a MongoDB Compass JSON export. **Done
+  (2026-08-31, dev).** Ran 0-skipped: 3 ADMIN users (Francis + Zoe with
+  real Google `sub`, a synthetic `Crockpot` owning the seed corpus), 387
+  items, 213 recipes. See `docs/handoffs/CROC-024.md` (+ its
+  `-data-review` companion) and the "Data migration" architecture bullet.
+  - **Not yet run against prod** — a separate explicitly-approved step at
+    real cutover, from a *fresh* export (`--allow-prod --yes`).
+  - **Still deferred to a later pass**: the 40 spam users, favourites,
+    `recipemenus`, `shoppinglists`, menu history.
+  - **Delete the tool** (`cmd/migrate-data/` + `internal/sqlc/migrate.sql*`)
+    once prod cutover is done and settled — disposal steps in the handoff.
 
 ### Epic 9: Premium — Weekly Planner
 - **CROC-025** — Planner schema + CRUD: day × meal-slot (breakfast/lunch/

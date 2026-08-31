@@ -1,0 +1,4 @@
+[
+  {"_id":{"$oid":"6310ad7242687f4a1cf7f226"},"name":"Bacon","categoryId":{"$oid":"6310a880b61a0ace3a1281da"},"allowedUnitIds":[{"$oid":"68738ad4d5730ccdb15ca142"}],"createdAt":{"$date":"2025-07-13T12:17:43.560Z"},"updatedAt":{"$date":"2025-09-09T15:08:38.764Z"}},
+  {"_id":{"$oid":"6310ad7242687f4a1cf7f240"},"name":"Mayonnaise","categoryId":{"$oid":"6310a880b61a0ace3a1281da"},"allowedUnitIds":[],"createdAt":{"$date":"2025-07-13T12:17:43.560Z"},"updatedAt":{"$date":"2025-09-09T15:08:38.764Z"}}
+]

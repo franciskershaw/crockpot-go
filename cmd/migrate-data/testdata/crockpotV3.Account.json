@@ -1,0 +1,5 @@
+[
+  {"userId":{"$oid":"68e93f253533a3d30146ba07"},"provider":"google","providerAccountId":"106417760881312091926","type":"oidc"},
+  {"userId":{"$oid":"68eb87d8929571824b1516bd"},"provider":"google","providerAccountId":"103025882889186592233","type":"oidc"},
+  {"userId":{"$oid":"6a9588ea145ec1bf75478873"},"provider":"credentials","providerAccountId":"whatever","type":"credentials"}
+]

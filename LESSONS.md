@@ -6,6 +6,25 @@ and whether this file or the project's own `CLAUDE.md` needed a new line
 as a result. Reviewed at the start of every new ticket's `grill-me` and at
 project kickoff.
 
+## 2026-08-31 — CROC-024 — MongoDB→Postgres dev migration (one-off `cmd/migrate-data`)
+
+- No implementation rework across 6 pieces. Grill decisions 4/6/7 were
+  reshaped when the Compass export arrived mid-grill (0→3 users once the
+  data showed a ghost seed-import account; hand-edit-in-Mongo →
+  hard-coded `allowedUnitAdditions` table after founder push-back). Dry
+  run found 620 ingredients using the old blank `{name:""}` Unit doc as
+  "unitless" → mapped to NULL; the CROC-011 lesson had named that exact
+  row but grill discovery didn't check the Unit collection for it.
+- `/code-review` found the reconciliation check was tautological
+  (`skipped := source − destination`, so `source − skipped = destination`
+  always held) and recipe category links weren't de-duped though
+  ingredients were. Both fixed; second dev run clean, `in-db` counts now
+  from a real post-commit `count(*)`.
+- Migration ran 0-skipped first attempt; 100% reference-name match.
+- **Pattern**: a grill whose decisions turn on the shape of external
+  data is provisional until the data is in hand — pull the export before
+  writing the handoff, not after.
+
 ## 2026-08-11 — Kickoff
 
 Project set up via `project-kickoff`. Master spec and ticket backlog
