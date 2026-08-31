@@ -2,11 +2,13 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/sqlc"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -38,11 +40,182 @@ func (r *PostgresRecipeRepository) CountByCreator(ctx context.Context, userID st
 }
 
 func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error) {
-	return nil, -1, nil
+	q := queriesFor(ctx, r.db)
+
+	callerID, err := nullableUUIDParam(filter.CallerID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("invalid caller id: %w", err)
+	}
+
+	page := filter.Page
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * filter.Limit
+
+	rows, err := q.ListRecipes(ctx, sqlc.ListRecipesParams{
+		CallerIsAdmin:      filter.CallerIsAdmin,
+		CallerID:           callerID,
+		OnlyMine:           filter.Mine,
+		NameQuery:          filter.Query,
+		MinTime:            int32(filter.MinTime),
+		MaxTime:            int32(filter.MaxTime),
+		ExcludeCategoryIds: pgUUIDs(filter.ExcludeCategoryIDs),
+		IncludeCategoryIds: pgUUIDs(filter.IncludeCategoryIDs),
+		IngredientIds:      pgUUIDs(filter.IngredientIDs),
+		ResultLimit:        int32(filter.Limit),
+		ResultOffset:       int32(offset),
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list recipes: %w", err)
+	}
+
+	total, err := q.CountRecipes(ctx, sqlc.CountRecipesParams{
+		CallerIsAdmin:      filter.CallerIsAdmin,
+		CallerID:           callerID,
+		OnlyMine:           filter.Mine,
+		NameQuery:          filter.Query,
+		MinTime:            int32(filter.MinTime),
+		MaxTime:            int32(filter.MaxTime),
+		ExcludeCategoryIds: pgUUIDs(filter.ExcludeCategoryIDs),
+		IncludeCategoryIds: pgUUIDs(filter.IncludeCategoryIDs),
+		IngredientIds:      pgUUIDs(filter.IngredientIDs),
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count recipes: %w", err)
+	}
+
+	cards := make([]*models.RecipeCard, len(rows))
+	ids := make([]pgtype.UUID, len(rows))
+	for i, row := range rows {
+		cards[i] = toRecipeCard(row)
+		ids[i] = row.ID
+	}
+
+	if len(ids) > 0 {
+		catRows, err := q.ListRecipeCardCategories(ctx, ids)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to load recipe categories: %w", err)
+		}
+		byRecipe := make(map[uuid.UUID][]models.CategoryRef, len(ids))
+		for _, cr := range catRows {
+			rid := uuidValue(cr.RecipeID)
+			byRecipe[rid] = append(byRecipe[rid], models.CategoryRef{ID: uuidValue(cr.ID), Name: cr.Name})
+		}
+		for _, card := range cards {
+			if cats := byRecipe[card.ID]; cats != nil {
+				card.Categories = cats
+			}
+		}
+	}
+
+	return cards, int(total), nil
+}
+
+func toRecipeCard(row sqlc.Recipe) *models.RecipeCard {
+	return &models.RecipeCard{
+		ID:            uuidValue(row.ID),
+		Name:          row.Name,
+		ImageURL:      textPtr(row.ImageUrl),
+		ImageFilename: textPtr(row.ImageFilename),
+		TimeInMinutes: int(row.TimeInMinutes),
+		Serves:        int(row.Serves),
+		Approved:      row.Approved,
+		Categories:    []models.CategoryRef{},
+		CreatedAt:     row.CreatedAt.Time,
+	}
 }
 
 func (r *PostgresRecipeRepository) GetByID(ctx context.Context, id string, callerID *string, callerIsAdmin bool) (*models.RecipeDetail, error) {
-	return &models.RecipeDetail{RecipeCard: models.RecipeCard{Name: "STUB_NOT_IMPLEMENTED"}}, nil
+	q := queriesFor(ctx, r.db)
+
+	recipeID, err := uuidParam(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid recipe id: %w", err)
+	}
+	cid, err := nullableUUIDParam(callerID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid caller id: %w", err)
+	}
+
+	row, err := q.GetRecipeForReader(ctx, sqlc.GetRecipeForReaderParams{
+		ID:            recipeID,
+		CallerIsAdmin: callerIsAdmin,
+		CallerID:      cid,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, models.ErrRecipeNotFound
+		}
+		return nil, fmt.Errorf("failed to get recipe: %w", err)
+	}
+
+	catRows, err := q.ListRecipeDetailCategories(ctx, recipeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load recipe categories: %w", err)
+	}
+	categories := make([]models.CategoryRef, len(catRows))
+	for i, cr := range catRows {
+		categories[i] = models.CategoryRef{ID: uuidValue(cr.ID), Name: cr.Name}
+	}
+
+	ingRows, err := q.ListRecipeIngredientsHydrated(ctx, recipeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load recipe ingredients: %w", err)
+	}
+	ingredients := make([]models.HydratedIngredient, len(ingRows))
+	for i, ir := range ingRows {
+		qty, err := numericValue(ir.Quantity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read ingredient quantity: %w", err)
+		}
+		ing := models.HydratedIngredient{
+			ItemID:           uuidValue(ir.ItemID),
+			ItemName:         ir.ItemName,
+			ItemCategoryID:   uuidValue(ir.ItemCategoryID),
+			ItemCategoryName: ir.ItemCategoryName,
+			Quantity:         qty,
+		}
+		if ir.UnitID.Valid {
+			u := uuidValue(ir.UnitID)
+			ing.UnitID = &u
+		}
+		if ir.UnitAbbreviation.Valid {
+			abbr := ir.UnitAbbreviation.String
+			ing.UnitAbbreviation = &abbr
+		}
+		ingredients[i] = ing
+	}
+
+	instructions := row.Instructions
+	if instructions == nil {
+		instructions = []string{}
+	}
+	notes := row.Notes
+	if notes == nil {
+		notes = []string{}
+	}
+
+	return &models.RecipeDetail{
+		RecipeCard: models.RecipeCard{
+			ID:            uuidValue(row.ID),
+			Name:          row.Name,
+			ImageURL:      textPtr(row.ImageUrl),
+			ImageFilename: textPtr(row.ImageFilename),
+			TimeInMinutes: int(row.TimeInMinutes),
+			Serves:        int(row.Serves),
+			Approved:      row.Approved,
+			Categories:    categories,
+			CreatedAt:     row.CreatedAt.Time,
+		},
+		Description:   textPtr(row.Description),
+		Instructions:  instructions,
+		Notes:         notes,
+		Ingredients:   ingredients,
+		CreatedByID:   uuidValue(row.CreatedByID),
+		CreatedByName: textPtr(row.CreatedByName),
+		UpdatedAt:     row.UpdatedAt.Time,
+	}, nil
 }
 
 func (r *PostgresRecipeRepository) Create(ctx context.Context, input models.CreateRecipeInput) (*models.Recipe, error) {
