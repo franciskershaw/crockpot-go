@@ -16,6 +16,8 @@ var recipeLimits = map[string]int{"FREE": 5}
 type RecipeRepository interface {
 	Create(ctx context.Context, input models.CreateRecipeInput) (*models.Recipe, error)
 	CountByCreator(ctx context.Context, userID string) (int, error)
+	List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error)
+	GetByID(ctx context.Context, id string, callerID *string, callerIsAdmin bool) (*models.RecipeDetail, error)
 }
 
 type RecipeHandler struct {
@@ -63,6 +65,14 @@ func (h *RecipeHandler) Create(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, recipe)
+}
+
+func (h *RecipeHandler) List(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"recipes": "STUB_NOT_IMPLEMENTED"})
+}
+
+func (h *RecipeHandler) Get(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"id": "STUB_NOT_IMPLEMENTED"})
 }
 
 // withinRecipeCap returns false (and writes the 409/500) when a capped role is at its limit or the count lookup fails.
