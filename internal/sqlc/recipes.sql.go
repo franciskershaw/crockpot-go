@@ -134,32 +134,6 @@ func (q *Queries) CreateRecipeIngredient(ctx context.Context, arg CreateRecipeIn
 	return err
 }
 
-const listRecipeCategoryIDsForRecipe = `-- name: ListRecipeCategoryIDsForRecipe :many
-SELECT category_id FROM recipe_categories_recipes
-WHERE recipe_id = $1
-ORDER BY category_id
-`
-
-func (q *Queries) ListRecipeCategoryIDsForRecipe(ctx context.Context, recipeID pgtype.UUID) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, listRecipeCategoryIDsForRecipe, recipeID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []pgtype.UUID
-	for rows.Next() {
-		var category_id pgtype.UUID
-		if err := rows.Scan(&category_id); err != nil {
-			return nil, err
-		}
-		items = append(items, category_id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listRecipeIngredients = `-- name: ListRecipeIngredients :many
 SELECT item_id, unit_id, quantity FROM recipe_ingredients
 WHERE recipe_id = $1

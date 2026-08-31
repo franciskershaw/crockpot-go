@@ -302,9 +302,9 @@ uuid.UUID`, `Approved bool`.
   loop
 - `CountRecipesByCreator :one` — `SELECT count(*) FROM recipes WHERE
   created_by_id = $1`
-- `ListRecipeIngredients :many` (`ORDER BY position`) /
-  `ListRecipeCategoryIDsForRecipe :many` — for `Create`'s own return
-  hydration, scoped to the one recipe
+- `ListRecipeIngredients :many` (`ORDER BY position`) — for `Create`'s
+  own return hydration (quantities are DB-rounded, so a re-read is
+  justified; category IDs are echoed straight from the input, no query)
 - reuse existing `ListItemAllowedUnitIDsForItems` for the allowed-unit
   check
 
@@ -315,9 +315,12 @@ converter. Quantity: `pgtype.Numeric` ↔ `float64` at the model boundary
 via `numericParam`/`numericValue` in `repository/convert.go` (string
 round-trip; no decimal lib in the tree — confirmed).
 
-**`internal/models/errors.go`** additions — `ErrRecipeLimitReached`,
-`ErrRecipeInvalidItem`, `ErrRecipeInvalidUnit`, `ErrRecipeInvalidCategory`,
-`ErrIngredientUnitNotAllowed`, `ErrRecipeDuplicateIngredient`. FK
+**`internal/models/errors.go`** additions — `ErrRecipeInvalidItem`,
+`ErrRecipeInvalidUnit`, `ErrRecipeInvalidCategory`,
+`ErrIngredientUnitNotAllowed`, `ErrRecipeDuplicateIngredient`. (The
+FREE-cap 409 is emitted directly by the handler — no sentinel; an
+earlier `ErrRecipeLimitReached` was dead code, removed at code review.)
+FK
 violations on `item_id`/`unit_id`/`category_id` and the
 `recipe_ingredients_recipe_id_item_id_key` UNIQUE violation → the
 corresponding errors via the shared `pgConstraintError` helper
@@ -470,8 +473,21 @@ surface to compare against.
    the codebase-wide `badRequest(c, code)` helper).
 4. **Wire `main.go`** (new authed `/recipes` group, `NewRecipeHandler`
    with the existing `transactor`) + `requests/recipes.http`. **Done** —
-   awaiting manual `.http` verification (founder) then
-   `/code-review medium main`.
+   manual `.http` verification passed (founder).
+
+## Code review (`/code-review medium main`)
+
+Run after piece 4. Clean overall (transaction rollback, error mapping,
+allowed-unit check, `position` ordering, cap-can't-be-bypassed all
+verified). Two minor findings, both fixed:
+
+1. `models.ErrRecipeLimitReached` was dead code — the 409 is written
+   directly by the handler. Removed.
+2. `hydrateRecipe` re-queried the just-inserted category IDs
+   (`ListRecipeCategoryIDsForRecipe`), costing a round-trip and
+   reordering them by `category_id`. Now echoes `input.CategoryIDs`
+   through in submit order; query dropped from `recipes.sql`. Repo test
+   tightened to assert submit order.
 
 ## Master-spec changes made alongside this handoff
 

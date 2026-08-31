@@ -48,8 +48,6 @@ var ErrRecipeCategoryInUse = errors.New("recipe category is in use")
 
 var ErrRecipeCategoryNameTaken = errors.New("recipe category name already taken")
 
-var ErrRecipeLimitReached = errors.New("recipe limit reached for tier")
-
 var ErrRecipeInvalidItem = errors.New("recipe ingredient item does not exist")
 
 var ErrRecipeInvalidUnit = errors.New("recipe ingredient unit does not exist")

@@ -41,8 +41,3 @@ WHERE created_by_id = $1;
 SELECT item_id, unit_id, quantity FROM recipe_ingredients
 WHERE recipe_id = $1
 ORDER BY position;
-
--- name: ListRecipeCategoryIDsForRecipe :many
-SELECT category_id FROM recipe_categories_recipes
-WHERE recipe_id = $1
-ORDER BY category_id;

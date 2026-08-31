@@ -161,7 +161,7 @@ func TestCreateRecipe_FullWithImageUnitNotesAndApproved(t *testing.T) {
 	require.NotNil(t, recipe.ImageFilename)
 	assert.Equal(t, filename, *recipe.ImageFilename)
 	assert.Equal(t, []string{"freezes well", "double the garlic"}, recipe.Notes)
-	assert.ElementsMatch(t, []uuid.UUID{recipeCat1, recipeCat2}, recipe.CategoryIDs)
+	assert.Equal(t, []uuid.UUID{recipeCat1, recipeCat2}, recipe.CategoryIDs, "category ids echo back in submit order")
 	require.Len(t, recipe.Ingredients, 1)
 	require.NotNil(t, recipe.Ingredients[0].UnitID)
 	assert.Equal(t, unitID, *recipe.Ingredients[0].UnitID)

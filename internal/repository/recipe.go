@@ -93,7 +93,7 @@ func (r *PostgresRecipeRepository) Create(ctx context.Context, input models.Crea
 		}
 	}
 
-	return hydrateRecipe(ctx, q, created)
+	return hydrateRecipe(ctx, q, created, input.CategoryIDs)
 }
 
 // checkAllowedUnits rejects an ingredient unit absent from its item's allowed set; an empty set means unconstrained, a nil unit always passes.
@@ -131,7 +131,8 @@ func checkAllowedUnits(ctx context.Context, q *sqlc.Queries, ingredients []model
 	return nil
 }
 
-func hydrateRecipe(ctx context.Context, q *sqlc.Queries, row sqlc.Recipe) (*models.Recipe, error) {
+// hydrateRecipe re-reads ingredients for their DB-rounded quantities; categoryIDs are passed through as inserted.
+func hydrateRecipe(ctx context.Context, q *sqlc.Queries, row sqlc.Recipe, categoryIDs []uuid.UUID) (*models.Recipe, error) {
 	ingRows, err := q.ListRecipeIngredients(ctx, row.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list recipe ingredients: %w", err)
@@ -148,15 +149,6 @@ func hydrateRecipe(ctx context.Context, q *sqlc.Queries, row sqlc.Recipe) (*mode
 			ing.UnitID = &u
 		}
 		ingredients[i] = ing
-	}
-
-	catRows, err := q.ListRecipeCategoryIDsForRecipe(ctx, row.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list recipe categories: %w", err)
-	}
-	categoryIDs := make([]uuid.UUID, len(catRows))
-	for i, c := range catRows {
-		categoryIDs[i] = uuidValue(c)
 	}
 
 	return toModelRecipe(row, categoryIDs, ingredients), nil
