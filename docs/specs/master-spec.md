@@ -540,9 +540,11 @@ session.*
     the row where it can't be made referentially sound, always report;
     non-zero exit if anything was skipped.
   - `allowedUnitIds` imported faithfully; the source's 11 curation gaps
-    are widened in Mongo before export (data-review checklist), not
-    patched in the tool. `--ignore-item-allowed-units` kept as a safety
-    valve for future exports.
+    are widened by a hard-coded `allowedUnitAdditions` table in
+    `cmd/migrate-data/fixups.go` (founder-reviewed). A stray unit outside
+    that table still trips the skip-recipe rule.
+    `--ignore-item-allowed-units` kept as a safety valve for future
+    exports.
   - Rerun = truncate-own-tables-and-reload behind a `MIGRATE_ALLOW` env +
     `--yes` guard (`--allow-prod` for a real cutover). Ordering: build
     name maps → abort on any miss → guard → truncate → insert, so a

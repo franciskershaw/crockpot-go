@@ -230,7 +230,7 @@ referentially sound; always report.
 | Item's `allowedUnitIds` has **any** entry that doesn't map to a seeded unit | drop the **whole** set → unconstrained (CROC-014 "faithful or empty, never partial"), report (0 expected — export is clean) |
 | A recipe ingredient's **item** doesn't resolve to an inserted `items` row | **skip the whole recipe**, loud report |
 | A recipe ingredient's **unit** id doesn't resolve to any seeded unit (e.g. references the CROC-011 junk row) | set `unitId: null` (unit is nullable/optional), report count |
-| A recipe ingredient's **unit** (when set and resolved) isn't in that item's non-empty allowed set | **skip the whole recipe**, loud report (see decision 7) |
+| A recipe ingredient's **unit** (when set and resolved) isn't in that item's allowed set *after decision 7's additions are applied* | **skip the whole recipe**, loud report |
 | An item's **category** doesn't resolve (orphan ObjectId, not a name mismatch) | **skip the whole item**, loud report |
 
 The run always inserts what it can, prints a summary (rows inserted per
@@ -238,23 +238,37 @@ table + every skip/adjustment with its reason), and **exits non-zero if
 anything was skipped**.
 
 **Skip-recipe over import-with-null-unit** for the unit case: surfaces
-the problem instead of quietly degrading the data.
+the problem instead of quietly degrading the data. This rule is checked
+*after* decision 7's additions table is applied.
 
-**This export:** 23 ingredients across 22 recipes hit this. Founder
+### 7. `allowedUnitIds` gaps: hard-coded additions table in the tool
+
+23 ingredients across 22 recipes use a unit not in that item's
+`allowedUnitIds` — the "added late, never enforced" data. Founder
 reviewed the full list (data-review doc) and ruled every one a
-reasonable use — the fix is to **widen 11 items' `allowedUnitIds` in
-Mongo and re-export `Item.json`** (checklist in the data-review doc),
-after which this rule fires 0 times. The migration itself stays faithful
-— no unit-patching logic in the tool.
+reasonable use.
 
-### 7. `--ignore-item-allowed-units` escape hatch (kept, not needed for this export)
+**Decision:** `cmd/migrate-data/fixups.go` holds a hard-coded
+`allowedUnitAdditions map[string][]string` (item name → units to add) —
+the 11 entries from the data-review doc. During item import the tool
+unions these into the item's `allowedUnitIds` before writing
+`item_allowed_units`, printing each: `widened "Mayonnaise": +milliliters`.
+No manual Mongo edits, no re-export churn.
 
-The flag makes every item import with an **empty** (unconstrained)
-`item_allowed_units` set, so decision 6's unit rule can never fire. Kept
-as a safety valve for a future export where the source curation can't be
-fixed in time. Not needed for the current export once the 11-item fix
-lands. If used, the admin re-curates constraints later via
-`PATCH /items/:id` (CROC-014 decision 4 anticipates this).
+This is the same class of hard-coded specific as `ghostCreatorID` and the
+3 synthetic/real user rows — appropriate for a one-off tool, all in
+`fixups.go`. The table is idempotent (union): an entry already satisfied
+is a silent no-op; an entry naming an item that no longer exists just
+doesn't match.
+
+**Anything still stray after the additions** (a unit the table doesn't
+cover) → decision 6's skip-recipe + loud report, unchanged. So a
+surprise in a future re-export surfaces rather than being absorbed.
+
+**`--ignore-item-allowed-units`** stays as a separate nuclear option:
+every item imports with an **empty** (unconstrained) set. Not needed for
+this export; kept for a future one where the source curation is beyond
+patching. If used, the admin re-curates via `PATCH /items/:id`.
 
 ### 8. Rerun = truncate-own-tables-and-reload, behind a guard
 
@@ -332,6 +346,8 @@ cmd/migrate-data/
   ejson.go       Extended-JSON decode ($oid / $date / $number*)
   source.go      typed structs for the 7 collections + file loading
   mapping.go     name maps, objectIDToUUID (UUIDv5), Account sub lookup
+  fixups.go      hard-coded specifics: ghostCreatorID, the 3 user rows,
+                 allowedUnitAdditions (the 11-item table, decision 7)
   transform.go   Mongo doc → insert params; the decision-6 row policy
   load.go        TRUNCATE + insert via sqlc migrate queries
   report.go      running tallies, summary print, exit-code decision
@@ -348,8 +364,9 @@ internal/sqlc/queries/migrate.sql   the Migrate* insert queries
 - Running schema migrations — decision 9; schema assumed present.
 - The prod cutover run itself — gated behind `--allow-prod`, a separate
   explicitly-approved step, not exercised by this ticket.
-- Any unit-patching logic in the tool — the 11-item `allowedUnitIds`
-  widening happens in Mongo before export (decision 7 / data-review doc).
+- A general auto-widen of allowed units — decision 7 uses a fixed
+  11-entry table, not "add whatever any recipe used"; anything outside
+  the table still trips decision 6's skip-recipe.
 - New HTTP endpoints — none; no new `requests/*.http` file.
 
 ## Acceptance criteria
@@ -394,8 +411,8 @@ internal/sqlc/queries/migrate.sql   the Migrate* insert queries
       cleaned export: 387 items, 213 recipes, 0 skips expected.
 - [ ] Three recipes spot-checked field-by-field via `GET /recipes/:id`
       against Compass.
-- [ ] After the 11-item `allowedUnitIds` fix + re-export, 0 recipes
-      skipped on unit grounds.
+- [ ] The 11-entry `allowedUnitAdditions` table applied (each widening
+      printed); 0 recipes skipped on unit grounds for this export.
 - [ ] `golangci-lint` clean, `gofmt` clean, `go mod tidy -diff` clean
       (no new dependency).
 
@@ -403,7 +420,7 @@ internal/sqlc/queries/migrate.sql   the Migrate* insert queries
 
 | Part | Mode | Command / artifact |
 | --- | --- | --- |
-| `ejson.go`, `mapping.go`, `transform.go`, `report.go` | Logic with assertable behaviour — failing test first, no DB | `go test ./cmd/migrate-data/...` — Extended-JSON decode (`$oid`; `$date` as ISO string, as `{$numberLong}`, and bare ISO; `$number*` wrappers); `objectIDToUUID` deterministic + collision-free; name-map hit / miss-carries-name / collects-all-misses; row policy one test per row of the decision-6 table + the decision-7 flag; summary tallies + exit-code-non-zero-iff-skips |
+| `ejson.go`, `mapping.go`, `transform.go`, `report.go` | Logic with assertable behaviour — failing test first, no DB | `go test ./cmd/migrate-data/...` — Extended-JSON decode (`$oid`; `$date` as ISO string, as `{$numberLong}`, and bare ISO; `$number*` wrappers); `objectIDToUUID` deterministic + collision-free; name-map hit / miss-carries-name / collects-all-misses; row policy one test per row of the decision-6 table; the `allowedUnitAdditions` union (widens the set, still trips skip-recipe for a unit outside the table) + the `--ignore-item-allowed-units` flag; summary tallies + exit-code-non-zero-iff-skips |
 | DB write path | Service / DB boundary — manual, real Neon dev DB, once (no automated Neon-writing test — it would truncate the shared dev corpus; the full run + reconciliation is the proof, and close-out states a green `go test ./...` does **not** cover this) | `MIGRATE_ALLOW=dev go run ./cmd/migrate-data --source ./mongo-export --yes` → then: (a) tool's own reconciliation table shows `source − skips = destination` exactly for the 4 entities; (b) 3 recipes compared field-by-field — name, time, serves, every ingredient (item name / qty / unit), categories, instructions, notes, `createdAt` — via `GET /recipes/:id` on a local server against the migrated DB vs the same doc in Compass; (c) `GET /recipes?q=…` and one `categoryId` filter return sane counts; (d) one item that had `allowedUnitIds` in Mongo → its `item_allowed_units` rows match; (e) a real Google login in dev as Francis lands on the migrated ADMIN row (`google_id` match), not a new FREE user |
 | Guard / abort ordering | Limits / config — manual, real CLI | no `MIGRATE_ALLOW` → refuses, `SELECT count(*)` on `recipes`/`items` unchanged; no `--yes` → prints host+db+counts, refuses; `--source` with one extra unit name → aborts listing it, counts unchanged; non-dev URL without `--allow-prod` → refuses |
 | Lint / format / deps | Gate | `golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`; `gofmt`; `go mod tidy -diff` (must show nothing — no new dependency) |
@@ -418,13 +435,14 @@ mode beyond the manual run above (there's no UI).
    generated code isn't TDD-stubbed. Confirms the explicit-column insert
    shape compiles against the schema.
 2. **`ejson.go`** — Extended-JSON decode. Test-first.
-3. **`source.go` + `mapping.go`** — typed collection structs, file
-   loading, name maps, `objectIDToUUID`, `Account` sub lookup, the
-   collect-all-misses abort. Test-first (file loading against small
-   fixture JSON in `testdata/`).
+3. **`source.go` + `mapping.go` + `fixups.go`** — typed collection
+   structs, file loading, name maps, `objectIDToUUID`, `Account` sub
+   lookup, the collect-all-misses abort; `fixups.go` constants.
+   Test-first (file loading against small fixture JSON in `testdata/`).
 4. **`transform.go`** — Mongo doc → insert params (users, items,
    recipes) + the decision-6 row policy + the ghost→`Crockpot` alias +
-   decision-7 flag. Test-first, table-driven. The heart of the ticket.
+   the `allowedUnitAdditions` union + the `--ignore-item-allowed-units`
+   flag. Test-first, table-driven. The heart of the ticket.
 5. **`load.go` + `report.go` + `main.go`** — TRUNCATE, insert loop,
    guard, summary, exit code. `report.go` tallies are unit-tested;
    `load.go` / `main.go` orchestration is covered by the manual full run
@@ -433,17 +451,15 @@ mode beyond the manual run above (there's no UI).
 
 ## Companion doc
 
-`docs/handoffs/CROC-024-data-review.md` — export profile, the 11-item
-`allowedUnitIds` fix checklist, creator analysis, duplicate-ingredient
-cases, spam-user list.
+`docs/handoffs/CROC-024-data-review.md` — export profile, the 11-entry
+`allowedUnitAdditions` table (applied by the tool, not by hand), creator
+analysis, duplicate-ingredient cases, spam-user list.
 
 ## What the founder does before the build
 
-1. In Mongo (Compass or the old admin UI): widen `allowedUnitIds` on the
-   11 items in the data-review checklist. Optionally merge the Sweet &
-   Sour Chicken cornflour lines.
-2. Re-export **7** collections from Compass: `ItemCategory`, `Unit`,
-   `RecipeCategory`, `User`, `Account`, `Item`, `Recipe`.
+Export the **`Account`** collection from Compass (the one collection not
+yet provided — it holds Francis's + Zoe's Google `sub`). The other 6
+exports already shared are usable as-is — no edits, no re-export.
 
 ## Master-spec changes made alongside this handoff
 
@@ -454,4 +470,5 @@ cases, spam-user list.
   synthetic `Crockpot`); guard + truncate-and-reload rerun model.
 - **Epic 8 / CROC-024** — expanded from the one-line entry to the scoped
   block: 7 collections, 3-user migration, ghost→`Crockpot` alias,
-  in-Mongo `allowedUnitIds` fix, rerun guard, deferred entities, AC.
+  in-tool `allowedUnitAdditions` table, rerun guard, deferred entities,
+  AC.

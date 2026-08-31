@@ -1,10 +1,9 @@
 # CROC-024 — source data review
 
 Generated from the MongoDB Compass export (`crockpotV3.*`, 2026-08-31).
-Companion to `CROC-024.md`. This is the pre-migration data-cleanup
-checklist — items to fix **in the live Mongo** (Compass or the old
-app's admin UI) before the real dev import, so the export is faithful
-and the migration needs no special-casing.
+Companion to `CROC-024.md` — the concrete profile of the source data,
+the known quirks, and how the tool handles each. No manual data edits
+required; the founder only needs to export the `Account` collection.
 
 ## Export profile
 
@@ -36,12 +35,13 @@ within that block `GET /recipes` order falls to the `id` tiebreak
 (UUIDv5 — stable pseudo-random). Worth knowing for CROC-042 (the old app
 faked exactly this with `hashString(recipe.id + seed)`).
 
-## FIX BEFORE IMPORT — item `allowedUnitIds` gaps
+## Item `allowedUnitIds` gaps — applied by the tool
 
 23 recipe ingredients across 22 recipes use a unit not in that item's
 `allowedUnitIds`. Founder's call (2026-08-31): all are reasonable —
-**widen the item's allowed units**. Add one unit to each of these 11
-items in Mongo:
+**widen the item's allowed units**. The tool does this via a hard-coded
+`allowedUnitAdditions` table in `cmd/migrate-data/fixups.go` (CROC-024.md
+decision 7) — no manual Mongo edits. The 11 entries, one unit each:
 
 | Item | Add unit | Recipes affected |
 | --- | --- | --- |
@@ -57,8 +57,9 @@ items in Mongo:
 | Thyme (Fresh) | `teaspoons` | Pork Souvlaki Burgers with Feta Drizzle |
 | Hoisin Sauce | `grams` | Shredded Hoisin Chicken Wraps |
 
-After these edits, re-export `Item.json`. The stray-unit count should be
-0 and no recipe is skipped on unit grounds.
+With this table applied, the stray-unit count is 0 and no recipe is
+skipped on unit grounds. A stray unit *not* in the table would still
+trip decision 6's skip-recipe + loud report.
 
 ## Duplicate ingredients (2 recipes)
 
@@ -69,7 +70,7 @@ rest, reporting each.
 | Recipe | Item | Entry A | Entry B | Outcome |
 | --- | --- | --- | --- | --- |
 | BBQ Pulled Pork | Burger Buns | `6` | `6` | keep `6` — looks like a double-entry bug ✓ |
-| Sweet & Sour Chicken | Cornflour | `3 tbsp` | `1.5 tbsp` | keep `3 tbsp`; merge to `4.5 tbsp` in Mongo first if both uses are real |
+| Sweet & Sour Chicken | Cornflour | `3 tbsp` | `1.5 tbsp` | keep `3 tbsp` (tool default); tell Claude to special-case it to `4.5 tbsp` if both uses are real |
 
 ## Users not migrated (40)
 
