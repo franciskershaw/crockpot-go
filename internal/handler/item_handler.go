@@ -84,7 +84,7 @@ func (h *ItemHandler) Update(c *gin.Context) {
 		return
 	}
 	if req.Name == nil && req.CategoryID == nil && req.AllowedUnitIDs == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		badRequest(c, "invalid_request")
 		return
 	}
 
@@ -122,7 +122,7 @@ func (h *ItemHandler) Update(c *gin.Context) {
 	})
 	if txErr != nil {
 		if errors.Is(txErr, models.ErrItemNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+			notFound(c, "not_found")
 			return
 		}
 		writeItemWriteError(c, txErr)
@@ -136,9 +136,9 @@ func (h *ItemHandler) Delete(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, models.ErrItemNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+			notFound(c, "not_found")
 		case errors.Is(err, models.ErrItemInUse):
-			c.JSON(http.StatusConflict, gin.H{"error": "item_in_use"})
+			conflict(c, "item_in_use")
 		default:
 			internalError(c, "failed to delete item", err)
 		}
@@ -152,11 +152,11 @@ func (h *ItemHandler) Delete(c *gin.Context) {
 func writeItemWriteError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, models.ErrItemNameTaken):
-		c.JSON(http.StatusConflict, gin.H{"error": "name_taken"})
+		conflict(c, "name_taken")
 	case errors.Is(err, models.ErrItemInvalidCategory):
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_category_id"})
+		badRequest(c, "invalid_category_id")
 	case errors.Is(err, models.ErrItemInvalidUnit):
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_unit_id"})
+		badRequest(c, "invalid_unit_id")
 	default:
 		internalError(c, "failed to write item", err)
 	}

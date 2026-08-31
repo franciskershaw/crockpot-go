@@ -248,24 +248,22 @@ type registerRequest struct {
 
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req registerRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+	if !bindJSON(c, &req) {
 		return
 	}
 
 	if len(req.Password) < minPasswordLength {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "password_too_short"})
+		badRequest(c, "password_too_short")
 		return
 	}
 	if len(req.Password) > maxPasswordBytes {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "password_too_long"})
+		badRequest(c, "password_too_long")
 		return
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		_ = c.Error(fmt.Errorf("failed to hash password: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		internalError(c, "failed to hash password", err)
 		return
 	}
 
@@ -274,23 +272,21 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, models.ErrEmailRegisteredWithGoogle):
-			c.JSON(http.StatusConflict, gin.H{"error": "email_registered_with_google"})
+			conflict(c, "email_registered_with_google")
 			return
 		case errors.Is(err, models.ErrEmailRegisteredWithPassword):
-			c.JSON(http.StatusConflict, gin.H{"error": "email_already_registered"})
+			conflict(c, "email_already_registered")
 			return
 		case errors.Is(err, models.ErrEmailUnconfirmed):
 			// Never overwrite the password here — the legitimate owner, not whoever last called
 			// register, is the one who'll complete confirmation with their already-delivered code.
 			user, err = h.userRepo.FindByEmail(ctx, req.Email)
 			if err != nil {
-				_ = c.Error(fmt.Errorf("failed to look up unconfirmed user: %w", err))
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+				internalError(c, "failed to look up unconfirmed user", err)
 				return
 			}
 		default:
-			_ = c.Error(fmt.Errorf("failed to create user: %w", err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			internalError(c, "failed to create user", err)
 			return
 		}
 	}
@@ -304,8 +300,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 			})
 			return
 		}
-		_ = c.Error(fmt.Errorf("failed to issue confirmation code: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		internalError(c, "failed to issue confirmation code", err)
 		return
 	}
 
@@ -362,8 +357,7 @@ type confirmRequest struct {
 
 func (h *AuthHandler) ConfirmEmail(c *gin.Context) {
 	var req confirmRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -372,44 +366,41 @@ func (h *AuthHandler) ConfirmEmail(c *gin.Context) {
 	user, err := h.userRepo.FindByEmail(ctx, req.Email)
 	if err != nil {
 		if !errors.Is(err, models.ErrUserNotFound) {
-			_ = c.Error(fmt.Errorf("failed to look up user by email: %w", err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			internalError(c, "failed to look up user by email", err)
 			return
 		}
 		// Unknown email collapses into the same code_invalid as a wrong code — no second enumeration channel next to register's own.
-		c.JSON(http.StatusBadRequest, gin.H{"error": "code_invalid"})
+		badRequest(c, "code_invalid")
 		return
 	}
 
 	token, err := h.emailVerificationTokenRepo.FindActiveByUserID(ctx, user.ID.String())
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "code_invalid"})
+		badRequest(c, "code_invalid")
 		return
 	}
 
 	if token.Attempts >= maxConfirmationAttempts {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "too_many_attempts"})
+		badRequest(c, "too_many_attempts")
 		return
 	}
 
 	if time.Now().After(token.ExpiresAt) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "code_expired"})
+		badRequest(c, "code_expired")
 		return
 	}
 
 	if auth.HashToken(req.Code) != token.TokenHash {
 		if _, err := h.emailVerificationTokenRepo.IncrementAttempts(ctx, token.ID.String()); err != nil {
-			_ = c.Error(fmt.Errorf("failed to record failed confirmation attempt: %w", err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			internalError(c, "failed to record failed confirmation attempt", err)
 			return
 		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": "code_invalid"})
+		badRequest(c, "code_invalid")
 		return
 	}
 
 	if _, err := h.userRepo.MarkEmailConfirmed(ctx, user.ID.String()); err != nil {
-		_ = c.Error(fmt.Errorf("failed to mark email confirmed: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		internalError(c, "failed to mark email confirmed", err)
 		return
 	}
 	// Confirmation itself already succeeded — a failure here just leaves an inert token that
@@ -427,8 +418,7 @@ type resendRequest struct {
 
 func (h *AuthHandler) ResendConfirmation(c *gin.Context) {
 	var req resendRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -437,16 +427,15 @@ func (h *AuthHandler) ResendConfirmation(c *gin.Context) {
 	user, err := h.userRepo.FindByEmail(ctx, req.Email)
 	if err != nil {
 		if !errors.Is(err, models.ErrUserNotFound) {
-			_ = c.Error(fmt.Errorf("failed to look up user by email: %w", err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			internalError(c, "failed to look up user by email", err)
 			return
 		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": "email_not_found"})
+		badRequest(c, "email_not_found")
 		return
 	}
 
 	if user.EmailVerifiedAt != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "already_confirmed"})
+		badRequest(c, "already_confirmed")
 		return
 	}
 
@@ -459,8 +448,7 @@ func (h *AuthHandler) ResendConfirmation(c *gin.Context) {
 			})
 			return
 		}
-		_ = c.Error(fmt.Errorf("failed to issue confirmation code: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		internalError(c, "failed to issue confirmation code", err)
 		return
 	}
 
@@ -474,8 +462,7 @@ type loginRequest struct {
 
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req loginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -484,46 +471,43 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	user, err := h.userRepo.FindByEmail(ctx, req.Email)
 	if err != nil {
 		if !errors.Is(err, models.ErrUserNotFound) {
-			_ = c.Error(fmt.Errorf("failed to look up user by email: %w", err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			internalError(c, "failed to look up user by email", err)
 			return
 		}
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_credentials"})
+		unauthorized(c, "invalid_credentials")
 		return
 	}
 
 	if user.PasswordHash == nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "google_account_no_password"})
+		unauthorized(c, "google_account_no_password")
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.Password)); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_credentials"})
+		unauthorized(c, "invalid_credentials")
 		return
 	}
 
 	if user.EmailVerifiedAt == nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "email_not_confirmed"})
+		forbidden(c, "email_not_confirmed")
 		return
 	}
 
 	accessToken, err := auth.GenerateAccessToken(user.Email, user.ID.String(), user.Role, h.cfg.JWTSecretAccess)
 	if err != nil {
-		_ = c.Error(fmt.Errorf("failed to generate access token: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		internalError(c, "failed to generate access token", err)
 		return
 	}
 
 	if _, err := h.userRepo.UpdateLastLogin(ctx, user.ID.String()); err != nil {
-		_ = c.Error(fmt.Errorf("failed to update last login: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		internalError(c, "failed to update last login", err)
 		return
 	}
 
 	// Session issuance stays last — it's the one step that sets a live cookie.
 	if err := h.issueRefreshSession(ctx, c, user.ID.String()); err != nil {
 		_ = c.Error(err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		serverError(c)
 		return
 	}
 
@@ -536,8 +520,7 @@ type forgotPasswordRequest struct {
 
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	var req forgotPasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -546,16 +529,15 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	user, err := h.userRepo.FindByEmail(ctx, req.Email)
 	if err != nil {
 		if !errors.Is(err, models.ErrUserNotFound) {
-			_ = c.Error(fmt.Errorf("failed to look up user by email: %w", err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			internalError(c, "failed to look up user by email", err)
 			return
 		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": "email_not_found"})
+		badRequest(c, "email_not_found")
 		return
 	}
 
 	if user.PasswordHash == nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "google_account_no_password"})
+		unauthorized(c, "google_account_no_password")
 		return
 	}
 
@@ -568,8 +550,7 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 			})
 			return
 		}
-		_ = c.Error(fmt.Errorf("failed to issue password reset token: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		internalError(c, "failed to issue password reset token", err)
 		return
 	}
 
@@ -633,8 +614,7 @@ type resetPasswordRequest struct {
 
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var req resetPasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -643,32 +623,30 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	token, err := h.passwordResetTokenRepo.FindActiveByTokenHash(ctx, auth.HashToken(req.Token))
 	if err != nil {
 		if !errors.Is(err, models.ErrNoActivePasswordResetToken) {
-			_ = c.Error(fmt.Errorf("failed to look up password reset token: %w", err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			internalError(c, "failed to look up password reset token", err)
 			return
 		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": "token_invalid"})
+		badRequest(c, "token_invalid")
 		return
 	}
 
 	if time.Now().After(token.ExpiresAt) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "token_expired"})
+		badRequest(c, "token_expired")
 		return
 	}
 
 	if len(req.NewPassword) < minPasswordLength {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "password_too_short"})
+		badRequest(c, "password_too_short")
 		return
 	}
 	if len(req.NewPassword) > maxPasswordBytes {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "password_too_long"})
+		badRequest(c, "password_too_long")
 		return
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
-		_ = c.Error(fmt.Errorf("failed to hash password: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		internalError(c, "failed to hash password", err)
 		return
 	}
 
@@ -676,8 +654,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	familyID := uuid.NewString()
 	refreshToken, err := auth.GenerateRefreshToken(userID, familyID, h.cfg.JWTSecretRefresh)
 	if err != nil {
-		_ = c.Error(fmt.Errorf("failed to generate refresh token: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		internalError(c, "failed to generate refresh token", err)
 		return
 	}
 
@@ -714,18 +691,17 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	})
 	if txErr != nil {
 		if errors.Is(txErr, errPasswordResetTokenAlreadyClaimed) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "token_invalid"})
+			badRequest(c, "token_invalid")
 			return
 		}
 		_ = c.Error(txErr)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		serverError(c)
 		return
 	}
 
 	accessToken, err := auth.GenerateAccessToken(user.Email, user.ID.String(), user.Role, h.cfg.JWTSecretAccess)
 	if err != nil {
-		_ = c.Error(fmt.Errorf("failed to generate access token: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		internalError(c, "failed to generate access token", err)
 		return
 	}
 
@@ -739,7 +715,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 var errPasswordResetTokenAlreadyClaimed = errors.New("password reset token already claimed")
 
 func (h *AuthHandler) invalidRefreshToken(c *gin.Context) {
-	c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_refresh_token"})
+	unauthorized(c, "invalid_refresh_token")
 }
 
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
@@ -760,8 +736,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	family, err := h.refreshTokenRepo.FindFamilyByID(ctx, claims.FamilyID, claims.Subject)
 	if err != nil {
 		if !errors.Is(err, models.ErrRefreshTokenFamilyNotFound) {
-			_ = c.Error(fmt.Errorf("failed to look up refresh token family: %w", err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			internalError(c, "failed to look up refresh token family", err)
 			return
 		}
 		h.invalidRefreshToken(c)
@@ -778,25 +753,22 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	user, err := h.userRepo.FindByID(ctx, claims.Subject)
 	if err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			unauthorized(c, "unauthorized")
 			return
 		}
-		_ = c.Error(fmt.Errorf("failed to look up user: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		internalError(c, "failed to look up user", err)
 		return
 	}
 
 	accessToken, err := auth.GenerateAccessToken(user.Email, user.ID.String(), user.Role, h.cfg.JWTSecretAccess)
 	if err != nil {
-		_ = c.Error(fmt.Errorf("failed to generate access token: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		internalError(c, "failed to generate access token", err)
 		return
 	}
 
 	newRefreshToken, err := auth.GenerateRefreshToken(claims.Subject, claims.FamilyID, h.cfg.JWTSecretRefresh)
 	if err != nil {
-		_ = c.Error(fmt.Errorf("failed to generate refresh token: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		internalError(c, "failed to generate refresh token", err)
 		return
 	}
 
@@ -805,14 +777,12 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	presentedHash := auth.HashToken(cookie)
 	rotated, err := h.refreshTokenRepo.RotateFamily(ctx, claims.FamilyID, presentedHash, auth.HashToken(newRefreshToken), time.Now().Add(refreshTokenTTL), time.Now().Add(-refreshGraceWindow))
 	if err != nil {
-		_ = c.Error(fmt.Errorf("failed to rotate refresh token family: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		internalError(c, "failed to rotate refresh token family", err)
 		return
 	}
 	if !rotated {
 		if err := h.refreshTokenRepo.RevokeFamily(ctx, claims.FamilyID); err != nil {
-			_ = c.Error(fmt.Errorf("failed to revoke reused refresh token family: %w", err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+			internalError(c, "failed to revoke reused refresh token family", err)
 			return
 		}
 		h.invalidRefreshToken(c)
@@ -829,9 +799,8 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 			if err := h.refreshTokenRepo.RevokeFamily(c.Request.Context(), claims.FamilyID); err != nil {
 				// Cookie is still cleared below — but a presented, valid token that fails to revoke
 				// must not report success, or the family stays live while the client thinks it's safe.
-				_ = c.Error(fmt.Errorf("failed to revoke refresh token family: %w", err))
 				h.setRefreshCookie(c, "", -1)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+				internalError(c, "failed to revoke refresh token family", err)
 				return
 			}
 		}
@@ -845,18 +814,17 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 func (h *AuthHandler) Me(c *gin.Context) {
 	userID, ok := userIDFromCtx(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		unauthorized(c, "unauthorized")
 		return
 	}
 
 	user, err := h.userRepo.FindByID(c.Request.Context(), userID)
 	if err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			unauthorized(c, "unauthorized")
 			return
 		}
-		_ = c.Error(fmt.Errorf("failed to look up user: %w", err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		internalError(c, "failed to look up user", err)
 		return
 	}
 

@@ -76,7 +76,7 @@ func TestRateLimit_BlocksRequestsOverLimit(t *testing.T) {
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected 429, got %d", w.Code)
 	}
-	if got := w.Body.String(); got != `{"error":"rate limit exceeded"}` {
+	if got := w.Body.String(); got != `{"error":"rate_limit_exceeded"}` {
 		t.Errorf("expected rate-limit-exceeded error body, got %s", got)
 	}
 	retryAfter, err := strconv.Atoi(w.Header().Get("Retry-After"))
@@ -115,7 +115,7 @@ func TestRateLimit_StoreErrorReturnsCleanServerError(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", w.Code)
 	}
-	if got := w.Body.String(); got != `{"error":"internal server error"}` {
-		t.Errorf("expected clean internal-server-error body, got %s", got)
+	if got := w.Body.String(); got != `{"error":"server_error"}` {
+		t.Errorf("expected clean server-error body, got %s", got)
 	}
 }

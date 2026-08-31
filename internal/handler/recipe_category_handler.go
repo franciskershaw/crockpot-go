@@ -55,7 +55,7 @@ func (h *RecipeCategoryHandler) Create(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, models.ErrRecipeCategoryNameTaken):
-			c.JSON(http.StatusConflict, gin.H{"error": "name_taken"})
+			conflict(c, "name_taken")
 		default:
 			internalError(c, "failed to create recipe category", err)
 		}
@@ -78,9 +78,9 @@ func (h *RecipeCategoryHandler) Update(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, models.ErrRecipeCategoryNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+			notFound(c, "not_found")
 		case errors.Is(err, models.ErrRecipeCategoryNameTaken):
-			c.JSON(http.StatusConflict, gin.H{"error": "name_taken"})
+			conflict(c, "name_taken")
 		default:
 			internalError(c, "failed to update recipe category", err)
 		}
@@ -94,9 +94,9 @@ func (h *RecipeCategoryHandler) Delete(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, models.ErrRecipeCategoryNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+			notFound(c, "not_found")
 		case errors.Is(err, models.ErrRecipeCategoryInUse):
-			c.JSON(http.StatusConflict, gin.H{"error": "category_in_use"})
+			conflict(c, "category_in_use")
 		default:
 			internalError(c, "failed to delete recipe category", err)
 		}

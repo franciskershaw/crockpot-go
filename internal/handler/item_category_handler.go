@@ -61,9 +61,9 @@ func (h *ItemCategoryHandler) Create(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, models.ErrItemCategoryNameTaken):
-			c.JSON(http.StatusConflict, gin.H{"error": "name_taken"})
+			conflict(c, "name_taken")
 		case errors.Is(err, models.ErrItemCategoryIconTaken):
-			c.JSON(http.StatusConflict, gin.H{"error": "icon_taken"})
+			conflict(c, "icon_taken")
 		default:
 			internalError(c, "failed to create item category", err)
 		}
@@ -78,7 +78,7 @@ func (h *ItemCategoryHandler) Update(c *gin.Context) {
 		return
 	}
 	if req.Name == nil && req.Icon == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		badRequest(c, "invalid_request")
 		return
 	}
 
@@ -102,11 +102,11 @@ func (h *ItemCategoryHandler) Update(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, models.ErrItemCategoryNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+			notFound(c, "not_found")
 		case errors.Is(err, models.ErrItemCategoryNameTaken):
-			c.JSON(http.StatusConflict, gin.H{"error": "name_taken"})
+			conflict(c, "name_taken")
 		case errors.Is(err, models.ErrItemCategoryIconTaken):
-			c.JSON(http.StatusConflict, gin.H{"error": "icon_taken"})
+			conflict(c, "icon_taken")
 		default:
 			internalError(c, "failed to update item category", err)
 		}
@@ -120,9 +120,9 @@ func (h *ItemCategoryHandler) Delete(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, models.ErrItemCategoryNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+			notFound(c, "not_found")
 		case errors.Is(err, models.ErrItemCategoryInUse):
-			c.JSON(http.StatusConflict, gin.H{"error": "category_in_use"})
+			conflict(c, "category_in_use")
 		default:
 			internalError(c, "failed to delete item category", err)
 		}

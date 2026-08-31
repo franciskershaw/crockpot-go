@@ -61,9 +61,9 @@ func (h *UnitHandler) Create(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, models.ErrUnitNameTaken):
-			c.JSON(http.StatusConflict, gin.H{"error": "name_taken"})
+			conflict(c, "name_taken")
 		case errors.Is(err, models.ErrUnitAbbreviationTaken):
-			c.JSON(http.StatusConflict, gin.H{"error": "abbreviation_taken"})
+			conflict(c, "abbreviation_taken")
 		default:
 			internalError(c, "failed to create unit", err)
 		}
@@ -78,7 +78,7 @@ func (h *UnitHandler) Update(c *gin.Context) {
 		return
 	}
 	if req.Name == nil && req.Abbreviation == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		badRequest(c, "invalid_request")
 		return
 	}
 
@@ -102,11 +102,11 @@ func (h *UnitHandler) Update(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, models.ErrUnitNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+			notFound(c, "not_found")
 		case errors.Is(err, models.ErrUnitNameTaken):
-			c.JSON(http.StatusConflict, gin.H{"error": "name_taken"})
+			conflict(c, "name_taken")
 		case errors.Is(err, models.ErrUnitAbbreviationTaken):
-			c.JSON(http.StatusConflict, gin.H{"error": "abbreviation_taken"})
+			conflict(c, "abbreviation_taken")
 		default:
 			internalError(c, "failed to update unit", err)
 		}
@@ -120,9 +120,9 @@ func (h *UnitHandler) Delete(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, models.ErrUnitNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+			notFound(c, "not_found")
 		case errors.Is(err, models.ErrUnitInUse):
-			c.JSON(http.StatusConflict, gin.H{"error": "unit_in_use"})
+			conflict(c, "unit_in_use")
 		default:
 			internalError(c, "failed to delete unit", err)
 		}

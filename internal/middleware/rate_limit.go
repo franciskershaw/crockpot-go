@@ -25,10 +25,10 @@ func (m *RateLimitMiddleware) Handler() gin.HandlerFunc {
 	return mgin.NewMiddleware(instance,
 		mgin.WithLimitReachedHandler(func(c *gin.Context) {
 			c.Header("Retry-After", strconv.FormatInt(m.retryAfterSeconds(c), 10))
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "rate_limit_exceeded"})
 		}),
 		mgin.WithErrorHandler(func(c *gin.Context, err error) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
 		}),
 	)
 }

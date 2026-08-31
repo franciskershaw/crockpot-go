@@ -30,7 +30,7 @@ func NewRecipeHandler(repo RecipeRepository, transactor Transactor) *RecipeHandl
 func (h *RecipeHandler) Create(c *gin.Context) {
 	userID, ok := userIDFromCtx(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		unauthorized(c, "unauthorized")
 		return
 	}
 	role := c.GetString("role")
@@ -77,7 +77,7 @@ func (h *RecipeHandler) withinRecipeCap(c *gin.Context, role, userID string) boo
 		return false
 	}
 	if count >= limit {
-		c.JSON(http.StatusConflict, gin.H{"error": "recipe_limit_reached"})
+		conflict(c, "recipe_limit_reached")
 		return false
 	}
 	return true
@@ -86,15 +86,15 @@ func (h *RecipeHandler) withinRecipeCap(c *gin.Context, role, userID string) boo
 func writeRecipeCreateError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, models.ErrRecipeInvalidItem):
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_item_id"})
+		badRequest(c, "invalid_item_id")
 	case errors.Is(err, models.ErrRecipeInvalidUnit):
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_unit_id"})
+		badRequest(c, "invalid_unit_id")
 	case errors.Is(err, models.ErrRecipeInvalidCategory):
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_category_id"})
+		badRequest(c, "invalid_category_id")
 	case errors.Is(err, models.ErrIngredientUnitNotAllowed):
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unit_not_allowed_for_item"})
+		badRequest(c, "unit_not_allowed_for_item")
 	case errors.Is(err, models.ErrRecipeDuplicateIngredient):
-		c.JSON(http.StatusBadRequest, gin.H{"error": "duplicate_ingredient"})
+		badRequest(c, "duplicate_ingredient")
 	default:
 		internalError(c, "failed to create recipe", err)
 	}
