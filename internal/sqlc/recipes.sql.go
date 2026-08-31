@@ -111,8 +111,8 @@ func (q *Queries) CreateRecipeCategoryLink(ctx context.Context, arg CreateRecipe
 }
 
 const createRecipeIngredient = `-- name: CreateRecipeIngredient :exec
-INSERT INTO recipe_ingredients (recipe_id, item_id, unit_id, quantity)
-VALUES ($1, $2, $3, $4)
+INSERT INTO recipe_ingredients (recipe_id, item_id, unit_id, quantity, position)
+VALUES ($1, $2, $3, $4, $5)
 `
 
 type CreateRecipeIngredientParams struct {
@@ -120,6 +120,7 @@ type CreateRecipeIngredientParams struct {
 	ItemID   pgtype.UUID
 	UnitID   pgtype.UUID
 	Quantity pgtype.Numeric
+	Position int16
 }
 
 func (q *Queries) CreateRecipeIngredient(ctx context.Context, arg CreateRecipeIngredientParams) error {
@@ -128,6 +129,7 @@ func (q *Queries) CreateRecipeIngredient(ctx context.Context, arg CreateRecipeIn
 		arg.ItemID,
 		arg.UnitID,
 		arg.Quantity,
+		arg.Position,
 	)
 	return err
 }
@@ -161,7 +163,7 @@ func (q *Queries) ListRecipeCategoryIDsForRecipe(ctx context.Context, recipeID p
 const listRecipeIngredients = `-- name: ListRecipeIngredients :many
 SELECT item_id, unit_id, quantity FROM recipe_ingredients
 WHERE recipe_id = $1
-ORDER BY item_id
+ORDER BY position
 `
 
 type ListRecipeIngredientsRow struct {

@@ -26,8 +26,8 @@ VALUES (
 RETURNING *;
 
 -- name: CreateRecipeIngredient :exec
-INSERT INTO recipe_ingredients (recipe_id, item_id, unit_id, quantity)
-VALUES ($1, $2, $3, $4);
+INSERT INTO recipe_ingredients (recipe_id, item_id, unit_id, quantity, position)
+VALUES ($1, $2, $3, $4, $5);
 
 -- name: CreateRecipeCategoryLink :exec
 INSERT INTO recipe_categories_recipes (recipe_id, category_id)
@@ -40,7 +40,7 @@ WHERE created_by_id = $1;
 -- name: ListRecipeIngredients :many
 SELECT item_id, unit_id, quantity FROM recipe_ingredients
 WHERE recipe_id = $1
-ORDER BY item_id;
+ORDER BY position;
 
 -- name: ListRecipeCategoryIDsForRecipe :many
 SELECT category_id FROM recipe_categories_recipes

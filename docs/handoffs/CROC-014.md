@@ -21,11 +21,43 @@ table (`recipe_ingredients`) written alongside the join table
 allowed-unit check, and the folded-in FREE-tier recipe cap (originally
 CROC-023).
 
-No schema migration — `recipes`, `recipe_ingredients`,
-`recipe_categories_recipes` all exist unmodified from CROC-002
-(`000001_init.up.sql:106-141`), with `recipe_categories_recipes`'s
+One small schema migration (`000007`) — a `recipe_ingredients.position`
+column so submit order survives (decision 11). Otherwise `recipes`,
+`recipe_ingredients`, `recipe_categories_recipes` are as CROC-002 left
+them (`000001_init.up.sql:106-141`), with `recipe_categories_recipes`'s
 `category_id` FK already flipped to `ON DELETE RESTRICT` at CROC-013
 (`000005`).
+
+## Amendments made during the build (post-grill)
+
+Three points surfaced after the grill, agreed before piece 3:
+
+- **Decision 11 (new)** — `recipe_ingredients.position` column, so
+  ingredient submit order is preserved (the old app's embedded array
+  had it for free; losing it is a real regression). Migration `000007`,
+  `SMALLINT NOT NULL`, table is empty so no backfill. Folded into
+  CROC-014 rather than deferred because this is the recipe *write
+  contract* and adding the column later means a migration plus reworking
+  every read path CROC-015/016 build against it.
+- **Decision 5 refinement** — the `image.url` check is not just "valid
+  URL": scheme `https` and host exactly `res.cloudinary.com`. Otherwise
+  a caller stores an arbitrary third-party URL that every recipe
+  viewer's browser fetches. The tighter path-prefix check (must be
+  *this* project's cloud, not another Cloudinary customer's) waits for
+  CROC-040, which introduces `CLOUDINARY_CLOUD_NAME` config — no new
+  config in CROC-014.
+- **Decision 8 refinement** — the repository *also* maps the
+  `recipe_ingredients_recipe_id_item_id_key` UNIQUE violation to
+  `models.ErrRecipeDuplicateIngredient`, not just the FKs. The handler
+  still pre-checks duplicates for the clean `400 duplicate_ingredient` +
+  early exit, but the repo shouldn't emit a 500-class error for a
+  constraint it knows about (a future CROC-016 / CROC-024 caller might
+  not dedup).
+
+Separately: the Cloudinary **signed-upload signature endpoint** that
+makes `image` fields usable end-to-end is its own ticket, **CROC-040**
+(not folded in — new config + its own grill points). CROC-014's `POST
+/recipes` contract is unchanged by it.
 
 ## Decisions from the interview
 
@@ -160,7 +192,7 @@ decisions.)
 | `notes` | array, 0–10 items (optional, default `[]`); empty elements silently dropped after trim | `too_many_notes` |
 | `categoryIds` | array, 1–3 items, no duplicates | `categories_required` / `too_many_categories` / `duplicate_category` |
 | `ingredients` | array, 1–50 items, no duplicate `itemId` | `ingredients_required` / `too_many_ingredients` / `duplicate_ingredient` |
-| `image` | optional; if present, both `url` (valid URL) and `filename` (non-empty) required | `invalid_image` |
+| `image` | optional; if present, both `url` and `filename` (non-empty) required; `url` scheme `https`, host exactly `res.cloudinary.com` (path-prefix-to-own-cloud check deferred to CROC-040) | `invalid_image` |
 
 - **`name` min-3 needs a recipe-specific `validateRecipeName`** — the
   shared `validateName` helper (`handler/validation.go`) only checks
@@ -263,37 +295,47 @@ uuid.UUID`, `Approved bool`.
 - `CreateRecipe :one` — insert `recipes`, `created_by_name` via the
   `(SELECT name FROM users WHERE id = $createdBy)` subquery,
   `RETURNING *`
-- `CreateRecipeIngredient :exec` — one row, called in a loop (small
-  counts, matches `CreateItemAllowedUnit`)
+- `CreateRecipeIngredient :exec` — one row incl. `position`, called in a
+  loop with the slice index as `position` (small counts, matches
+  `CreateItemAllowedUnit`)
 - `CreateRecipeCategoryLink :exec` — one `(recipe_id, category_id)` row,
   loop
 - `CountRecipesByCreator :one` — `SELECT count(*) FROM recipes WHERE
   created_by_id = $1`
-- `ListRecipeIngredients :many` / `ListRecipeCategoryIDsForRecipe :many`
-  — for `Create`'s own return hydration, scoped to the one recipe
+- `ListRecipeIngredients :many` (`ORDER BY position`) /
+  `ListRecipeCategoryIDsForRecipe :many` — for `Create`'s own return
+  hydration, scoped to the one recipe
 - reuse existing `ListItemAllowedUnitIDsForItems` for the allowed-unit
   check
 
-**`internal/models/recipe.go`** (new) — `Recipe` + `Ingredient` structs,
-`toModelRecipe` converter (pattern per existing `models/*.go`).
-Quantity type: use `pgtype.Numeric` → a plain Go type at the model
-boundary; confirm the exact conversion against what sqlc generates for
-`NUMERIC(10,2)` during step 2 (do not assume `float64` vs a decimal
-string).
+**`internal/models/recipe.go`** (new) — `Recipe` + `Ingredient` +
+`CreateRecipeInput` structs (the input DTO lives in `models`, not
+`handler`, since neither package imports the other). `toModelRecipe`
+converter. Quantity: `pgtype.Numeric` ↔ `float64` at the model boundary
+via `numericParam`/`numericValue` in `repository/convert.go` (string
+round-trip; no decimal lib in the tree — confirmed).
 
 **`internal/models/errors.go`** additions — `ErrRecipeLimitReached`,
 `ErrRecipeInvalidItem`, `ErrRecipeInvalidUnit`, `ErrRecipeInvalidCategory`,
-`ErrIngredientUnitNotAllowed`. `23503` FK violations on
-`item_id`/`unit_id`/`category_id` → the `Invalid*` errors via the
-shared `pgConstraintError` helper (constraint names confirmed against
-the live DB during step 2, per every prior ticket). The allowed-unit
-check → `ErrIngredientUnitNotAllowed`.
+`ErrIngredientUnitNotAllowed`, `ErrRecipeDuplicateIngredient`. FK
+violations on `item_id`/`unit_id`/`category_id` and the
+`recipe_ingredients_recipe_id_item_id_key` UNIQUE violation → the
+corresponding errors via the shared `pgConstraintError` helper
+(constraint names confirmed live: `recipe_ingredients_item_id_fkey`,
+`recipe_ingredients_unit_id_fkey`,
+`recipe_categories_recipes_category_id_fkey`,
+`recipe_ingredients_recipe_id_item_id_key`). The allowed-unit check →
+`ErrIngredientUnitNotAllowed`.
 
 **Transaction:** `RecipeHandler` takes the existing `Transactor` (like
 `ItemHandler`). `Create` does `CountByCreator` *outside* the tx, then
-`WithinTx`: insert recipe → batched allowed-unit check + insert
-ingredients → insert category links. All `queriesFor(ctx, r.db)`, no
-repo-internal `Begin`.
+`WithinTx`: batched allowed-unit check (fully before any write, so a
+disallowed unit fails cleanly with nothing inserted) → insert recipe →
+insert ingredients → insert category links. All `queriesFor(ctx, r.db)`,
+no repo-internal `Begin`. Consequence of check-then-insert: for a
+*constrained* item, a `unitId` that doesn't exist returns
+`ErrIngredientUnitNotAllowed`, not `ErrRecipeInvalidUnit` — the FK is
+only the authority for the *unconstrained*-item case.
 
 **`.mockery.yaml`** — add `RecipeRepository`, re-run `go tool mockery`.
 
@@ -343,6 +385,11 @@ layer with mocked claims.
 - Closing the cap TOCTOU gap — decision 2, revisit at Epic 11.
 - Enforcing allowed-unit membership when an item's allowed set is empty
   — decision 4, deliberate.
+- The Cloudinary signed-upload signature endpoint — CROC-040. CROC-014
+  only validates + stores the two strings; without CROC-040 the frontend
+  has no authorised way to produce them.
+- Orphaned Cloudinary images (abandoned uploads, deleted/replaced
+  recipes) — CROC-016's grill.
 
 ## Acceptance criteria
 
@@ -355,6 +402,13 @@ layer with mocked claims.
 - [ ] `recipe_ingredients` rows written for every ingredient, including
       one with `unitId: null`; `recipe_categories_recipes` rows written
       for every category; all in one transaction.
+- [ ] Ingredients come back in submit order (`position` column); a
+      recipe created with ingredients [C, A, B] reads back [C, A, B],
+      not sorted by `item_id`.
+- [ ] Duplicate `itemId` reaching the repository (handler check
+      bypassed) → `ErrRecipeDuplicateIngredient`, not a 500-class error.
+- [ ] `image.url` that is a valid URL but not `https` + host
+      `res.cloudinary.com` → `400 invalid_image`.
 - [ ] `created_by_name` on the persisted row equals the creator's
       current `users.name`.
 - [ ] FREE user with 5 existing own recipes (approved or not) → `409
@@ -385,7 +439,7 @@ layer with mocked claims.
 
 | Part | Mode | Command / artifact |
 | --- | --- | --- |
-| `repository/recipe.go` | Service boundary — test-first, real Neon dev DB, per unit | `./scripts/test-repo.sh -run TestRecipe` — create (recipe row + `created_by_name` subquery; ingredients incl. null `unitId`; category links); `CountRecipesByCreator` (approved + unapproved); `23503` bad `item_id`/`unit_id`/`category_id` → domain errors; allowed-unit check (in-set OK, out-of-set → `ErrIngredientUnitNotAllowed`, empty set unconstrained, null unit skips); rollback leaves no partial `recipes` row on a mid-loop failure |
+| `repository/recipe.go` | Service boundary — test-first, real Neon dev DB, per unit | `./scripts/test-repo.sh -run 'TestCreateRecipe\|TestCountRecipesByCreator'` — create (recipe row + `created_by_name` subquery; ingredients incl. null `unitId`; category links; submit-order via `position`); `CountRecipesByCreator` (approved + unapproved); FK on bad `item_id`/`unit_id`/`category_id` → domain errors; UNIQUE `(recipe_id, item_id)` → `ErrRecipeDuplicateIngredient`; allowed-unit check (in-set OK, out-of-set → `ErrIngredientUnitNotAllowed`, empty set unconstrained, null unit skips); rollback leaves no partial `recipes` row on a mid-loop failure |
 | `handler/recipe_handler.go` | Logic with assertable behaviour — failing test first, mocked `RecipeRepository` + mocked `Transactor` | `go test ./internal/handler/...` — all decision-5 validation cases → specific 400s; `approved` true for ADMIN claim / false otherwise; cap: FREE at 5 → 409, FREE at 4 / PREMIUM / ADMIN → pass; repo domain errors → status translations; dedup `categoryIds`/`itemId` → 400 |
 | Full wiring | Interactive — hands-on by the founder | `requests/recipes.http` top-to-bottom in VS Code REST Client against a live server + real DB: `Login` (ADMIN test account) → create happy path (`approved: true`), the 400 validation + invalid-reference translations, Cleanup |
 | Lint / format | Gate | `golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`; `gofmt`; `go mod tidy -diff` |
@@ -397,22 +451,21 @@ surface to compare against.
 
 ## Piece order (AI-driven)
 
-1. **`internal/sqlc/queries/recipes.sql`** + `sqlc generate` +
-   `models/recipe.go` (+ `Ingredient`, `toModelRecipe`) +
-   `models/errors.go` entries. Mechanical; generated code isn't
-   TDD-stubbed — step 2's repo tests cover it. Constraint names
-   (`recipe_ingredients_item_id_fkey`, `recipe_ingredients_unit_id_fkey`,
-   `recipe_categories_recipes_category_id_fkey`,
-   `recipe_ingredients_recipe_id_item_id_key`) and the
-   `NUMERIC(10,2)` → Go type confirmed against the real DB during step 2.
+1. **`internal/sqlc/queries/recipes.sql`** + `db/migrations/000007_add_recipe_ingredient_position`
+   + `sqlc generate` + `models/recipe.go` (`Recipe`, `Ingredient`,
+   `CreateRecipeInput`) + `models/errors.go` entries. Mechanical;
+   generated code isn't TDD-stubbed — step 2's repo tests cover it.
+   **Done** (commits `d98035e`, plus the `000007` amendment). Constraint
+   names and the `NUMERIC(10,2)` → `pgtype.Numeric` type confirmed live.
 2. **`repository/recipe.go`** — real-DB repo tests, stub with fake
-   sentinels, red → stop → green → stop. Covers `Create` (with the
-   in-transaction allowed-unit check) and `CountByCreator`.
-3. **`handler/recipe_handler.go`** + `validateRecipeName` + the
-   `RecipeRepository` interface + `CreateRecipeInput`/`Ingredient`
-   request structs — mocked-repo handler tests (mocking
-   `RecipeRepository` and `Transactor`), stub, red → stop → green →
-   stop. Re-run `go tool mockery`.
+   sentinels, red → stop → green → stop. Covers `Create` (check-then-insert
+   allowed-unit check, `position`, FK + UNIQUE → domain errors) and
+   `CountByCreator`. **Done** (commits `940317b` + green diff).
+3. **`handler/recipe_handler.go`** + `validateRecipeName` + the Cloudinary
+   image-URL check + the `RecipeRepository` interface +
+   `CreateRecipeInput` mapping from the request struct — mocked-repo
+   handler tests (mocking `RecipeRepository` and `Transactor`), stub,
+   red → stop → green → stop. Re-run `go tool mockery`.
 4. **Wire `main.go`** (new authed `/recipes` group, `NewRecipeHandler`
    with the existing `transactor`) + `requests/recipes.http`. Manual
    `.http` verification (founder).
@@ -433,3 +486,13 @@ surface to compare against.
 - **Epic 8 / CROC-024** — note added: the migration must import
   `allowedUnitIds` faithfully, as `item_allowed_units` data quality is
   now load-bearing for recipe creation (decision 4).
+- **Architecture / Images** — rewritten to "**signed** client-side
+  direct upload", records the rejected unsigned-preset option and the
+  image-URL validation rule for every URL-accepting endpoint.
+- **Epic 4 / CROC-040** (new) — Cloudinary signed-upload signature
+  endpoint (`POST /uploads/signature`). Dependency of `crockpot-react`
+  CFE-010; CROC-014's `image` fields are inert without it. Same
+  pre-real-signup sequencing gate as CROC-039.
+- **Epic 4 / CROC-016** — open question added: orphaned Cloudinary
+  images on recipe delete / image replace (the old app's server-side
+  `deleteRecipeImage` has no Go-API equivalent).

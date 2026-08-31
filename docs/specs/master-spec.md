@@ -230,10 +230,23 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
 - **Repository pattern, handler structs, black-box handler tests**: same
   conventions as `packing-list-go` (interfaces owned by `handler`,
   `testify/mock` for repo mocks, `httptest` + `gin.New()`).
-- **Images**: Cloudinary, uploaded directly from the frontend (client-side
-  upload widget, matching the old app's `next-cloudinary` pattern) — the
-  API stores the resulting URL/filename, never proxies image bytes itself.
-  Keeps the 1 MB JSON body cap (below) meaningful.
+- **Images**: Cloudinary, **signed** client-side direct upload — the
+  browser uploads the file straight to Cloudinary using a short-lived
+  signature the API issues (`CROC-040`), gets back a `secure_url` +
+  `public_id`, and sends only those two strings in the recipe JSON. The
+  API never proxies image bytes (keeps the 1 MB JSON body cap
+  meaningful) and never ships the Cloudinary API secret to the browser
+  (the secret computes the signature server-side, same secret the old
+  app's `src/lib/cloudinary.ts` already uses). Unsigned upload presets
+  were rejected at `CROC-014`'s grill: extractable from the JS bundle,
+  they can't be gated on this app's auth, so anyone could upload to the
+  account. Endpoints that accept an image URL (`CROC-014` recipe create,
+  `CROC-016` update, `CROC-026` import) validate scheme `https` +
+  host `res.cloudinary.com`, not just that it is a well-formed URL —
+  otherwise a caller could store an arbitrary third-party URL that every
+  viewer's browser then fetches. `CROC-040` adds `CLOUDINARY_CLOUD_NAME`
+  config and tightens this to a path-prefix check (this project's cloud,
+  not another Cloudinary customer's).
 - **Email**: Resend, for verification and password-reset emails (matching
   the old app's provider choice).
 - **API error response shape**: locked in at `CROC-005` (previously
@@ -345,11 +358,15 @@ session.*
   - Fields: name (3–100), timeInMinutes (1–1440), serves (1–50),
     instructions (1–50, non-empty), notes (0–10, optional), categoryIds
     (1–3, unique), ingredients (1–50, unique itemId), optional image
-    (url + filename together). `description` column stays unused.
+    (url + filename together; url must be `https` + host
+    `res.cloudinary.com`, not just any valid URL — path-prefix-to-own-cloud
+    check waits for CROC-040). `description` column stays unused.
   - Ingredients reference the curated `items`/`units` catalog only — no
     inline item creation, no free-text ingredients (would break Epic 6
     shopping-list aggregation). The "missing ingredient" gap is CROC-039's
-    job. Each ingredient `{itemId, unitId?, quantity>0}`.
+    job. Each ingredient `{itemId, unitId?, quantity>0}`. Submit order is
+    preserved via a `recipe_ingredients.position` column (migration
+    `000007`) — matches the old app's embedded-array ordering.
   - New rule vs. the old app: an ingredient's `unitId` must be in the
     item's `item_allowed_units` set *when that set is non-empty*; an
     empty set means unconstrained; a null `unitId` always passes.
@@ -364,7 +381,13 @@ session.*
     hydrated) — same call as CROC-012; hydration is CROC-015's job.
 - **CROC-015** — Recipe browse/search (approved recipes to everyone, plus
   the caller's own unapproved ones; filter by category/search term).
-- **CROC-016** — Recipe update/delete (owner or admin only).
+- **CROC-016** — Recipe update/delete (owner or admin only). Open for its
+  grill: orphaned Cloudinary images. The old app called
+  `deleteRecipeImage(publicId)` server-side on recipe delete / image
+  replace; the Go API has no Cloudinary SDK. Decide — a minimal signed
+  REST delete call, a periodic sweep, or accept orphans (free-tier
+  quota is generous, personal app). Also covers replacing a recipe's
+  image on update (same `{url, filename}` validation as CROC-014).
 - **CROC-017** — Admin approval (`PATCH /recipes/:id/approve`, admin-only).
 - **CROC-018** — Favourites (`POST`/`DELETE /recipes/:id/favourite`,
   `GET /recipes/favourites`).
@@ -383,6 +406,21 @@ session.*
   walls. Until then the founder (admin) adds missing items via CROC-012's
   `/items` API. Grill properly before building — the approve-vs-merge
   UX and near-duplicate handling are open.
+- **CROC-040** — Cloudinary signed-upload signature endpoint. `POST
+  /uploads/signature`, authenticated: the API computes an HMAC over the
+  upload params (timestamp, folder, maybe `public_id`) using the
+  Cloudinary API secret held server-side, returns `{signature,
+  timestamp, apiKey, cloudName, folder}`; the browser then uploads the
+  file straight to Cloudinary with that signature. Keeps image bytes off
+  the API and the secret out of the bundle (see the Images architecture
+  decision). New config: `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`,
+  `CLOUDINARY_API_SECRET` (the old app's `src/lib/cloudinary.ts` already
+  holds real values). **Dependency of** `crockpot-react` CFE-010; CROC-014's
+  `image` fields are inert without it. **Sequencing:** before real signup
+  opens (same gate as CROC-039); an unsigned preset with Cloudinary-side
+  size/format/folder limits is a defensible interim if deferred. Grill
+  before building — which params are signed, signature TTL, per-user
+  rate limit, whether FREE users may upload at all.
 
 ### Epic 5: Meal Planning
 - **CROC-019** — Menu read/upsert-entry (`GET /menu`, `POST /menu/entries`,

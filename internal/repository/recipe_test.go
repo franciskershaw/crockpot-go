@@ -187,6 +187,51 @@ func TestCreateRecipe_PopulatesCreatedByNameFromUsersRow(t *testing.T) {
 	assert.Equal(t, "Distinctive Name 12345", dbName)
 }
 
+func TestCreateRecipe_PreservesIngredientOrder(t *testing.T) {
+	ctx := context.Background()
+	userID := insertTestUser(t, "Cook")
+	catID := insertTestItemCategory(t, "repo-test-category-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	itemC := insertTestItem(t, "repo-test-item-c-"+uuid.NewString(), catID)
+	itemA := insertTestItem(t, "repo-test-item-a-"+uuid.NewString(), catID)
+	itemB := insertTestItem(t, "repo-test-item-b-"+uuid.NewString(), catID)
+	recipeCatID := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
+
+	input := baseRecipeInput(userID, itemC, recipeCatID)
+	input.Ingredients = []models.Ingredient{
+		{ItemID: itemC, Quantity: 1},
+		{ItemID: itemA, Quantity: 2},
+		{ItemID: itemB, Quantity: 3},
+	}
+
+	recipe, err := recipeRepo.Create(ctx, input)
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM recipes WHERE id = $1`, recipe.ID)
+
+	require.Len(t, recipe.Ingredients, 3)
+	assert.Equal(t, []uuid.UUID{itemC, itemA, itemB},
+		[]uuid.UUID{recipe.Ingredients[0].ItemID, recipe.Ingredients[1].ItemID, recipe.Ingredients[2].ItemID},
+		"ingredients must come back in submit order, not sorted by item_id")
+}
+
+func TestCreateRecipe_DuplicateIngredientItemID(t *testing.T) {
+	ctx := context.Background()
+	userID := insertTestUser(t, "Cook")
+	catID := insertTestItemCategory(t, "repo-test-category-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-item-"+uuid.NewString(), catID)
+	recipeCatID := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
+
+	input := baseRecipeInput(userID, itemID, recipeCatID)
+	input.Ingredients = []models.Ingredient{
+		{ItemID: itemID, Quantity: 1},
+		{ItemID: itemID, Quantity: 2},
+	}
+	cleanupExec(t, `DELETE FROM recipes WHERE name = $1`, input.Name)
+
+	recipe, err := recipeRepo.Create(ctx, input)
+	assert.Nil(t, recipe)
+	assert.ErrorIs(t, err, models.ErrRecipeDuplicateIngredient)
+}
+
 func TestCreateRecipe_QuantityRoundsToColumnScale(t *testing.T) {
 	ctx := context.Background()
 	userID := insertTestUser(t, "Cook")
