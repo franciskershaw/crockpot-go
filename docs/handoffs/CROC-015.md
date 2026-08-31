@@ -392,24 +392,26 @@ UI has **no screenshot** — CROC-042's concern, out of scope here.
 
 ## Piece order (AI-driven)
 
-1. **`middleware/optional_auth.go`** + tests. Smallest, unblocks the
-   handlers.
-2. **`internal/sqlc/queries/recipes.sql`** additions + `sqlc generate`
-   + `models/recipe.go` types (`RecipeCard`, `RecipeDetail`,
-   `HydratedIngredient`, `RecipeListFilter`, `CategoryRef`) +
-   `models/errors.go` (`ErrRecipeNotFound`). Mechanical; step 3 covers
-   it.
-3. **`repository/recipe.go`** — `List` + `GetByID`, real-DB tests, stub
-   → red → stop → green → stop. The count-drift guard lives here.
-4. **`handler/recipe_handler.go`** — `List` + `Get` methods + the
-   `RecipeListFilter` param parsing + `RecipeRepository` interface
-   growth + `go tool mockery`. Mocked-repo tests, stub → red → stop →
-   green → stop.
-5. **Wire `main.go`** (two `OptionalAuthMiddleware` GET routes) +
-   `requests/recipes.http`. Manual `.http` verification (founder).
+1. **`middleware/optional_auth.go`** + tests. **Done** — 6 subtests
+   green.
+2. **`internal/sqlc/queries/recipes.sql`** + `sqlc generate` +
+   `models/recipe.go` types + `models/errors.go` (`ErrRecipeNotFound`).
+   **Done.**
+3. **`repository/recipe.go`** — `List` + `GetByID`, real-DB tests
+   (`recipe_list_test.go`, 14 tests incl. the count-drift guard).
+   `convert.go` gained `nullableUUIDParam` / `pgUUIDs`. **Done.**
+4. **`handler/recipe_handler.go`** — `List` + `Get` + `RecipeListFilter`
+   parsing (`parseRecipeListFilter` + helpers in `recipe_requests.go`) +
+   interface growth + `go tool mockery`. 13 mocked-repo tests. **Done.**
+   `page` clamped `[1, 1_000_000]` (int32-offset overflow guard).
+5. **`main.go`** two `OptionalAuthMiddleware` GET routes +
+   `requests/recipes.http` GET section. **Done** — routes smoke-tested
+   against a live server; manual `.http` run is the founder's.
 
-Then: lint / format / `go mod tidy -diff` → `/code-review medium main`
-→ `/close-out`.
+Then: lint / format / `go mod tidy -diff` (all clean) → `/code-review
+medium main` → `/close-out`.
+
+Completed 2026-08-31.
 
 ---
 
