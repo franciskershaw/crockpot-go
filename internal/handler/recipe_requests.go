@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"net/http"
 	"net/url"
 	"strings"
 
@@ -44,11 +43,11 @@ func parseCreateRecipeInput(c *gin.Context) (models.CreateRecipeInput, bool) {
 		return models.CreateRecipeInput{}, false
 	}
 	if req.TimeInMinutes < 1 || req.TimeInMinutes > 1440 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_time"})
+		badRequest(c, "invalid_time")
 		return models.CreateRecipeInput{}, false
 	}
 	if req.Serves < 1 || req.Serves > 50 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_serves"})
+		badRequest(c, "invalid_serves")
 		return models.CreateRecipeInput{}, false
 	}
 	instructions, ok := validateInstructions(c, req.Instructions)
@@ -89,13 +88,13 @@ func validateRecipeName(c *gin.Context, raw string) (string, bool) {
 	trimmed := strings.TrimSpace(raw)
 	switch {
 	case trimmed == "":
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name_required"})
+		badRequest(c, "name_required")
 		return "", false
 	case len(trimmed) < 3:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name_too_short"})
+		badRequest(c, "name_too_short")
 		return "", false
 	case len(trimmed) > 100:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name_too_long"})
+		badRequest(c, "name_too_long")
 		return "", false
 	}
 	return trimmed, true
@@ -103,18 +102,18 @@ func validateRecipeName(c *gin.Context, raw string) (string, bool) {
 
 func validateInstructions(c *gin.Context, raw []string) ([]string, bool) {
 	if len(raw) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "instructions_required"})
+		badRequest(c, "instructions_required")
 		return nil, false
 	}
 	if len(raw) > 50 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "too_many_instructions"})
+		badRequest(c, "too_many_instructions")
 		return nil, false
 	}
 	out := make([]string, len(raw))
 	for i, s := range raw {
 		trimmed := strings.TrimSpace(s)
 		if trimmed == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_instruction"})
+			badRequest(c, "invalid_instruction")
 			return nil, false
 		}
 		out[i] = trimmed
@@ -124,7 +123,7 @@ func validateInstructions(c *gin.Context, raw []string) ([]string, bool) {
 
 func validateNotes(c *gin.Context, raw []string) ([]string, bool) {
 	if len(raw) > 10 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "too_many_notes"})
+		badRequest(c, "too_many_notes")
 		return nil, false
 	}
 	out := make([]string, 0, len(raw))
@@ -138,11 +137,11 @@ func validateNotes(c *gin.Context, raw []string) ([]string, bool) {
 
 func validateCategoryIDs(c *gin.Context, raw []string) ([]uuid.UUID, bool) {
 	if len(raw) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "categories_required"})
+		badRequest(c, "categories_required")
 		return nil, false
 	}
 	if len(raw) > 3 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "too_many_categories"})
+		badRequest(c, "too_many_categories")
 		return nil, false
 	}
 	seen := make(map[uuid.UUID]bool, len(raw))
@@ -150,11 +149,11 @@ func validateCategoryIDs(c *gin.Context, raw []string) ([]uuid.UUID, bool) {
 	for _, s := range raw {
 		id, err := uuid.Parse(strings.TrimSpace(s))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+			badRequest(c, "invalid_request")
 			return nil, false
 		}
 		if seen[id] {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "duplicate_category"})
+			badRequest(c, "duplicate_category")
 			return nil, false
 		}
 		seen[id] = true
@@ -165,11 +164,11 @@ func validateCategoryIDs(c *gin.Context, raw []string) ([]uuid.UUID, bool) {
 
 func validateIngredients(c *gin.Context, raw []createIngredientRequest) ([]models.Ingredient, bool) {
 	if len(raw) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ingredients_required"})
+		badRequest(c, "ingredients_required")
 		return nil, false
 	}
 	if len(raw) > 50 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "too_many_ingredients"})
+		badRequest(c, "too_many_ingredients")
 		return nil, false
 	}
 	seen := make(map[uuid.UUID]bool, len(raw))
@@ -177,17 +176,17 @@ func validateIngredients(c *gin.Context, raw []createIngredientRequest) ([]model
 	for _, ing := range raw {
 		itemID, err := uuid.Parse(strings.TrimSpace(ing.ItemID))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+			badRequest(c, "invalid_request")
 			return nil, false
 		}
 		if seen[itemID] {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "duplicate_ingredient"})
+			badRequest(c, "duplicate_ingredient")
 			return nil, false
 		}
 		seen[itemID] = true
 
 		if ing.Quantity == nil || *ing.Quantity <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_quantity"})
+			badRequest(c, "invalid_quantity")
 			return nil, false
 		}
 
@@ -196,7 +195,7 @@ func validateIngredients(c *gin.Context, raw []createIngredientRequest) ([]model
 			if trimmed := strings.TrimSpace(*ing.UnitID); trimmed != "" {
 				unitID, err := uuid.Parse(trimmed)
 				if err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+					badRequest(c, "invalid_request")
 					return nil, false
 				}
 				parsed.UnitID = &unitID
@@ -214,12 +213,12 @@ func validateRecipeImage(c *gin.Context, img *recipeImageRequest) (*string, *str
 	imageURL := strings.TrimSpace(img.URL)
 	filename := strings.TrimSpace(img.Filename)
 	if imageURL == "" || filename == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_image"})
+		badRequest(c, "invalid_image")
 		return nil, nil, false
 	}
 	parsed, err := url.Parse(imageURL)
 	if err != nil || parsed.Scheme != "https" || parsed.Host != "res.cloudinary.com" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_image"})
+		badRequest(c, "invalid_image")
 		return nil, nil, false
 	}
 	return &imageURL, &filename, true

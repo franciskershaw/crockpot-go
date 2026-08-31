@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -12,7 +11,7 @@ import (
 // returning ok=false if the body is missing or malformed.
 func bindJSON(c *gin.Context, target any) bool {
 	if err := c.ShouldBindJSON(target); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		badRequest(c, "invalid_request")
 		return false
 	}
 	return true
@@ -23,11 +22,11 @@ func bindJSON(c *gin.Context, target any) bool {
 func validateName(c *gin.Context, raw string) (string, bool) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name_required"})
+		badRequest(c, "name_required")
 		return "", false
 	}
 	if len(trimmed) > 100 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name_too_long"})
+		badRequest(c, "name_too_long")
 		return "", false
 	}
 	return trimmed, true
@@ -38,11 +37,11 @@ func validateName(c *gin.Context, raw string) (string, bool) {
 func validateIconToken(c *gin.Context, raw string) (string, bool) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "icon_required"})
+		badRequest(c, "icon_required")
 		return "", false
 	}
 	if len(trimmed) > 64 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "icon_too_long"})
+		badRequest(c, "icon_too_long")
 		return "", false
 	}
 	return trimmed, true
@@ -53,11 +52,11 @@ func validateIconToken(c *gin.Context, raw string) (string, bool) {
 func validateAbbreviation(c *gin.Context, raw string) (string, bool) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "abbreviation_required"})
+		badRequest(c, "abbreviation_required")
 		return "", false
 	}
 	if len(trimmed) > 32 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "abbreviation_too_long"})
+		badRequest(c, "abbreviation_too_long")
 		return "", false
 	}
 	return trimmed, true
@@ -66,7 +65,7 @@ func validateAbbreviation(c *gin.Context, raw string) (string, bool) {
 // parseID checks raw is a well-formed UUID (not that it exists — the DB confirms that), writing 400 invalid_request and returning ok=false if malformed.
 func parseID(c *gin.Context, raw string) bool {
 	if _, err := uuid.Parse(raw); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		badRequest(c, "invalid_request")
 		return false
 	}
 	return true
@@ -77,7 +76,7 @@ func parseID(c *gin.Context, raw string) bool {
 func validateCategoryID(c *gin.Context, raw string) (string, bool) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "category_id_required"})
+		badRequest(c, "category_id_required")
 		return "", false
 	}
 	if !parseID(c, trimmed) {

@@ -71,9 +71,15 @@ func forbidden(c *gin.Context, code string)    { c.JSON(http.StatusForbidden, gi
 - `unauthorized` / `forbidden` are included (not just the three the
   backlog line named) because `auth_handler.go` and
   `recipe_handler.go:33` need them and they are the identical shape.
+- `serverError(c)` was added in piece 3 (see the `auth_handler.go`
+  guards) — the generic 500 body with no error-wrapping;
+  `internalError` now calls it.
 - **Helpers ship with their first consumer, not in a standalone commit** —
   golangci-lint's `unused` linter flags an unreferenced package-level
-  func.
+  func. So piece 1 adds only `badRequest` / `notFound` / `conflict`
+  (all consumed by the reference-data handlers); `unauthorized` lands
+  in piece 2 (first use: `recipe_handler.go:33`); `forbidden` lands in
+  piece 3 (first use: `auth_handler.go`).
 
 ### 3. What gets retrofitted, per file
 
@@ -92,11 +98,15 @@ func forbidden(c *gin.Context, code string)    { c.JSON(http.StatusForbidden, gi
 **`auth_handler.go` guards:**
 - **`internalError` only where there is a preceding
   `c.Error(fmt.Errorf("...: %w", err))` with a real error value.** The
-  existing wrap message becomes the `logMsg` arg — verify the produced
-  string is unchanged (`internalError` wraps as `"%s: %w"`). A bare
-  `c.JSON(500, "server_error")` with no error in scope stays as-is (or
-  is handled case-by-case at review) — do not invent an error to feed
-  the helper.
+  existing wrap message becomes the `logMsg` arg — the produced string
+  (`internalError` wraps as `"%s: %w"`) must be unchanged.
+- **`serverError(c)` (new helper) for the two sites where the error is
+  already fully wrapped before the `_ = c.Error(...)` — Login's
+  `issueRefreshSession` failure and ResetPassword's `txErr`. Feeding
+  those to `internalError` would double the message prefix. `internalError`
+  itself now delegates its `c.JSON` to `serverError`.** A bare
+  `c.JSON(500, "server_error")` with no error at all would also use
+  `serverError`; there turned out to be none.
 - **`bindJSON`** replaces the `c.ShouldBindJSON(&req)` + inline
   `c.JSON(400, gin.H{"error": "invalid_request"})` + `return` triplet
   only where it matches exactly.
@@ -175,19 +185,23 @@ by the middleware test.
 
 ## Piece order (AI-driven — refactor → run suite → confirm green → stop)
 
-1. **`handler/errors.go`** (five helpers) + retrofit the four
-   reference-data CRUD handlers (`item_category_handler.go`,
-   `item_handler.go`, `unit_handler.go`, `recipe_category_handler.go`).
-   `go test ./internal/handler/...` green.
-2. **`recipe_handler.go` + `recipe_requests.go` + `validation.go`.**
-   `go test ./internal/handler/...` green.
-3. **`auth_handler.go`** full retrofit (error helpers + `bindJSON` +
-   `internalError`, honouring the decision-3 guards).
-   `go test ./internal/handler/...` green.
-4. **`middleware/rate_limit.go`** + `rate_limit_test.go` assertion
-   updates. `go test ./internal/middleware/...` green.
+1. **`handler/errors.go`** (`badRequest`/`notFound`/`conflict`) + the four
+   reference-data CRUD handlers (`item_category`, `item`, `unit`,
+   `recipe_category`). **Done** — 28 sites, `go test ./internal/handler/...`
+   green, zero test edits.
+2. **`recipe_handler.go` + `recipe_requests.go` + `validation.go`** (+
+   `unauthorized` helper). **Done** — 37 sites, `net/http` dropped from
+   `recipe_requests.go` / `validation.go`, suite green, zero test edits.
+3. **`auth_handler.go`** full retrofit (+ `forbidden` and `serverError`
+   helpers; `internalError` now delegates to `serverError`). **Done** —
+   54 error sites + 6 `bindJSON`, suite green, zero test edits.
+4. **`middleware/rate_limit.go`** (`rate_limit_exceeded` / `server_error`)
+   + the two `rate_limit_test.go` assertions. **Done** — middleware
+   suite green.
 
-Then: lint / format / `go mod tidy -diff` gate → `/code-review medium
-main` → `/close-out`.
+Gate: `golangci-lint` 0 issues, `gofmt` clean, `go vet` clean,
+`go mod tidy -diff` clean, full non-DB `go test ./...` green.
+
+Next: `/code-review medium main` → `/close-out`.
 
 Grilled 2026-08-31.
