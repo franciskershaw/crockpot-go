@@ -11,6 +11,73 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countRecipes = `-- name: CountRecipes :one
+SELECT count(*)
+FROM recipes r
+WHERE (
+        r.approved
+        OR $1::boolean
+        OR ($2::uuid IS NOT NULL AND r.created_by_id = $2::uuid)
+    )
+    AND (
+        NOT $3::boolean
+        OR ($2::uuid IS NOT NULL AND r.created_by_id = $2::uuid)
+    )
+    AND ($4::text = '' OR r.name ILIKE '%' || $4::text || '%')
+    AND ($5::int = 0 OR r.time_in_minutes >= $5::int)
+    AND ($6::int = 0 OR r.time_in_minutes <= $6::int)
+    AND (
+        cardinality($7::uuid[]) = 0
+        OR NOT EXISTS (
+            SELECT 1 FROM recipe_categories_recipes x
+            WHERE x.recipe_id = r.id AND x.category_id = ANY($7::uuid[])
+        )
+    )
+    AND (
+        (
+            cardinality($8::uuid[]) = 0
+            AND cardinality($9::uuid[]) = 0
+        )
+        OR EXISTS (
+            SELECT 1 FROM recipe_categories_recipes x
+            WHERE x.recipe_id = r.id AND x.category_id = ANY($8::uuid[])
+        )
+        OR EXISTS (
+            SELECT 1 FROM recipe_ingredients x
+            WHERE x.recipe_id = r.id AND x.item_id = ANY($9::uuid[])
+        )
+    )
+`
+
+type CountRecipesParams struct {
+	CallerIsAdmin      bool
+	CallerID           pgtype.UUID
+	OnlyMine           bool
+	NameQuery          string
+	MinTime            int32
+	MaxTime            int32
+	ExcludeCategoryIds []pgtype.UUID
+	IncludeCategoryIds []pgtype.UUID
+	IngredientIds      []pgtype.UUID
+}
+
+func (q *Queries) CountRecipes(ctx context.Context, arg CountRecipesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecipes,
+		arg.CallerIsAdmin,
+		arg.CallerID,
+		arg.OnlyMine,
+		arg.NameQuery,
+		arg.MinTime,
+		arg.MaxTime,
+		arg.ExcludeCategoryIds,
+		arg.IncludeCategoryIds,
+		arg.IngredientIds,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countRecipesByCreator = `-- name: CountRecipesByCreator :one
 SELECT count(*) FROM recipes
 WHERE created_by_id = $1
@@ -134,6 +201,112 @@ func (q *Queries) CreateRecipeIngredient(ctx context.Context, arg CreateRecipeIn
 	return err
 }
 
+const getRecipeForReader = `-- name: GetRecipeForReader :one
+SELECT r.id, r.name, r.description, r.time_in_minutes, r.image_url, r.image_filename, r.instructions, r.notes, r.approved, r.serves, r.created_by_id, r.created_by_name, r.created_at, r.updated_at
+FROM recipes r
+WHERE r.id = $1
+    AND (
+        r.approved
+        OR $2::boolean
+        OR ($3::uuid IS NOT NULL AND r.created_by_id = $3::uuid)
+    )
+`
+
+type GetRecipeForReaderParams struct {
+	ID            pgtype.UUID
+	CallerIsAdmin bool
+	CallerID      pgtype.UUID
+}
+
+func (q *Queries) GetRecipeForReader(ctx context.Context, arg GetRecipeForReaderParams) (Recipe, error) {
+	row := q.db.QueryRow(ctx, getRecipeForReader, arg.ID, arg.CallerIsAdmin, arg.CallerID)
+	var i Recipe
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.TimeInMinutes,
+		&i.ImageUrl,
+		&i.ImageFilename,
+		&i.Instructions,
+		&i.Notes,
+		&i.Approved,
+		&i.Serves,
+		&i.CreatedByID,
+		&i.CreatedByName,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listRecipeCardCategories = `-- name: ListRecipeCardCategories :many
+SELECT rcr.recipe_id, rc.id, rc.name
+FROM recipe_categories_recipes rcr
+JOIN recipe_categories rc ON rc.id = rcr.category_id
+WHERE rcr.recipe_id = ANY($1::uuid[])
+ORDER BY rc.name
+`
+
+type ListRecipeCardCategoriesRow struct {
+	RecipeID pgtype.UUID
+	ID       pgtype.UUID
+	Name     string
+}
+
+func (q *Queries) ListRecipeCardCategories(ctx context.Context, recipeIds []pgtype.UUID) ([]ListRecipeCardCategoriesRow, error) {
+	rows, err := q.db.Query(ctx, listRecipeCardCategories, recipeIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRecipeCardCategoriesRow
+	for rows.Next() {
+		var i ListRecipeCardCategoriesRow
+		if err := rows.Scan(&i.RecipeID, &i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecipeDetailCategories = `-- name: ListRecipeDetailCategories :many
+SELECT rc.id, rc.name
+FROM recipe_categories_recipes rcr
+JOIN recipe_categories rc ON rc.id = rcr.category_id
+WHERE rcr.recipe_id = $1
+ORDER BY rc.name
+`
+
+type ListRecipeDetailCategoriesRow struct {
+	ID   pgtype.UUID
+	Name string
+}
+
+func (q *Queries) ListRecipeDetailCategories(ctx context.Context, recipeID pgtype.UUID) ([]ListRecipeDetailCategoriesRow, error) {
+	rows, err := q.db.Query(ctx, listRecipeDetailCategories, recipeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRecipeDetailCategoriesRow
+	for rows.Next() {
+		var i ListRecipeDetailCategoriesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecipeIngredients = `-- name: ListRecipeIngredients :many
 SELECT item_id, unit_id, quantity FROM recipe_ingredients
 WHERE recipe_id = $1
@@ -156,6 +329,162 @@ func (q *Queries) ListRecipeIngredients(ctx context.Context, recipeID pgtype.UUI
 	for rows.Next() {
 		var i ListRecipeIngredientsRow
 		if err := rows.Scan(&i.ItemID, &i.UnitID, &i.Quantity); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecipeIngredientsHydrated = `-- name: ListRecipeIngredientsHydrated :many
+SELECT
+    ri.item_id,
+    i.name AS item_name,
+    i.category_id AS item_category_id,
+    ic.name AS item_category_name,
+    ri.unit_id,
+    u.abbreviation AS unit_abbreviation,
+    ri.quantity
+FROM recipe_ingredients ri
+JOIN items i ON i.id = ri.item_id
+JOIN item_categories ic ON ic.id = i.category_id
+LEFT JOIN units u ON u.id = ri.unit_id
+WHERE ri.recipe_id = $1
+ORDER BY ri.position
+`
+
+type ListRecipeIngredientsHydratedRow struct {
+	ItemID           pgtype.UUID
+	ItemName         string
+	ItemCategoryID   pgtype.UUID
+	ItemCategoryName string
+	UnitID           pgtype.UUID
+	UnitAbbreviation pgtype.Text
+	Quantity         pgtype.Numeric
+}
+
+func (q *Queries) ListRecipeIngredientsHydrated(ctx context.Context, recipeID pgtype.UUID) ([]ListRecipeIngredientsHydratedRow, error) {
+	rows, err := q.db.Query(ctx, listRecipeIngredientsHydrated, recipeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRecipeIngredientsHydratedRow
+	for rows.Next() {
+		var i ListRecipeIngredientsHydratedRow
+		if err := rows.Scan(
+			&i.ItemID,
+			&i.ItemName,
+			&i.ItemCategoryID,
+			&i.ItemCategoryName,
+			&i.UnitID,
+			&i.UnitAbbreviation,
+			&i.Quantity,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecipes = `-- name: ListRecipes :many
+SELECT r.id, r.name, r.description, r.time_in_minutes, r.image_url, r.image_filename, r.instructions, r.notes, r.approved, r.serves, r.created_by_id, r.created_by_name, r.created_at, r.updated_at
+FROM recipes r
+WHERE (
+        r.approved
+        OR $1::boolean
+        OR ($2::uuid IS NOT NULL AND r.created_by_id = $2::uuid)
+    )
+    AND (
+        NOT $3::boolean
+        OR ($2::uuid IS NOT NULL AND r.created_by_id = $2::uuid)
+    )
+    AND ($4::text = '' OR r.name ILIKE '%' || $4::text || '%')
+    AND ($5::int = 0 OR r.time_in_minutes >= $5::int)
+    AND ($6::int = 0 OR r.time_in_minutes <= $6::int)
+    AND (
+        cardinality($7::uuid[]) = 0
+        OR NOT EXISTS (
+            SELECT 1 FROM recipe_categories_recipes x
+            WHERE x.recipe_id = r.id AND x.category_id = ANY($7::uuid[])
+        )
+    )
+    AND (
+        (
+            cardinality($8::uuid[]) = 0
+            AND cardinality($9::uuid[]) = 0
+        )
+        OR EXISTS (
+            SELECT 1 FROM recipe_categories_recipes x
+            WHERE x.recipe_id = r.id AND x.category_id = ANY($8::uuid[])
+        )
+        OR EXISTS (
+            SELECT 1 FROM recipe_ingredients x
+            WHERE x.recipe_id = r.id AND x.item_id = ANY($9::uuid[])
+        )
+    )
+ORDER BY r.created_at DESC, r.id
+LIMIT $11::int OFFSET $10::int
+`
+
+type ListRecipesParams struct {
+	CallerIsAdmin      bool
+	CallerID           pgtype.UUID
+	OnlyMine           bool
+	NameQuery          string
+	MinTime            int32
+	MaxTime            int32
+	ExcludeCategoryIds []pgtype.UUID
+	IncludeCategoryIds []pgtype.UUID
+	IngredientIds      []pgtype.UUID
+	ResultOffset       int32
+	ResultLimit        int32
+}
+
+func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]Recipe, error) {
+	rows, err := q.db.Query(ctx, listRecipes,
+		arg.CallerIsAdmin,
+		arg.CallerID,
+		arg.OnlyMine,
+		arg.NameQuery,
+		arg.MinTime,
+		arg.MaxTime,
+		arg.ExcludeCategoryIds,
+		arg.IncludeCategoryIds,
+		arg.IngredientIds,
+		arg.ResultOffset,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Recipe
+	for rows.Next() {
+		var i Recipe
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.TimeInMinutes,
+			&i.ImageUrl,
+			&i.ImageFilename,
+			&i.Instructions,
+			&i.Notes,
+			&i.Approved,
+			&i.Serves,
+			&i.CreatedByID,
+			&i.CreatedByName,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

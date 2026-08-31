@@ -166,6 +166,9 @@ func main() {
 		recipeCategoriesAdmin.DELETE("/:id", recipeCategoryHandler.Delete)
 	}
 
+	server.GET("/recipes", middleware.OptionalAuthMiddleware(cfg.JWTSecretAccess), recipeHandler.List)
+	server.GET("/recipes/:id", middleware.OptionalAuthMiddleware(cfg.JWTSecretAccess), recipeHandler.Get)
+
 	recipes := server.Group("/recipes")
 	recipes.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess))
 	{

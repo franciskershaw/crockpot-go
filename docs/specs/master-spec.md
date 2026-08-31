@@ -230,6 +230,42 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
 - **Repository pattern, handler structs, black-box handler tests**: same
   conventions as `packing-list-go` (interfaces owned by `handler`,
   `testify/mock` for repo mocks, `httptest` + `gin.New()`).
+- **Optional authentication**: `middleware.OptionalAuthMiddleware`
+  (`CROC-015`) — parses the bearer token if present and valid and sets
+  the same `userID`/`email`/`role` context keys as `AuthMiddleware`, but
+  a missing header, a malformed header, or an invalid/expired token all
+  fall through to `c.Next()` with no claims (never 401). For public
+  reads with a per-caller enhancement (browse shows your own unapproved
+  recipes; `CROC-018` will add `isFavourite`). An expired access token
+  must not break a browse page — refresh is the frontend's separate
+  concern. Handlers read `userIDFromCtx` (already returns `("", false)`
+  when unset) to branch anonymous-vs-authenticated.
+- **Recipe read model & visibility** (`CROC-015`,
+  `docs/handoffs/CROC-015.md`): a recipe is visible to a caller when
+  `approved OR created_by_id = caller OR caller_is_admin`. Anonymous →
+  approved only; creator → also their own unapproved (immediate
+  post-submit feedback, no privacy reason to hide it from its owner);
+  ADMIN → everything (makes `CROC-017`'s inline approval work without a
+  separate queue endpoint). Same predicate is reused by `CROC-016`
+  (edit/delete authz), `CROC-017`, `CROC-018`, and menu/planner reads —
+  changing it is a cross-ticket change. `GET /recipes/:id` on a hidden
+  recipe returns `404`, identical to a nonexistent id (enumeration
+  defence). Two response shapes: a lean **list card** (id, name, image,
+  time, serves, approved, `categories:[{id,name}]`, createdAt — no
+  ingredients/instructions/notes) and a **detail** DTO (adds
+  description, instructions, notes, server-hydrated ingredients with
+  item/item-category/unit-abbreviation, createdBy, updatedAt). Diverges
+  from `CROC-014`'s create response (`categoryIds` bare IDs) — harmonise
+  at `CROC-016`. **Relevance ranking + random ordering + match
+  explanation are `CROC-042`, not this predicate's concern.**
+- **List pagination**: offset — `?page=` (1-based, default 1) / `?limit=`
+  (default 20, max 50), envelope `{recipes, page, limit, total,
+  totalPages}`, `total` respects visibility + all filters, over-range
+  page → empty `recipes` with a 200. First and only paginated list
+  (`CROC-015`); reference-data lists stay bare arrays. Cursor pagination
+  rejected — stable `created_at DESC, id` order makes offset correct for
+  TanStack `useInfiniteQuery`, and the dataset is ~189 rows. Revisit if
+  a list ever needs stable paging under heavy concurrent inserts.
 - **Images**: Cloudinary, **signed** client-side direct upload — the
   browser uploads the file straight to Cloudinary using a short-lived
   signature the API issues (`CROC-040`), gets back a `secure_url` +
@@ -359,8 +395,14 @@ session.*
   be in the item's `item_allowed_units` set when that set is non-empty;
   create response is the bare recipe with relations as ID arrays
   (hydration is CROC-015's). Cap TOCTOU gap accepted — revisit at Epic 11.
-- **CROC-015** — Recipe browse/search (approved recipes to everyone, plus
-  the caller's own unapproved ones; filter by category/search term).
+- **CROC-015** — Recipe read layer: `GET /recipes` (paginated, filtered
+  list) + `GET /recipes/:id` (fully-hydrated detail). **Done**
+  (2026-08-31, `docs/handoffs/CROC-015.md`). Landed
+  `middleware.OptionalAuthMiddleware`, the recipe visibility predicate,
+  the list-card / detail DTOs, the filter-param vocabulary, and offset
+  pagination (all in Architecture above). Ordering is `created_at DESC`
+  only — **relevance ranking + random order + match explanation are
+  CROC-042**.
 - **CROC-016** — Recipe update/delete (owner or admin only). Open for its
   grill: orphaned Cloudinary images. The old app called
   `deleteRecipeImage(publicId)` server-side on recipe delete / image
@@ -368,9 +410,18 @@ session.*
   REST delete call, a periodic sweep, or accept orphans (free-tier
   quota is generous, personal app). Also covers replacing a recipe's
   image on update (same `{url, filename}` validation as CROC-014).
+  **Flagged into scope at CROC-015's grill:** (1) a `description` write
+  path — CROC-015 reads `description` (returns `null`) but nothing sets
+  it; (2) harmonise CROC-014's create response (`categoryIds` bare IDs)
+  onto CROC-015's `categories:[{id,name}]` shape.
 - **CROC-017** — Admin approval (`PATCH /recipes/:id/approve`, admin-only).
+  May add a `GET /recipes?approved=false` admin-only pending-queue filter
+  (CROC-015 makes admins see all recipes but adds no focused filter).
 - **CROC-018** — Favourites (`POST`/`DELETE /recipes/:id/favourite`,
-  `GET /recipes/favourites`).
+  `GET /recipes/favourites`). Adds `isFavourite` to CROC-015's list-card
+  and detail DTOs (additive) using its `OptionalAuthMiddleware`; verify
+  the `GET /recipes/favourites` static route sits cleanly beside
+  `GET /recipes/:id`.
 - **CROC-039** — User-suggested items via pending-approval. Mirrors
   `recipes.approved` onto `items` (`approved` flag + `created_by_id`): a
   user creating a recipe (CROC-014) can mint a *pending* item, usable in
@@ -401,6 +452,19 @@ session.*
   size/format/folder limits is a defensible interim if deferred. Grill
   before building — which params are signed, signature TTL, per-user
   rate limit, whether FREE users may upload at all.
+- **CROC-042** — Recipe relevance ranking. Split from CROC-015 at its
+  grill (2026-08-31) — the "I have these ingredients, what can I cook?"
+  ordering, especially for anonymous users, plus a visible match
+  explanation (which ingredients/categories matched). **Full requirements
+  + open questions captured in `docs/handoffs/CROC-015.md` appendix.**
+  Do **not** port the old app's algorithm — absolute match count ignores
+  recipe size, and the 28 flat `recipe_categories` mix dietary / lifestyle
+  / cuisine / meal-type kinds that need different ranking weight (probable
+  `recipe_categories` schema change). Also owns the low-signal **random
+  ordering** (seed mechanism, no Next-style cache). Plugs into CROC-015's
+  `ORDER BY` and adds fields to the list-card DTO — additive. Match-
+  explanation response fields are **blocked on a design artifact** for
+  that UI. Needs its own grill.
 
 ### Epic 5: Meal Planning
 - **CROC-019** — Menu read/upsert-entry (`GET /menu`, `POST /menu/entries`,

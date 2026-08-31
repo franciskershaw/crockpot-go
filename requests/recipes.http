@@ -1,5 +1,14 @@
 # Crockpot API — /recipes
 #
+# GET /recipes, GET /recipes/:id — CROC-015. Both behind OptionalAuthMiddleware
+# (no token → anonymous; bad/expired token → anonymous, never 401). Run this
+# file top-to-bottom: the POST section below seeds an ADMIN (approved) recipe
+# as {{recipeId}}, then the GET section reads it back. Non-admin / own-unapproved
+# visibility is covered at the handler + repository layers with mocked claims
+# and a real dev DB (internal/handler/recipe_handler_test.go,
+# internal/repository/recipe_list_test.go) — this file uses the ADMIN account
+# so an admin sees every recipe regardless.
+#
 # POST /recipes — CROC-014. Any authenticated user (no role gate); the
 # only role-dependent behaviour is `approved` (true for ADMIN, false
 # otherwise) and the FREE-tier 5-recipe cap. This file runs with the
@@ -405,6 +414,107 @@ Content-Type: application/json
   "categoryIds": ["00000000-0000-0000-0000-000000000000"],
   "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
 }
+
+###
+
+
+# ══════════════════════════════════════════
+#  GET /recipes — list (CROC-015)
+# ══════════════════════════════════════════
+
+### ✅ 200 — anonymous list. Envelope: {recipes, page, limit, total, totalPages}.
+### Only `approved: true` recipes for an anonymous caller.
+GET http://localhost:{{$dotenv PORT}}/recipes?limit=5
+
+###
+
+### ✅ 200 — name search (case-insensitive substring). Finds the seeded recipe.
+GET http://localhost:{{$dotenv PORT}}/recipes?q=http-test slow cooker
+
+###
+
+### ✅ 200 — filter by category (include is the default mode).
+GET http://localhost:{{$dotenv PORT}}/recipes?categoryId={{recipeCategoryId1}}
+
+###
+
+### ✅ 200 — exclude that category instead.
+GET http://localhost:{{$dotenv PORT}}/recipes?categoryId={{recipeCategoryId1}}&categoryMode=exclude
+
+###
+
+### ✅ 200 — filter by ingredient (the throwaway item).
+GET http://localhost:{{$dotenv PORT}}/recipes?ingredientId={{itemId}}
+
+###
+
+### ✅ 200 — time range. The seeded stew is 360 min.
+GET http://localhost:{{$dotenv PORT}}/recipes?minTime=300&maxTime=400
+
+###
+
+### ✅ 200 — pagination. limit clamps to [1,50]; page below 1 clamps to 1.
+GET http://localhost:{{$dotenv PORT}}/recipes?page=1&limit=2
+
+###
+
+### ✅ 200 — authenticated (ADMIN): sees all recipes, approved or not.
+GET http://localhost:{{$dotenv PORT}}/recipes?limit=5
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — ?mine=true with the ADMIN token: only recipes this account created.
+GET http://localhost:{{$dotenv PORT}}/recipes?mine=true
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — ?mine=true anonymous: empty result, not 401.
+GET http://localhost:{{$dotenv PORT}}/recipes?mine=true
+
+###
+
+### 🚫 400 invalid_request — malformed category UUID.
+GET http://localhost:{{$dotenv PORT}}/recipes?categoryId=not-a-uuid
+
+###
+
+### 🚫 400 invalid_request — unknown categoryMode.
+GET http://localhost:{{$dotenv PORT}}/recipes?categoryMode=sideways
+
+###
+
+### 🚫 400 invalid_request — non-numeric page.
+GET http://localhost:{{$dotenv PORT}}/recipes?page=abc
+
+###
+
+
+# ══════════════════════════════════════════
+#  GET /recipes/:id — detail (CROC-015)
+# ══════════════════════════════════════════
+
+### ✅ 200 — the seeded recipe, anonymous. Fully hydrated: categories [{id,name}],
+### ingredients with itemName / itemCategoryName / unitAbbreviation, description
+### (null until CROC-016), createdByName, updatedAt.
+GET http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
+
+###
+
+### ✅ 200 — same recipe, authenticated.
+GET http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 404 not_found — well-formed but nonexistent id (same response as a hidden recipe).
+GET http://localhost:{{$dotenv PORT}}/recipes/00000000-0000-0000-0000-000000000000
+
+###
+
+### 🚫 400 invalid_request — malformed id.
+GET http://localhost:{{$dotenv PORT}}/recipes/not-a-uuid
 
 ###
 

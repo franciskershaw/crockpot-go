@@ -64,3 +64,20 @@ func uuidParam(s string) (pgtype.UUID, error) {
 	}
 	return pgtype.UUID{Bytes: parsed, Valid: true}, nil
 }
+
+// nullableUUIDParam yields an invalid (SQL NULL) pgtype.UUID for a nil pointer.
+func nullableUUIDParam(s *string) (pgtype.UUID, error) {
+	if s == nil {
+		return pgtype.UUID{}, nil
+	}
+	return uuidParam(*s)
+}
+
+// pgUUIDs always returns a non-nil slice so an empty filter encodes as '{}', not NULL.
+func pgUUIDs(ids []uuid.UUID) []pgtype.UUID {
+	out := make([]pgtype.UUID, len(ids))
+	for i, id := range ids {
+		out[i] = pgUUID(id)
+	}
+	return out
+}

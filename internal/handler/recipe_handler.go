@@ -16,6 +16,8 @@ var recipeLimits = map[string]int{"FREE": 5}
 type RecipeRepository interface {
 	Create(ctx context.Context, input models.CreateRecipeInput) (*models.Recipe, error)
 	CountByCreator(ctx context.Context, userID string) (int, error)
+	List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error)
+	GetByID(ctx context.Context, id string, callerID *string, callerIsAdmin bool) (*models.RecipeDetail, error)
 }
 
 type RecipeHandler struct {
@@ -63,6 +65,63 @@ func (h *RecipeHandler) Create(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, recipe)
+}
+
+func (h *RecipeHandler) List(c *gin.Context) {
+	filter, ok := parseRecipeListFilter(c)
+	if !ok {
+		return
+	}
+	if userID, ok := userIDFromCtx(c); ok {
+		filter.CallerID = &userID
+	}
+	filter.CallerIsAdmin = c.GetString("role") == "ADMIN"
+
+	cards, total, err := h.repo.List(c.Request.Context(), filter)
+	if err != nil {
+		internalError(c, "failed to list recipes", err)
+		return
+	}
+	if cards == nil {
+		cards = []*models.RecipeCard{}
+	}
+
+	totalPages := 0
+	if total > 0 {
+		totalPages = (total + filter.Limit - 1) / filter.Limit
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"recipes":    cards,
+		"page":       filter.Page,
+		"limit":      filter.Limit,
+		"total":      total,
+		"totalPages": totalPages,
+	})
+}
+
+func (h *RecipeHandler) Get(c *gin.Context) {
+	id := c.Param("id")
+	if !parseID(c, id) {
+		return
+	}
+
+	var callerID *string
+	if userID, ok := userIDFromCtx(c); ok {
+		callerID = &userID
+	}
+	isAdmin := c.GetString("role") == "ADMIN"
+
+	detail, err := h.repo.GetByID(c.Request.Context(), id, callerID, isAdmin)
+	if err != nil {
+		if errors.Is(err, models.ErrRecipeNotFound) {
+			notFound(c, "not_found")
+			return
+		}
+		internalError(c, "failed to get recipe", err)
+		return
+	}
+	c.JSON(http.StatusOK, detail)
 }
 
 // withinRecipeCap returns false (and writes the 409/500) when a capped role is at its limit or the count lookup fails.

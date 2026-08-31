@@ -71,6 +71,10 @@ func newRecipeMocks(t *testing.T) *recipeMocks {
 	authed := m.router.Group("/")
 	authed.Use(middleware.AuthMiddleware(testutil.TestAccessSecret))
 	authed.POST("/recipes", h.Create)
+	optional := m.router.Group("/")
+	optional.Use(middleware.OptionalAuthMiddleware(testutil.TestAccessSecret))
+	optional.GET("/recipes", h.List)
+	optional.GET("/recipes/:id", h.Get)
 	return m
 }
 
@@ -460,4 +464,234 @@ func TestRecipeCreate_ResponseShape(t *testing.T) {
 	assert.Contains(t, raw, "createdByName")
 	assert.Contains(t, raw, "imageUrl")
 	assert.NotContains(t, raw, "description")
+}
+
+func doRecipeList(r *gin.Engine, rawQuery, auth string) *httptest.ResponseRecorder {
+	url := "/recipes"
+	if rawQuery != "" {
+		url += "?" + rawQuery
+	}
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func doRecipeGet(r *gin.Engine, id, auth string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/recipes/"+id, nil)
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func fakeRecipeCard() *models.RecipeCard {
+	return &models.RecipeCard{
+		ID:            uuid.MustParse("c3c3c3c3-c3c3-c3c3-c3c3-c3c3c3c3c3c3"),
+		Name:          "Slow Cooker Beef Stew",
+		TimeInMinutes: 240,
+		Serves:        4,
+		Approved:      true,
+		Categories:    []models.CategoryRef{{ID: recipeCatID, Name: "Batch"}},
+		CreatedAt:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+}
+
+func TestRecipeList_DefaultsWhenNoParams(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().List(mock.Anything, mock.MatchedBy(func(f models.RecipeListFilter) bool {
+		return f.Page == 1 && f.Limit == 20 &&
+			f.Query == "" && !f.Mine && !f.CallerIsAdmin && f.CallerID == nil &&
+			f.MinTime == 0 && f.MaxTime == 0 &&
+			len(f.IncludeCategoryIDs) == 0 && len(f.ExcludeCategoryIDs) == 0 && len(f.IngredientIDs) == 0
+	})).Return([]*models.RecipeCard{}, 0, nil)
+
+	w := doRecipeList(m.router, "", "")
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRecipeList_ParsesAllParams(t *testing.T) {
+	m := newRecipeMocks(t)
+	cat := uuid.NewString()
+	ing := uuid.NewString()
+	m.repo.EXPECT().List(mock.Anything, mock.MatchedBy(func(f models.RecipeListFilter) bool {
+		return f.Query == "beef" &&
+			len(f.ExcludeCategoryIDs) == 1 && f.ExcludeCategoryIDs[0].String() == cat &&
+			len(f.IncludeCategoryIDs) == 0 &&
+			len(f.IngredientIDs) == 1 && f.IngredientIDs[0].String() == ing &&
+			f.MinTime == 20 && f.MaxTime == 90 && f.Mine &&
+			f.CallerID != nil && *f.CallerID == recipeUserID.String() && f.CallerIsAdmin &&
+			f.Page == 2 && f.Limit == 10
+	})).Return([]*models.RecipeCard{}, 0, nil)
+
+	q := "q=beef&categoryId=" + cat + "&categoryMode=exclude&ingredientId=" + ing +
+		"&minTime=20&maxTime=90&mine=true&page=2&limit=10"
+	w := doRecipeList(m.router, q, recipeAuth(t, "ADMIN"))
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRecipeList_CategoryModeIncludeIsDefault(t *testing.T) {
+	m := newRecipeMocks(t)
+	cat := uuid.NewString()
+	m.repo.EXPECT().List(mock.Anything, mock.MatchedBy(func(f models.RecipeListFilter) bool {
+		return len(f.IncludeCategoryIDs) == 1 && f.IncludeCategoryIDs[0].String() == cat && len(f.ExcludeCategoryIDs) == 0
+	})).Return([]*models.RecipeCard{}, 0, nil)
+
+	w := doRecipeList(m.router, "categoryId="+cat, "")
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRecipeList_ClampsPageLimitAndTime(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().List(mock.Anything, mock.MatchedBy(func(f models.RecipeListFilter) bool {
+		return f.Page == 1 && f.Limit == 50 &&
+			f.MinTime == 0 && f.MaxTime == 1_000_000
+	})).Return([]*models.RecipeCard{}, 0, nil)
+
+	w := doRecipeList(m.router, "page=0&limit=999&minTime=-5&maxTime=99999999999", "")
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRecipeList_BadInput400(t *testing.T) {
+	cases := map[string]string{
+		"malformed categoryId":   "categoryId=not-a-uuid",
+		"malformed ingredientId": "ingredientId=nope",
+		"unknown categoryMode":   "categoryMode=weird",
+		"non-numeric page":       "page=abc",
+		"non-numeric limit":      "limit=ten",
+		"non-numeric minTime":    "minTime=soon",
+	}
+	for name, q := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := newRecipeMocks(t)
+			w := doRecipeList(m.router, q, "")
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			assert.Equal(t, "invalid_request", recipeErr(t, w))
+		})
+	}
+}
+
+func TestRecipeList_EnvelopeShape(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().List(mock.Anything, mock.Anything).
+		Return([]*models.RecipeCard{fakeRecipeCard(), fakeRecipeCard()}, 25, nil)
+
+	w := doRecipeList(m.router, "limit=10", "")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body struct {
+		Recipes    []map[string]json.RawMessage `json:"recipes"`
+		Page       int                          `json:"page"`
+		Limit      int                          `json:"limit"`
+		Total      int                          `json:"total"`
+		TotalPages int                          `json:"totalPages"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Len(t, body.Recipes, 2)
+	assert.Equal(t, 1, body.Page)
+	assert.Equal(t, 10, body.Limit)
+	assert.Equal(t, 25, body.Total)
+	assert.Equal(t, 3, body.TotalPages)
+	assert.Contains(t, body.Recipes[0], "categories")
+	assert.NotContains(t, body.Recipes[0], "ingredients")
+	assert.NotContains(t, body.Recipes[0], "instructions")
+}
+
+func TestRecipeList_EmptyRecipesSerializesAsArray(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, nil)
+
+	w := doRecipeList(m.router, "", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"recipes":[]`)
+	assert.Contains(t, w.Body.String(), `"totalPages":0`)
+}
+
+func TestRecipeList_RepoError500(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, errors.New("db down"))
+
+	w := doRecipeList(m.router, "", "")
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, "server_error", recipeErr(t, w))
+}
+
+func TestRecipeGet_MalformedID400(t *testing.T) {
+	m := newRecipeMocks(t)
+	w := doRecipeGet(m.router, "not-a-uuid", "")
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_request", recipeErr(t, w))
+}
+
+func TestRecipeGet_NotFound404(t *testing.T) {
+	m := newRecipeMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().GetByID(mock.Anything, id, mock.Anything, mock.Anything).
+		Return(nil, models.ErrRecipeNotFound)
+
+	w := doRecipeGet(m.router, id, "")
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, "not_found", recipeErr(t, w))
+}
+
+func TestRecipeGet_RepoError500(t *testing.T) {
+	m := newRecipeMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().GetByID(mock.Anything, id, mock.Anything, mock.Anything).
+		Return(nil, errors.New("db down"))
+
+	w := doRecipeGet(m.router, id, "")
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestRecipeGet_Success200(t *testing.T) {
+	m := newRecipeMocks(t)
+	id := uuid.NewString()
+	detail := &models.RecipeDetail{
+		RecipeCard:   *fakeRecipeCard(),
+		Instructions: []string{"step"},
+		Notes:        []string{},
+		Ingredients:  []models.HydratedIngredient{{ItemID: recipeItemID, ItemName: "beef", ItemCategoryName: "Meat", Quantity: 800}},
+	}
+	m.repo.EXPECT().GetByID(mock.Anything, id, mock.Anything, mock.Anything).Return(detail, nil)
+
+	w := doRecipeGet(m.router, id, "")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+	assert.Contains(t, raw, "ingredients")
+	assert.Contains(t, raw, "description")
+	assert.Contains(t, raw, "categories")
+}
+
+func TestRecipeGet_ThreadsCallerIdentity(t *testing.T) {
+	t.Run("admin caller", func(t *testing.T) {
+		m := newRecipeMocks(t)
+		id := uuid.NewString()
+		m.repo.EXPECT().GetByID(mock.Anything, id,
+			mock.MatchedBy(func(cid *string) bool { return cid != nil && *cid == recipeUserID.String() }),
+			true,
+		).Return(&models.RecipeDetail{RecipeCard: *fakeRecipeCard()}, nil)
+
+		w := doRecipeGet(m.router, id, recipeAuth(t, "ADMIN"))
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("anonymous caller", func(t *testing.T) {
+		m := newRecipeMocks(t)
+		id := uuid.NewString()
+		m.repo.EXPECT().GetByID(mock.Anything, id,
+			mock.MatchedBy(func(cid *string) bool { return cid == nil }),
+			false,
+		).Return(&models.RecipeDetail{RecipeCard: *fakeRecipeCard()}, nil)
+
+		w := doRecipeGet(m.router, id, "")
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
 }

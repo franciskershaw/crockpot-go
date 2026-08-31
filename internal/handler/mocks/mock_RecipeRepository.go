@@ -139,6 +139,133 @@ func (_c *MockRecipeRepository_Create_Call) RunAndReturn(run func(context.Contex
 	return _c
 }
 
+// GetByID provides a mock function with given fields: ctx, id, callerID, callerIsAdmin
+func (_m *MockRecipeRepository) GetByID(ctx context.Context, id string, callerID *string, callerIsAdmin bool) (*models.RecipeDetail, error) {
+	ret := _m.Called(ctx, id, callerID, callerIsAdmin)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetByID")
+	}
+
+	var r0 *models.RecipeDetail
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, *string, bool) (*models.RecipeDetail, error)); ok {
+		return rf(ctx, id, callerID, callerIsAdmin)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, *string, bool) *models.RecipeDetail); ok {
+		r0 = rf(ctx, id, callerID, callerIsAdmin)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.RecipeDetail)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, *string, bool) error); ok {
+		r1 = rf(ctx, id, callerID, callerIsAdmin)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockRecipeRepository_GetByID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByID'
+type MockRecipeRepository_GetByID_Call struct {
+	*mock.Call
+}
+
+// GetByID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - callerID *string
+//   - callerIsAdmin bool
+func (_e *MockRecipeRepository_Expecter) GetByID(ctx interface{}, id interface{}, callerID interface{}, callerIsAdmin interface{}) *MockRecipeRepository_GetByID_Call {
+	return &MockRecipeRepository_GetByID_Call{Call: _e.mock.On("GetByID", ctx, id, callerID, callerIsAdmin)}
+}
+
+func (_c *MockRecipeRepository_GetByID_Call) Run(run func(ctx context.Context, id string, callerID *string, callerIsAdmin bool)) *MockRecipeRepository_GetByID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(*string), args[3].(bool))
+	})
+	return _c
+}
+
+func (_c *MockRecipeRepository_GetByID_Call) Return(_a0 *models.RecipeDetail, _a1 error) *MockRecipeRepository_GetByID_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockRecipeRepository_GetByID_Call) RunAndReturn(run func(context.Context, string, *string, bool) (*models.RecipeDetail, error)) *MockRecipeRepository_GetByID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// List provides a mock function with given fields: ctx, filter
+func (_m *MockRecipeRepository) List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error) {
+	ret := _m.Called(ctx, filter)
+
+	if len(ret) == 0 {
+		panic("no return value specified for List")
+	}
+
+	var r0 []*models.RecipeCard
+	var r1 int
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, models.RecipeListFilter) ([]*models.RecipeCard, int, error)); ok {
+		return rf(ctx, filter)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, models.RecipeListFilter) []*models.RecipeCard); ok {
+		r0 = rf(ctx, filter)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*models.RecipeCard)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, models.RecipeListFilter) int); ok {
+		r1 = rf(ctx, filter)
+	} else {
+		r1 = ret.Get(1).(int)
+	}
+
+	if rf, ok := ret.Get(2).(func(context.Context, models.RecipeListFilter) error); ok {
+		r2 = rf(ctx, filter)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
+}
+
+// MockRecipeRepository_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
+type MockRecipeRepository_List_Call struct {
+	*mock.Call
+}
+
+// List is a helper method to define mock.On call
+//   - ctx context.Context
+//   - filter models.RecipeListFilter
+func (_e *MockRecipeRepository_Expecter) List(ctx interface{}, filter interface{}) *MockRecipeRepository_List_Call {
+	return &MockRecipeRepository_List_Call{Call: _e.mock.On("List", ctx, filter)}
+}
+
+func (_c *MockRecipeRepository_List_Call) Run(run func(ctx context.Context, filter models.RecipeListFilter)) *MockRecipeRepository_List_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(models.RecipeListFilter))
+	})
+	return _c
+}
+
+func (_c *MockRecipeRepository_List_Call) Return(_a0 []*models.RecipeCard, _a1 int, _a2 error) *MockRecipeRepository_List_Call {
+	_c.Call.Return(_a0, _a1, _a2)
+	return _c
+}
+
+func (_c *MockRecipeRepository_List_Call) RunAndReturn(run func(context.Context, models.RecipeListFilter) ([]*models.RecipeCard, int, error)) *MockRecipeRepository_List_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockRecipeRepository creates a new instance of MockRecipeRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockRecipeRepository(t interface {
