@@ -351,34 +351,14 @@ session.*
   **Done.** See `docs/handoffs/CROC-013.md`.
 
 ### Epic 4: Recipes
-- **CROC-014** — Recipe creation. `POST /recipes`, any authenticated user
-  (no role gate). Grilled + handoff `docs/handoffs/CROC-014.md`;
-  classified expensive-to-undo (defines the recipe write contract every
-  later Epic 4 ticket builds on). Key decisions:
-  - Fields: name (3–100), timeInMinutes (1–1440), serves (1–50),
-    instructions (1–50, non-empty), notes (0–10, optional), categoryIds
-    (1–3, unique), ingredients (1–50, unique itemId), optional image
-    (url + filename together; url must be `https` + host
-    `res.cloudinary.com`, not just any valid URL — path-prefix-to-own-cloud
-    check waits for CROC-040). `description` column stays unused.
-  - Ingredients reference the curated `items`/`units` catalog only — no
-    inline item creation, no free-text ingredients (would break Epic 6
-    shopping-list aggregation). The "missing ingredient" gap is CROC-039's
-    job. Each ingredient `{itemId, unitId?, quantity>0}`. Submit order is
-    preserved via a `recipe_ingredients.position` column (migration
-    `000007`) — matches the old app's embedded-array ordering.
-  - New rule vs. the old app: an ingredient's `unitId` must be in the
-    item's `item_allowed_units` set *when that set is non-empty*; an
-    empty set means unconstrained; a null `unitId` always passes.
-  - `approved = (role == "ADMIN")`. `created_by_name` denormalised from
-    `users.name` at insert (survives `created_by_id` → NULL on user
-    delete).
-  - FREE-tier cap: 5 own recipes (approved + unapproved), `409
-    recipe_limit_reached` once at the limit; PREMIUM/PRO/ADMIN uncapped.
-    **Delivers CROC-023** (folded in — see Epic 7). TOCTOU gap on the
-    cap accepted for now; revisit at Epic 11.
-  - Response: the created recipe, bare, relations as ID arrays (not
-    hydrated) — same call as CROC-012; hydration is CROC-015's job.
+- **CROC-014** — Recipe creation (`POST /recipes`, any authenticated
+  user). **Done.** See `docs/handoffs/CROC-014.md`. Delivered CROC-023
+  (folded in). Load-bearing for later Epic 4 tickets: ingredients are
+  catalog references only (see Ownership model above); `recipe_ingredients`
+  has a `position` column for submit order; an ingredient `unitId` must
+  be in the item's `item_allowed_units` set when that set is non-empty;
+  create response is the bare recipe with relations as ID arrays
+  (hydration is CROC-015's). Cap TOCTOU gap accepted — revisit at Epic 11.
 - **CROC-015** — Recipe browse/search (approved recipes to everyone, plus
   the caller's own unapproved ones; filter by category/search term).
 - **CROC-016** — Recipe update/delete (owner or admin only). Open for its

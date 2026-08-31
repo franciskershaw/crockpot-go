@@ -305,3 +305,18 @@ implementation quality until CROC-001 lands.
 - **Pattern**: the AI-driven stub/red/stop gate applies to every piece
   of a ticket, not just the first one of a session — template-reuse
   familiarity is not a reason to skip it.
+
+## 2026-08-31 — CROC-014 — Recipe creation shipped; clean TDD, grill missed three things caught mid-build
+
+- No rework in any TDD layer (repo + handler both red→green first try).
+  But the founder's build-time questions each landed a real fix: a
+  `recipe_ingredients.position` column (submit order — folded in, not
+  deferred); signed vs. unsigned Cloudinary upload (grill covered "API
+  stores two strings", not how the browser safely gets them → `CROC-040`);
+  handler structure primed to bloat across CROC-015–018 → split into
+  `recipe_requests.go`, filed `CROC-041`.
+- **Pattern**: a first-ticket-of-an-epic grill must probe child-table
+  ordering, the client side of any external integration, and any file
+  about to be copied 4+ times.
+- **Pattern**: after code is green the next step is `/code-review medium
+  main`, then `/close-out` — never jump straight to close-out.

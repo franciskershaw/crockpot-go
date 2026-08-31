@@ -515,3 +515,5 @@ verified). Two minor findings, both fixed:
 - **Epic 4 / CROC-016** — open question added: orphaned Cloudinary
   images on recipe delete / image replace (the old app's server-side
   `deleteRecipeImage` has no Go-API equivalent).
+
+Completed 2026-08-31.
