@@ -47,3 +47,13 @@ var ErrRecipeCategoryNotFound = errors.New("recipe category not found")
 var ErrRecipeCategoryInUse = errors.New("recipe category is in use")
 
 var ErrRecipeCategoryNameTaken = errors.New("recipe category name already taken")
+
+var ErrRecipeInvalidItem = errors.New("recipe ingredient item does not exist")
+
+var ErrRecipeInvalidUnit = errors.New("recipe ingredient unit does not exist")
+
+var ErrRecipeInvalidCategory = errors.New("recipe category does not exist")
+
+var ErrIngredientUnitNotAllowed = errors.New("unit not allowed for item")
+
+var ErrRecipeDuplicateIngredient = errors.New("recipe has a duplicate ingredient item")

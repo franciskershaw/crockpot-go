@@ -204,6 +204,19 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   see/edit their own unapproved recipes; everyone can see approved ones;
   only ADMIN can flip `approved`, and ADMIN-created recipes are
   auto-approved.
+  **Recipe ingredients are catalog references only** (decided at
+  `CROC-014`, `docs/handoffs/CROC-014.md`): every `recipe_ingredients`
+  row carries a real `item_id` into the curated `items` table — a
+  recipe-create payload cannot mint `items` rows, and there is no
+  free-text/unstructured ingredient. Rejected: a nullable `item_id` +
+  `raw_text` fallback — it would break Epic 6's shopping-list
+  aggregation (quantities only sum across recipes when both point at the
+  same `item_id`), which is the app's core value proposition. The
+  "user needs an ingredient the catalog lacks" gap is closed by
+  `CROC-039` (user-suggested items via the same pending-approval model
+  as recipes), which keeps every ingredient a real `item_id`. Revisit
+  the free-text rejection only if a real recipe class emerges where
+  ingredients genuinely can't be normalised.
 - **Reference-data access**: reads (`GET /item-categories`, `/units`,
   `/recipe-categories`) are public — no auth middleware — because
   anonymous users browse and filter recipes by category/ingredient.
@@ -217,10 +230,23 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
 - **Repository pattern, handler structs, black-box handler tests**: same
   conventions as `packing-list-go` (interfaces owned by `handler`,
   `testify/mock` for repo mocks, `httptest` + `gin.New()`).
-- **Images**: Cloudinary, uploaded directly from the frontend (client-side
-  upload widget, matching the old app's `next-cloudinary` pattern) — the
-  API stores the resulting URL/filename, never proxies image bytes itself.
-  Keeps the 1 MB JSON body cap (below) meaningful.
+- **Images**: Cloudinary, **signed** client-side direct upload — the
+  browser uploads the file straight to Cloudinary using a short-lived
+  signature the API issues (`CROC-040`), gets back a `secure_url` +
+  `public_id`, and sends only those two strings in the recipe JSON. The
+  API never proxies image bytes (keeps the 1 MB JSON body cap
+  meaningful) and never ships the Cloudinary API secret to the browser
+  (the secret computes the signature server-side, same secret the old
+  app's `src/lib/cloudinary.ts` already uses). Unsigned upload presets
+  were rejected at `CROC-014`'s grill: extractable from the JS bundle,
+  they can't be gated on this app's auth, so anyone could upload to the
+  account. Endpoints that accept an image URL (`CROC-014` recipe create,
+  `CROC-016` update, `CROC-026` import) validate scheme `https` +
+  host `res.cloudinary.com`, not just that it is a well-formed URL —
+  otherwise a caller could store an arbitrary third-party URL that every
+  viewer's browser then fetches. `CROC-040` adds `CLOUDINARY_CLOUD_NAME`
+  config and tightens this to a path-prefix check (this project's cloud,
+  not another Cloudinary customer's).
 - **Email**: Resend, for verification and password-reset emails (matching
   the old app's provider choice).
 - **API error response shape**: locked in at `CROC-005` (previously
@@ -325,17 +351,56 @@ session.*
   **Done.** See `docs/handoffs/CROC-013.md`.
 
 ### Epic 4: Recipes
-- **CROC-014** — Recipe creation (name, time, serves, instructions, notes,
-  image URL/filename, ingredients, categories). Non-admin creators start
-  `approved = false`; admin-created recipes are `approved = true`
-  immediately. FREE-tier users are capped at 5 own recipes (409 once
-  exceeded); PREMIUM/ADMIN unlimited.
+- **CROC-014** — Recipe creation (`POST /recipes`, any authenticated
+  user). **Done.** See `docs/handoffs/CROC-014.md`. Delivered CROC-023
+  (folded in). Load-bearing for later Epic 4 tickets: ingredients are
+  catalog references only (see Ownership model above); `recipe_ingredients`
+  has a `position` column for submit order; an ingredient `unitId` must
+  be in the item's `item_allowed_units` set when that set is non-empty;
+  create response is the bare recipe with relations as ID arrays
+  (hydration is CROC-015's). Cap TOCTOU gap accepted — revisit at Epic 11.
 - **CROC-015** — Recipe browse/search (approved recipes to everyone, plus
   the caller's own unapproved ones; filter by category/search term).
-- **CROC-016** — Recipe update/delete (owner or admin only).
+- **CROC-016** — Recipe update/delete (owner or admin only). Open for its
+  grill: orphaned Cloudinary images. The old app called
+  `deleteRecipeImage(publicId)` server-side on recipe delete / image
+  replace; the Go API has no Cloudinary SDK. Decide — a minimal signed
+  REST delete call, a periodic sweep, or accept orphans (free-tier
+  quota is generous, personal app). Also covers replacing a recipe's
+  image on update (same `{url, filename}` validation as CROC-014).
 - **CROC-017** — Admin approval (`PATCH /recipes/:id/approve`, admin-only).
 - **CROC-018** — Favourites (`POST`/`DELETE /recipes/:id/favourite`,
   `GET /recipes/favourites`).
+- **CROC-039** — User-suggested items via pending-approval. Mirrors
+  `recipes.approved` onto `items` (`approved` flag + `created_by_id`): a
+  user creating a recipe (CROC-014) can mint a *pending* item, usable in
+  their own recipe immediately but invisible in everyone else's
+  ingredient picker and the global catalog until an admin approves or
+  merges it. Needs an `items` migration + an admin approve/merge endpoint
+  + picker filtering (approved ∪ own-pending). Does **not** change
+  CROC-014's contract — every `recipe_ingredients` row still carries a
+  real `item_id`. Rejected alternative: nullable `item_id` + free-text
+  `raw_text` on `recipe_ingredients` (guts shopping-list aggregation).
+  **Sequencing:** must land before real FREE-user signup opens or the
+  frontend recipe-create form ships, else users hit "item not found"
+  walls. Until then the founder (admin) adds missing items via CROC-012's
+  `/items` API. Grill properly before building — the approve-vs-merge
+  UX and near-duplicate handling are open.
+- **CROC-040** — Cloudinary signed-upload signature endpoint. `POST
+  /uploads/signature`, authenticated: the API computes an HMAC over the
+  upload params (timestamp, folder, maybe `public_id`) using the
+  Cloudinary API secret held server-side, returns `{signature,
+  timestamp, apiKey, cloudName, folder}`; the browser then uploads the
+  file straight to Cloudinary with that signature. Keeps image bytes off
+  the API and the secret out of the bundle (see the Images architecture
+  decision). New config: `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`,
+  `CLOUDINARY_API_SECRET` (the old app's `src/lib/cloudinary.ts` already
+  holds real values). **Dependency of** `crockpot-react` CFE-010; CROC-014's
+  `image` fields are inert without it. **Sequencing:** before real signup
+  opens (same gate as CROC-039); an unsigned preset with Cloudinary-side
+  size/format/folder limits is a defensible interim if deferred. Grill
+  before building — which params are signed, signature TTL, per-user
+  rate limit, whether FREE users may upload at all.
 
 ### Epic 5: Meal Planning
 - **CROC-019** — Menu read/upsert-entry (`GET /menu`, `POST /menu/entries`,
@@ -352,14 +417,18 @@ session.*
   (`PATCH /shopping-list/items/:id`), bulk mark-obtained.
 
 ### Epic 7: Roles & Tier Gating
-- **CROC-023** — The recipe-cap limit helper: a `role`-keyed limit
-  lookup + owned-recipe count backing Epic 4's FREE ≤5 cap (409 once
-  exceeded). Scope reduced at `CROC-010`'s grill (2026-08-29): the role
-  field already exists (`users.role`, JWT claim), and route-level role
-  gating landed as `middleware.RequireRole` in `CROC-010`, so this
-  ticket is now just the data-dependent cap check — could fold into
-  `CROC-014`. PREMIUM `≥`-ordering gates (Epics 9–10) extend
-  `RequireRole` when they land. `PRO` stays an unused enum value.
+- **CROC-023** — **Delivered by CROC-014** (`docs/handoffs/CROC-014.md`
+  decision 1). The recipe-cap limit helper: a `role`-keyed limit lookup
+  (`{"FREE": 5}`, absence = uncapped) + owned-recipe count
+  (`CountByCreator`, approved + unapproved) backing Epic 4's FREE ≤5 cap
+  (`409 recipe_limit_reached`). Scope had already been reduced at
+  `CROC-010`'s grill (2026-08-29) to just the data-dependent cap check —
+  route-level role gating landed as `middleware.RequireRole` in
+  `CROC-010` — and CROC-014's grill folded that residue in rather than
+  spend a separate grill/handoff/PR on a ~15-line helper with one
+  caller. Number kept for history. PREMIUM `≥`-ordering gates
+  (Epics 9–10) extend `RequireRole` when they land. `PRO` stays an
+  unused enum value.
 
 ### Epic 8: Data Migration
 - **CROC-024** — `cmd/migrate-data`: reads every collection from the
@@ -368,7 +437,11 @@ session.*
   counts per entity match between source and destination; safe to rerun
   against a wiped dev database; a real cutover run against prod is a
   separate, explicitly-approved step, not something this ticket automates
-  unattended.*
+  unattended.* Note (from CROC-014): `item_allowed_units` data quality is
+  load-bearing for recipe creation — an item imported with a bad
+  *partial* `allowedUnitIds` set will block a legit unit on
+  `POST /recipes`. Import `allowedUnitIds` faithfully, or leave the set
+  empty (empty = unconstrained), never partial-wrong.
 
 ### Epic 9: Premium — Weekly Planner
 - **CROC-025** — Planner schema + CRUD: day × meal-slot (breakfast/lunch/
@@ -450,3 +523,29 @@ few-line addendum to a `GET /me` ticket.*
 - **CROC-037** — Drop the `lib/pq` dependency: switch `db.go`'s migrator
   to `golang-migrate`'s native `database/pgx/v5` driver, reusing the
   app's existing pgx stack. Finding 9.
+- **CROC-041** — `badRequest(c, code)` helper next to `internalError` in
+  `handler/errors.go`, and retrofit every handler's hand-written
+  `c.JSON(http.StatusBadRequest, gin.H{"error": code})` (and the
+  `NotFound`/`Conflict` equivalents) onto it. Raised at `CROC-014` —
+  the recipe handler's validation layer made the per-line noise
+  obvious. Small, cross-cutting, wants doing before Epic 4's remaining
+  endpoints (CROC-015–018) copy the verbose shape further. Do soon,
+  ideally next.
+
+*Parked 2026-08-31 — a loosely-scoped idea, not sequenced into a
+priority epic yet. Numbered out of physical order deliberately: this
+sits conceptually in Epic 6 (Shopping Lists), but the founder wants it
+addressed only once Epics 1-6's core functionality has shipped, not
+inserted into the current build order. Grill properly before starting —
+the open questions below aren't decisions, just what a grill would need
+to resolve. Paired with `crockpot-react`'s `CFE-015`.*
+- **CROC-038** — "Default items": a per-user saved set of items (e.g.
+  toilet paper, eggs, milk) that aren't tied to any recipe or menu,
+  addable to the current shopping list individually or in bulk (a
+  "restock" gesture distinct from `CROC-022`'s one-off manual add).
+  Open for its grill: reuse the `items` reference-data table
+  (categorised, admin-curated, shared across users) vs. free-text
+  per-user entries; where the saved set lives (a new table vs. a flag
+  on existing rows); whether adding a default to the list is "add all"
+  or per-item picking; interaction with the FREE/PREMIUM tier split, if
+  any.

@@ -98,6 +98,7 @@ type RecipeIngredient struct {
 	ItemID   pgtype.UUID
 	UnitID   pgtype.UUID
 	Quantity pgtype.Numeric
+	Position int16
 }
 
 type RecipeMenu struct {

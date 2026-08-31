@@ -1,0 +1,424 @@
+# Crockpot API — /recipes
+#
+# POST /recipes — CROC-014. Any authenticated user (no role gate); the
+# only role-dependent behaviour is `approved` (true for ADMIN, false
+# otherwise) and the FREE-tier 5-recipe cap. This file runs with the
+# ADMIN test account (same one-time bump as item-categories.http /
+# units.http — see requests/README.md), so every happy-path create here
+# comes back `approved: true`, and the 409 recipe_limit_reached / non-
+# admin `approved: false` paths are NOT reachable from this file — those
+# are covered at the handler layer with mocked claims
+# (internal/handler/recipe_handler_test.go).
+#
+# Focus: the wiring — a create that persists recipe + ingredients +
+# categories, and the 400 validation / invalid-reference translations.
+#
+# Fixtures below create two throwaway `items` rows (the catalog is empty
+# until CROC-024): one unconstrained, one constrained to a single unit,
+# so both the invalid_unit_id and unit_not_allowed_for_item paths can be
+# exercised. Cleanup is a SQL note at the bottom — there is no
+# DELETE /recipes endpoint until CROC-016.
+
+
+# ══════════════════════════════════════════
+#  Login (ADMIN account)
+# ══════════════════════════════════════════
+
+### Login, to get a token for the checks below.
+# @name login
+POST http://localhost:{{$dotenv PORT}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "password": "correcthorsebattery"
+}
+
+###
+
+@authToken = {{login.response.body.accessToken}}
+
+
+# ══════════════════════════════════════════
+#  Fixtures — real reference data + two throwaway items
+# ══════════════════════════════════════════
+
+### Real item category to hang the throwaway items off.
+# @name itemCategory
+GET http://localhost:{{$dotenv PORT}}/item-categories
+
+###
+
+@itemCategoryId = {{itemCategory.response.body.$[0].id}}
+
+### Real seeded units.
+# @name units
+GET http://localhost:{{$dotenv PORT}}/units
+
+###
+
+@unitId1 = {{units.response.body.$[0].id}}
+@unitId2 = {{units.response.body.$[1].id}}
+
+### Real seeded recipe categories.
+# @name recipeCategories
+GET http://localhost:{{$dotenv PORT}}/recipe-categories
+
+###
+
+@recipeCategoryId1 = {{recipeCategories.response.body.$[0].id}}
+@recipeCategoryId2 = {{recipeCategories.response.body.$[1].id}}
+
+### Throwaway item — unconstrained (no allowed units).
+# @name itemFree
+POST http://localhost:{{$dotenv PORT}}/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-recipe-item",
+  "categoryId": "{{itemCategoryId}}"
+}
+
+###
+
+@itemId = {{itemFree.response.body.id}}
+
+### Throwaway item — constrained to unitId1 only.
+# @name itemConstrained
+POST http://localhost:{{$dotenv PORT}}/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-recipe-item-constrained",
+  "categoryId": "{{itemCategoryId}}",
+  "allowedUnitIds": ["{{unitId1}}"]
+}
+
+###
+
+@itemIdConstrained = {{itemConstrained.response.body.id}}
+
+
+# ══════════════════════════════════════════
+#  POST /recipes — happy path
+# ══════════════════════════════════════════
+
+### ✅ 201 — full recipe (ADMIN account → approved: true), one ingredient
+### with a unit + one without, two categories, an image.
+# @name create
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test Slow Cooker Beef Stew",
+  "timeInMinutes": 360,
+  "serves": 4,
+  "instructions": ["Brown the beef", "Add everything else", "Cook low for 6 hours"],
+  "notes": ["Freezes well", ""],
+  "categoryIds": ["{{recipeCategoryId1}}", "{{recipeCategoryId2}}"],
+  "ingredients": [
+    { "itemId": "{{itemId}}", "unitId": "{{unitId1}}", "quantity": 800 },
+    { "itemId": "{{itemIdConstrained}}", "unitId": "{{unitId1}}", "quantity": 2 }
+  ],
+  "image": {
+    "url": "https://res.cloudinary.com/demo/image/upload/v1/beef-stew.jpg",
+    "filename": "beef-stew"
+  }
+}
+
+###
+
+@recipeId = {{create.response.body.id}}
+
+### ✅ 201 — minimal recipe (no notes, no image, one unitless ingredient).
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test Minimal Recipe",
+  "timeInMinutes": 20,
+  "serves": 2,
+  "instructions": ["Just cook it"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [
+    { "itemId": "{{itemId}}", "quantity": 3 }
+  ]
+}
+
+###
+
+
+# ══════════════════════════════════════════
+#  POST /recipes — auth + validation
+# ══════════════════════════════════════════
+
+### 🚫 401 — no token
+POST http://localhost:{{$dotenv PORT}}/recipes
+Content-Type: application/json
+
+{
+  "name": "http-test no token",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+
+###
+
+### 🚫 400 name_too_short
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "ab",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+
+###
+
+### 🚫 400 invalid_time
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test bad time",
+  "timeInMinutes": 0,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+
+###
+
+### 🚫 400 invalid_serves
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test bad serves",
+  "timeInMinutes": 30,
+  "serves": 99,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+
+###
+
+### 🚫 400 instructions_required
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test no instructions",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": [],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+
+###
+
+### 🚫 400 categories_required
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test no categories",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": [],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+
+###
+
+### 🚫 400 duplicate_category
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test dup category",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}", "{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+
+###
+
+### 🚫 400 ingredients_required
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test no ingredients",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": []
+}
+
+###
+
+### 🚫 400 invalid_quantity
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test bad quantity",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 0 }]
+}
+
+###
+
+### 🚫 400 duplicate_ingredient
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test dup ingredient",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [
+    { "itemId": "{{itemId}}", "quantity": 1 },
+    { "itemId": "{{itemId}}", "quantity": 2 }
+  ]
+}
+
+###
+
+### 🚫 400 invalid_image — well-formed URL, not a res.cloudinary.com host
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test bad image",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }],
+  "image": { "url": "https://example.com/pic.jpg", "filename": "pic" }
+}
+
+###
+
+
+# ══════════════════════════════════════════
+#  POST /recipes — invalid references (repo-side translations)
+# ══════════════════════════════════════════
+
+### 🚫 400 invalid_item_id — well-formed but nonexistent item
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test bad item",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "00000000-0000-0000-0000-000000000000", "quantity": 1 }]
+}
+
+###
+
+### 🚫 400 invalid_unit_id — unconstrained item, nonexistent unit
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test bad unit",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [
+    { "itemId": "{{itemId}}", "unitId": "00000000-0000-0000-0000-000000000000", "quantity": 1 }
+  ]
+}
+
+###
+
+### 🚫 400 unit_not_allowed_for_item — constrained item, real but disallowed unit
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test disallowed unit",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [
+    { "itemId": "{{itemIdConstrained}}", "unitId": "{{unitId2}}", "quantity": 1 }
+  ]
+}
+
+###
+
+### 🚫 400 invalid_category_id — well-formed but nonexistent category
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test bad category",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["00000000-0000-0000-0000-000000000000"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+
+###
+
+
+# ══════════════════════════════════════════
+#  Cleanup
+# ══════════════════════════════════════════
+
+### No DELETE /recipes endpoint until CROC-016, and the throwaway items
+### can't be deleted through the API while recipe_ingredients rows point
+### at them (RESTRICT). Run this SQL against the dev DB to reset:
+###
+###   DELETE FROM recipes WHERE name LIKE 'http-test%';
+###   DELETE FROM items   WHERE name LIKE 'http-test-recipe-item%';
+###
+### (recipe_ingredients + recipe_categories_recipes cascade with the
+### recipe rows.) A re-run from a clean DB then behaves identically.

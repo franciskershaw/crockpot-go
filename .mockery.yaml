@@ -21,3 +21,4 @@ packages:
       UnitRepository:
       ItemRepository:
       RecipeCategoryRepository:
+      RecipeRepository:
