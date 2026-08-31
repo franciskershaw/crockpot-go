@@ -333,3 +333,16 @@ implementation quality until CROC-001 lands.
   `error` code for every path, a package-wide error-shape refactor is
   safe to run behaviour-preserving with no new tests — lean on the
   existing assertions instead of re-deriving coverage.
+
+## 2026-08-31 — CROC-032 — FK indexes (all 10) + a schema-assertion test
+
+- No rework. Clean ticket. Test RED confirmed all 10 columns genuinely
+  unindexed (validated the tech-debt audit); one migration took it
+  green; `migrate down 1`/`up` round-trip clean; review clean.
+- Grilled and built ahead of CROC-015 as sequencing hygiene, not a
+  technical unblock — index the tables, then build the read-heavy
+  feature on them.
+- **Pattern**: assert a schema invariant by its property, not its
+  name — `TestSchemaFKColumnsAreIndexed` checks each FK column *leads
+  some index* via `pg_index.indkey[0]`, catching a valid-SQL-wrong-column
+  migration typo without pinning index names.

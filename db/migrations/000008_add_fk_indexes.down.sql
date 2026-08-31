@@ -1,0 +1,10 @@
+DROP INDEX IF EXISTS idx_items_category_id;
+DROP INDEX IF EXISTS idx_item_allowed_units_unit_id;
+DROP INDEX IF EXISTS idx_recipes_created_by_id;
+DROP INDEX IF EXISTS idx_recipe_ingredients_item_id;
+DROP INDEX IF EXISTS idx_recipe_ingredients_unit_id;
+DROP INDEX IF EXISTS idx_recipe_favourites_recipe_id;
+DROP INDEX IF EXISTS idx_recipe_menu_entries_recipe_id;
+DROP INDEX IF EXISTS idx_menu_history_entries_recipe_id;
+DROP INDEX IF EXISTS idx_shopping_list_items_item_id;
+DROP INDEX IF EXISTS idx_shopping_list_items_unit_id;
