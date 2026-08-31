@@ -396,15 +396,13 @@ session.*
   create response is the bare recipe with relations as ID arrays
   (hydration is CROC-015's). Cap TOCTOU gap accepted — revisit at Epic 11.
 - **CROC-015** — Recipe read layer: `GET /recipes` (paginated, filtered
-  list) + `GET /recipes/:id` (fully-hydrated detail). Grilled 2026-08-31,
-  `docs/handoffs/CROC-015.md`. Expensive-to-undo — the read contract for
-  CFE-004/005 and every later recipe surface. Lands
+  list) + `GET /recipes/:id` (fully-hydrated detail). **Done**
+  (2026-08-31, `docs/handoffs/CROC-015.md`). Landed
   `middleware.OptionalAuthMiddleware`, the recipe visibility predicate,
   the list-card / detail DTOs, the filter-param vocabulary, and offset
-  pagination (all in Architecture below). **Relevance ranking is split
-  into CROC-042** — CROC-015 ships hard filters + `created_at DESC`
-  ordering only. **Sequenced after CROC-032** (FK indexes), which is
-  built first so this ticket adds no migration.
+  pagination (all in Architecture above). Ordering is `created_at DESC`
+  only — **relevance ranking + random order + match explanation are
+  CROC-042**.
 - **CROC-016** — Recipe update/delete (owner or admin only). Open for its
   grill: orphaned Cloudinary images. The old app called
   `deleteRecipeImage(publicId)` server-side on recipe delete / image

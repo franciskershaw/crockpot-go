@@ -546,13 +546,14 @@ func TestRecipeList_CategoryModeIncludeIsDefault(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestRecipeList_ClampsPageAndLimit(t *testing.T) {
+func TestRecipeList_ClampsPageLimitAndTime(t *testing.T) {
 	m := newRecipeMocks(t)
 	m.repo.EXPECT().List(mock.Anything, mock.MatchedBy(func(f models.RecipeListFilter) bool {
-		return f.Page == 1 && f.Limit == 50
+		return f.Page == 1 && f.Limit == 50 &&
+			f.MinTime == 0 && f.MaxTime == 1_000_000
 	})).Return([]*models.RecipeCard{}, 0, nil)
 
-	w := doRecipeList(m.router, "page=0&limit=999", "")
+	w := doRecipeList(m.router, "page=0&limit=999&minTime=-5&maxTime=99999999999", "")
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 

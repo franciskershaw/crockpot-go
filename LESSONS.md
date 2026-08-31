@@ -346,3 +346,20 @@ implementation quality until CROC-001 lands.
   name — `TestSchemaFKColumnsAreIndexed` checks each FK column *leads
   some index* via `pg_index.indkey[0]`, catching a valid-SQL-wrong-column
   migration typo without pinning index names.
+
+## 2026-08-31 — CROC-015 — Recipe read layer (GET /recipes + /:id); relevance ranking split to CROC-042
+
+- No implementation rework. The grill's main correction was the
+  founder's: keep the old app's relevance ranking (the "what can I cook
+  from these ingredients?" use case is core, esp. for anon users) —
+  split into CROC-042 with its own grill + a likely `recipe_categories`
+  schema change. CROC-015 shipped endpoints/DTOs/visibility/filters/
+  pagination; its filter vocabulary is the candidate net ranking will
+  order.
+- `/code-review` caught an `int32(minTime)` overflow that silently
+  dropped the time filter — and it was inconsistent with the `page`
+  overflow clamp added earlier in the same piece. `maxInt` also
+  reimplemented the 1.21 builtin. Both fixed.
+- **Pattern**: when you add a defensive clamp/guard for one input,
+  apply it to every input of the same kind in the same pass — a
+  half-applied guard reads as deliberate and hides the gap.

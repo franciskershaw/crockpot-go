@@ -204,8 +204,10 @@ shape the candidate `WHERE`, not a ranking signal.
   always ANDed (hard).
 - Malformed UUID in `categoryId`/`ingredientId` → `400 invalid_request`.
   Well-formed but nonexistent → matches nothing, not an error.
-- `minTime`/`maxTime` non-numeric → `400 invalid_request`; negative →
-  clamp to 0; `minTime > maxTime` → empty result, not an error.
+- `minTime`/`maxTime` non-numeric → `400 invalid_request`; clamped to
+  `[0, 1_000_000]` (negative → 0, and an upper cap so `int32(minTime)`
+  in the repo can't wrap — same guard as `page`); `minTime > maxTime` →
+  empty result, not an error.
 
 ### 8. Pagination (load-bearing — also in master spec)
 
@@ -403,7 +405,8 @@ UI has **no screenshot** — CROC-042's concern, out of scope here.
 4. **`handler/recipe_handler.go`** — `List` + `Get` + `RecipeListFilter`
    parsing (`parseRecipeListFilter` + helpers in `recipe_requests.go`) +
    interface growth + `go tool mockery`. 13 mocked-repo tests. **Done.**
-   `page` clamped `[1, 1_000_000]` (int32-offset overflow guard).
+   `page` clamped `[1, 1_000_000]`, `minTime`/`maxTime` clamped
+   `[0, 1_000_000]` — int32-overflow guards (`/code-review` finding).
 5. **`main.go`** two `OptionalAuthMiddleware` GET routes +
    `requests/recipes.http` GET section. **Done** — routes smoke-tested
    against a live server; manual `.http` run is the founder's.

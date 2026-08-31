@@ -239,8 +239,8 @@ func parseRecipeListFilter(c *gin.Context) (models.RecipeListFilter, bool) {
 	if !ok {
 		return f, false
 	}
-	f.MinTime = maxInt(minTime, 0)
-	f.MaxTime = maxInt(maxTime, 0)
+	f.MinTime = clampInt(minTime, 0, 1_000_000)
+	f.MaxTime = clampInt(maxTime, 0, 1_000_000)
 
 	page, ok := parseIntQuery(c, "page", 1)
 	if !ok {
@@ -291,13 +291,6 @@ func clampInt(v, lo, hi int) int {
 		return hi
 	}
 	return v
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func validateRecipeImage(c *gin.Context, img *recipeImageRequest) (*string, *string, bool) {
