@@ -37,6 +37,14 @@ func (r *PostgresRecipeRepository) CountByCreator(ctx context.Context, userID st
 	return int(count), nil
 }
 
+func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error) {
+	return nil, -1, nil
+}
+
+func (r *PostgresRecipeRepository) GetByID(ctx context.Context, id string, callerID *string, callerIsAdmin bool) (*models.RecipeDetail, error) {
+	return &models.RecipeDetail{RecipeCard: models.RecipeCard{Name: "STUB_NOT_IMPLEMENTED"}}, nil
+}
+
 func (r *PostgresRecipeRepository) Create(ctx context.Context, input models.CreateRecipeInput) (*models.Recipe, error) {
 	q := queriesFor(ctx, r.db)
 
