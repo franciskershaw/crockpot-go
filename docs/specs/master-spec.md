@@ -516,21 +516,28 @@ few-line addendum to a `GET /me` ticket.*
   `CLAUDE.md`'s folder-layout doc, never built. Finding 4.
 - **CROC-035** — Collapse `email.ResendClient`'s two near-identical
   send methods into one shared helper. Finding 5.
-- **CROC-036** — Convention-consistency cleanup: rate-limit error bodies
-  → the established `snake_case_code` shape; `db.go`'s `fmt.Print*` →
-  `slog`; retrofit `auth_handler.go` onto `handler/errors.go`/
-  `validation.go` (promised at `CROC-010`, never tracked). Findings 6-8.
+- **CROC-036** — `db.go`'s three `fmt.Print*` log lines → `slog`, to
+  match the app's structured logger (`main.go:37`). Finding 7. *(Findings
+  6 and 8 — rate-limit error-body codes, and the `auth_handler.go`
+  helper retrofit — moved to `CROC-041` at that ticket's grill, same
+  error-shape theme.)*
 - **CROC-037** — Drop the `lib/pq` dependency: switch `db.go`'s migrator
   to `golang-migrate`'s native `database/pgx/v5` driver, reusing the
   app's existing pgx stack. Finding 9.
-- **CROC-041** — `badRequest(c, code)` helper next to `internalError` in
-  `handler/errors.go`, and retrofit every handler's hand-written
-  `c.JSON(http.StatusBadRequest, gin.H{"error": code})` (and the
-  `NotFound`/`Conflict` equivalents) onto it. Raised at `CROC-014` —
-  the recipe handler's validation layer made the per-line noise
-  obvious. Small, cross-cutting, wants doing before Epic 4's remaining
-  endpoints (CROC-015–018) copy the verbose shape further. Do soon,
-  ideally next.
+- **CROC-041** — Unify the API error-response shape onto shared helpers.
+  Grilled 2026-08-31, `docs/handoffs/CROC-041.md`. Adds
+  `badRequest`/`notFound`/`conflict`/`unauthorized`/`forbidden`
+  (void, `c.JSON(status, gin.H{"error": code})`) next to `internalError`
+  in `handler/errors.go`, then retrofits every hand-written error site
+  in the `handler` package onto them — the six CRUD handlers,
+  `validation.go`, **and** `auth_handler.go` (which also picks up
+  `bindJSON` and `internalError`, absorbing tech-debt finding 8). Also
+  fixes `middleware/rate_limit.go`'s two sentence-style bodies to
+  `rate_limit_exceeded` / `server_error` (finding 6). Behaviour-preserving
+  everywhere except those two rate-limit codes; guarded by the existing
+  handler + middleware test suites. Raised at `CROC-014` — the recipe
+  validation layer made the per-line noise obvious; wants doing before
+  CROC-015–018 copy the verbose shape further. Do soon, ideally next.
 
 *Parked 2026-08-31 — a loosely-scoped idea, not sequenced into a
 priority epic yet. Numbered out of physical order deliberately: this
