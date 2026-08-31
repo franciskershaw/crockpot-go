@@ -106,13 +106,36 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   - One `recipe_menu` and one `shopping_list` row per user (matching the
     Mongo model's one-per-user constraint via a unique `user_id`)
 - **Data migration**: a one-off Go CLI (`cmd/migrate-data`) inside this
-  repo, not a throwaway external script — reads every collection from the
-  existing MongoDB instance and writes into the new Postgres schema via
-  the same repository layer the running API uses, so the same
-  create/validation logic applies to migrated rows as to rows created
-  normally. Rerunnable against the dev database (safe to wipe-and-reload)
-  so the founder always has real recipe data to build the frontend
-  against; run once for real at prod cutover. See Epic 8.
+  repo, not a throwaway external script. Reads a MongoDB Compass JSON
+  export (6 collections) from disk — no live Mongo connection, no
+  `mongo-driver` dependency in the module graph. Writes through
+  **dedicated insert queries, not the API's `repository` Create methods**
+  — decided at CROC-024's grill (`docs/handoffs/CROC-024.md`). Those
+  methods are shaped for live use (server-assigned id, `created_at =
+  now()`, `created_by_name` via a `users` subquery); forcing migration
+  through them flattens every recipe's real creation date, which is
+  genuine signal (`GET /recipes` sorts `created_at DESC, id`) and
+  load-bearing for the ranking work (CROC-042) this migration exists to
+  enable. The original intent — migrated rows can't be structurally
+  invalid — still holds without them: Postgres enforces every FK
+  automatically, and the one application-level check (`item_allowed_units`
+  membership per recipe ingredient) is reapplied in the tool. Migrated
+  users/recipes/items get a stable UUIDv5 id derived from the Mongo
+  `_id` (wipe-and-reload is byte-identical) and, for recipes/items, their
+  real `created_at` / `updated_at`. Three `users` are migrated, all
+  `ADMIN` — the two real accounts (Francis, Zoe; `google_id` from the
+  `Account` collection's Google `sub`, so a dev Google login lands on the
+  migrated row) plus a synthetic `Crockpot` account owning the 189
+  bulk-seed recipes. The 40 spam/scraper `User` docs, favourites,
+  `recipemenus`, `shoppinglists`, and menu history are deferred to later
+  passes (need the write endpoints from Epics 5–6). Rerunnable against
+  the dev database — the tool truncates its own tables (users, recipes,
+  items, and their child/join tables) behind a `MIGRATE_ALLOW` env +
+  `--yes` guard, never touching reference / auth tables — so the founder
+  always has real data to build the frontend and ranking against; run
+  once for real at prod cutover (`--allow-prod`, a separate
+  explicitly-approved step). See `docs/handoffs/CROC-024.md` (+ its
+  `-data-review` companion) and Epic 8.
 - **Auth**: Google OAuth2/OIDC *and* email/password, both issuing the same
   JWT pair as `packing-list-go` — 15 min access token (bearer header,
   stateless), 7-day sliding refresh token (httponly cookie, DB-backed,
@@ -495,17 +518,40 @@ session.*
   unused enum value.
 
 ### Epic 8: Data Migration
-- **CROC-024** — `cmd/migrate-data`: reads every collection from the
-  existing MongoDB instance and writes into Postgres via the repository
-  layer (see "Data migration" under Key architecture decisions). *AC: row
-  counts per entity match between source and destination; safe to rerun
-  against a wiped dev database; a real cutover run against prod is a
-  separate, explicitly-approved step, not something this ticket automates
-  unattended.* Note (from CROC-014): `item_allowed_units` data quality is
-  load-bearing for recipe creation — an item imported with a bad
-  *partial* `allowedUnitIds` set will block a legit unit on
-  `POST /recipes`. Import `allowedUnitIds` faithfully, or leave the set
-  empty (empty = unconstrained), never partial-wrong.
+- **CROC-024** — `cmd/migrate-data`: imports the old app's **3 admin
+  users, items and recipes** (plus their child/join rows) from a MongoDB
+  Compass JSON export into the Postgres dev database. Grilled and scoped
+  at `docs/handoffs/CROC-024.md` + its `-data-review` companion
+  (**expensive-to-undo**: data shape + the contract later migration
+  passes build on). Key points:
+  - Source: 7 Compass JSON exports on disk (`ItemCategory`, `Unit`,
+    `RecipeCategory`, `User`, `Account`, `Item`, `Recipe`) — the three
+    reference collections + `Account` read only for lookups (old
+    ObjectId → seeded UUID by name; Google `sub` per user). No live
+    Mongo, no `mongo-driver` dependency.
+  - Users: Francis + Zoe (`google_id` from `Account`, real dev login
+    works) + a synthetic `Crockpot` account for the 189 bulk-seed
+    recipes — all `ADMIN`. Ghost creator id aliases to `Crockpot` via a
+    hard-coded constant.
+  - Writes via dedicated insert queries (see architecture note above),
+    preserving real `created_at`/`updated_at` and a stable UUIDv5 id.
+  - Reference-data name mismatch → abort before any write, listing every
+    unmatched name. Row-level problems → import as-is where sound, skip
+    the row where it can't be made referentially sound, always report;
+    non-zero exit if anything was skipped.
+  - `allowedUnitIds` imported faithfully; the source's 11 curation gaps
+    are widened in Mongo before export (data-review checklist), not
+    patched in the tool. `--ignore-item-allowed-units` kept as a safety
+    valve for future exports.
+  - Rerun = truncate-own-tables-and-reload behind a `MIGRATE_ALLOW` env +
+    `--yes` guard (`--allow-prod` for a real cutover). Ordering: build
+    name maps → abort on any miss → guard → truncate → insert, so a
+    mismatch or failed guard never leaves a partial DB.
+  - Deferred to a later pass: the 40 spam users, favourites, menus,
+    shopping lists, menu history.
+  *AC: per-entity source count − reported skips = destination count,
+  exactly; safe to rerun; prod cutover is a separate explicitly-approved
+  step.*
 
 ### Epic 9: Premium — Weekly Planner
 - **CROC-025** — Planner schema + CRUD: day × meal-slot (breakfast/lunch/
