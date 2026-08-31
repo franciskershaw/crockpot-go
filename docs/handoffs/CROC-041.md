@@ -204,4 +204,4 @@ Gate: `golangci-lint` 0 issues, `gofmt` clean, `go vet` clean,
 
 Next: `/code-review medium main` → `/close-out`.
 
-Grilled 2026-08-31.
+Grilled 2026-08-31. Completed 2026-08-31.

@@ -524,20 +524,14 @@ few-line addendum to a `GET /me` ticket.*
 - **CROC-037** — Drop the `lib/pq` dependency: switch `db.go`'s migrator
   to `golang-migrate`'s native `database/pgx/v5` driver, reusing the
   app's existing pgx stack. Finding 9.
-- **CROC-041** — Unify the API error-response shape onto shared helpers.
-  Grilled 2026-08-31, `docs/handoffs/CROC-041.md`. Adds
-  `badRequest`/`notFound`/`conflict`/`unauthorized`/`forbidden`
-  (void, `c.JSON(status, gin.H{"error": code})`) next to `internalError`
-  in `handler/errors.go`, then retrofits every hand-written error site
-  in the `handler` package onto them — the six CRUD handlers,
-  `validation.go`, **and** `auth_handler.go` (which also picks up
-  `bindJSON` and `internalError`, absorbing tech-debt finding 8). Also
-  fixes `middleware/rate_limit.go`'s two sentence-style bodies to
-  `rate_limit_exceeded` / `server_error` (finding 6). Behaviour-preserving
-  everywhere except those two rate-limit codes; guarded by the existing
-  handler + middleware test suites. Raised at `CROC-014` — the recipe
-  validation layer made the per-line noise obvious; wants doing before
-  CROC-015–018 copy the verbose shape further. Do soon, ideally next.
+- **CROC-041** — **Done** (2026-08-31, `docs/handoffs/CROC-041.md`).
+  API error responses go through shared helpers in `handler/errors.go`
+  (`badRequest`/`notFound`/`conflict`/`unauthorized`/`forbidden`/
+  `serverError`; `internalError` for the log-and-500 case), used across
+  the whole `handler` package including `auth_handler.go` (also on
+  `bindJSON`). `middleware/rate_limit.go`'s two bodies snake_cased to
+  `rate_limit_exceeded` / `server_error`. Absorbed tech-debt findings
+  6 + 8 (`CROC-036` is now finding 7 only).
 
 *Parked 2026-08-31 — a loosely-scoped idea, not sequenced into a
 priority epic yet. Numbered out of physical order deliberately: this

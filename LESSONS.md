@@ -320,3 +320,16 @@ implementation quality until CROC-001 lands.
   about to be copied 4+ times.
 - **Pattern**: after code is green the next step is `/code-review medium
   main`, then `/close-out` — never jump straight to close-out.
+
+## 2026-08-31 — CROC-041 — API error-response shape unified onto shared handler helpers
+
+- No rework. All 4 pieces went refactor → handler/middleware suite green
+  (zero test edits) → stop, first attempt; `/code-review medium` found
+  nothing. Scope grew at grill by design — absorbed tech-debt findings
+  6 + 8, leaving CROC-036 as finding 7 only. One unplanned helper
+  (`serverError`) for two `auth_handler.go` sites whose error was
+  already wrapped, where `internalError` would have doubled the log prefix.
+- **Pattern**: when the handler suite already asserts both status and
+  `error` code for every path, a package-wide error-shape refactor is
+  safe to run behaviour-preserving with no new tests — lean on the
+  existing assertions instead of re-deriving coverage.
