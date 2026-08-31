@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/franciskershaw/crockpot-go/internal/models"
@@ -204,6 +205,99 @@ func validateIngredients(c *gin.Context, raw []createIngredientRequest) ([]model
 		out = append(out, parsed)
 	}
 	return out, true
+}
+
+// parseRecipeListFilter reads the GET /recipes query into a filter (CallerID/CallerIsAdmin left for the handler); writes the 400 and returns false on bad input.
+func parseRecipeListFilter(c *gin.Context) (models.RecipeListFilter, bool) {
+	var f models.RecipeListFilter
+	f.Query = strings.TrimSpace(c.Query("q"))
+	f.Mine = c.Query("mine") == "true"
+
+	categoryIDs, ok := parseUUIDQuery(c, "categoryId")
+	if !ok {
+		return f, false
+	}
+	switch c.DefaultQuery("categoryMode", "include") {
+	case "include":
+		f.IncludeCategoryIDs = categoryIDs
+	case "exclude":
+		f.ExcludeCategoryIDs = categoryIDs
+	default:
+		badRequest(c, "invalid_request")
+		return f, false
+	}
+
+	if f.IngredientIDs, ok = parseUUIDQuery(c, "ingredientId"); !ok {
+		return f, false
+	}
+
+	minTime, ok := parseIntQuery(c, "minTime", 0)
+	if !ok {
+		return f, false
+	}
+	maxTime, ok := parseIntQuery(c, "maxTime", 0)
+	if !ok {
+		return f, false
+	}
+	f.MinTime = maxInt(minTime, 0)
+	f.MaxTime = maxInt(maxTime, 0)
+
+	page, ok := parseIntQuery(c, "page", 1)
+	if !ok {
+		return f, false
+	}
+	limit, ok := parseIntQuery(c, "limit", 20)
+	if !ok {
+		return f, false
+	}
+	f.Page = clampInt(page, 1, 1_000_000)
+	f.Limit = clampInt(limit, 1, 50)
+
+	return f, true
+}
+
+func parseUUIDQuery(c *gin.Context, key string) ([]uuid.UUID, bool) {
+	raw := c.QueryArray(key)
+	out := make([]uuid.UUID, 0, len(raw))
+	for _, s := range raw {
+		id, err := uuid.Parse(strings.TrimSpace(s))
+		if err != nil {
+			badRequest(c, "invalid_request")
+			return nil, false
+		}
+		out = append(out, id)
+	}
+	return out, true
+}
+
+func parseIntQuery(c *gin.Context, key string, def int) (int, bool) {
+	s := c.Query(key)
+	if s == "" {
+		return def, true
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		badRequest(c, "invalid_request")
+		return 0, false
+	}
+	return n, true
+}
+
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func validateRecipeImage(c *gin.Context, img *recipeImageRequest) (*string, *string, bool) {

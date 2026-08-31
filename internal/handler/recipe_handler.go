@@ -68,11 +68,60 @@ func (h *RecipeHandler) Create(c *gin.Context) {
 }
 
 func (h *RecipeHandler) List(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"recipes": "STUB_NOT_IMPLEMENTED"})
+	filter, ok := parseRecipeListFilter(c)
+	if !ok {
+		return
+	}
+	if userID, ok := userIDFromCtx(c); ok {
+		filter.CallerID = &userID
+	}
+	filter.CallerIsAdmin = c.GetString("role") == "ADMIN"
+
+	cards, total, err := h.repo.List(c.Request.Context(), filter)
+	if err != nil {
+		internalError(c, "failed to list recipes", err)
+		return
+	}
+	if cards == nil {
+		cards = []*models.RecipeCard{}
+	}
+
+	totalPages := 0
+	if total > 0 {
+		totalPages = (total + filter.Limit - 1) / filter.Limit
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"recipes":    cards,
+		"page":       filter.Page,
+		"limit":      filter.Limit,
+		"total":      total,
+		"totalPages": totalPages,
+	})
 }
 
 func (h *RecipeHandler) Get(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"id": "STUB_NOT_IMPLEMENTED"})
+	id := c.Param("id")
+	if !parseID(c, id) {
+		return
+	}
+
+	var callerID *string
+	if userID, ok := userIDFromCtx(c); ok {
+		callerID = &userID
+	}
+	isAdmin := c.GetString("role") == "ADMIN"
+
+	detail, err := h.repo.GetByID(c.Request.Context(), id, callerID, isAdmin)
+	if err != nil {
+		if errors.Is(err, models.ErrRecipeNotFound) {
+			notFound(c, "not_found")
+			return
+		}
+		internalError(c, "failed to get recipe", err)
+		return
+	}
+	c.JSON(http.StatusOK, detail)
 }
 
 // withinRecipeCap returns false (and writes the 409/500) when a capped role is at its limit or the count lookup fails.
