@@ -569,17 +569,13 @@ few-line addendum to a `GET /me` ticket.*
   `queriesFor(ctx, r.db)` pattern). Not currently exploitable, but a
   silent atomicity trap for the next ticket that wraps it in a
   transaction. Finding 1.
-- **CROC-032** — Add indexes for the 10 FK columns in the base schema not
-  covered by any existing index/PK/unique constraint. Mostly
-  forward-looking (Epic 4-6 tables), but `items.category_id` and
-  `item_allowed_units.unit_id` go live at `CROC-012`. Finding 2.
-  **Pulled forward and sequenced before CROC-015** (grill 2026-08-31):
-  CROC-015's `GET /recipes` is the first read-heavy feature and its
-  filter `WHERE` hits `recipes.created_by_id` and
-  `recipe_ingredients.item_id`. Do this whole ticket first so CROC-015
-  builds on the indexed base and carries no migration of its own. Needs
-  a short grill (index list, `CREATE INDEX` vs `CONCURRENTLY` given the
-  migrate flow, a schema-assertion check).
+- **CROC-032** — **Done** (2026-08-31). Migration `000008` indexes all
+  10 base-schema FK columns that weren't already a leading index column
+  (finding 2); `internal/repository/schema_test.go` asserts the property
+  via `pg_index`. Plain `CREATE INDEX` (indexes precede any bulk load;
+  `CONCURRENTLY` can't run in `golang-migrate`'s per-file transaction).
+  Query-shaped composite/covering/partial indexes and `pg_trgm` are out
+  of scope — bare FK coverage only. Built ahead of CROC-015.
 - **CROC-033** — Decide and implement (or deliberately drop) periodic
   cleanup of stale/expired rows in `refresh_tokens`,
   `email_verification_tokens`, `password_reset_tokens` — currently only

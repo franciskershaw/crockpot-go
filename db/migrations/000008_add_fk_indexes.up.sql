@@ -1,0 +1,10 @@
+CREATE INDEX IF NOT EXISTS idx_items_category_id ON items (category_id);
+CREATE INDEX IF NOT EXISTS idx_item_allowed_units_unit_id ON item_allowed_units (unit_id);
+CREATE INDEX IF NOT EXISTS idx_recipes_created_by_id ON recipes (created_by_id);
+CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_item_id ON recipe_ingredients (item_id);
+CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_unit_id ON recipe_ingredients (unit_id);
+CREATE INDEX IF NOT EXISTS idx_recipe_favourites_recipe_id ON recipe_favourites (recipe_id);
+CREATE INDEX IF NOT EXISTS idx_recipe_menu_entries_recipe_id ON recipe_menu_entries (recipe_id);
+CREATE INDEX IF NOT EXISTS idx_menu_history_entries_recipe_id ON menu_history_entries (recipe_id);
+CREATE INDEX IF NOT EXISTS idx_shopping_list_items_item_id ON shopping_list_items (item_id);
+CREATE INDEX IF NOT EXISTS idx_shopping_list_items_unit_id ON shopping_list_items (unit_id);
