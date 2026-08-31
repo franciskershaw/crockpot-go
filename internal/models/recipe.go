@@ -29,3 +29,18 @@ type Ingredient struct {
 	UnitID   *uuid.UUID `json:"unitId"`
 	Quantity float64    `json:"quantity"`
 }
+
+// CreateRecipeInput is the validated payload the handler hands the repository, kept in models so neither package imports the other.
+type CreateRecipeInput struct {
+	Name          string
+	TimeInMinutes int
+	Serves        int
+	Instructions  []string
+	Notes         []string
+	CategoryIDs   []uuid.UUID
+	Ingredients   []Ingredient
+	ImageURL      *string
+	ImageFilename *string
+	CreatedByID   uuid.UUID
+	Approved      bool
+}

@@ -20,6 +20,7 @@ var (
 	unitRepo                   *repository.PostgresUnitRepository
 	itemRepo                   *repository.PostgresItemRepository
 	recipeCategoryRepo         *repository.PostgresRecipeCategoryRepository
+	recipeRepo                 *repository.PostgresRecipeRepository
 	transactor                 *repository.PostgresTransactor
 	repoUserID                 uuid.UUID
 )
@@ -47,6 +48,7 @@ func TestMain(m *testing.M) {
 	unitRepo = repository.NewPostgresUnitRepository(db.DB)
 	itemRepo = repository.NewPostgresItemRepository(db.DB)
 	recipeCategoryRepo = repository.NewPostgresRecipeCategoryRepository(db.DB)
+	recipeRepo = repository.NewPostgresRecipeRepository(db.DB)
 	transactor = repository.NewPostgresTransactor(db.DB)
 	repoUserID = uuid.New()
 
