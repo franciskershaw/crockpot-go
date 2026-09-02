@@ -18,6 +18,10 @@ type RecipeRepository interface {
 	CountByCreator(ctx context.Context, userID string) (int, error)
 	List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error)
 	GetByID(ctx context.Context, id string, callerID *string, callerIsAdmin bool) (*models.RecipeDetail, error)
+
+	AddFavourite(ctx context.Context, userID, recipeID string, callerIsAdmin bool) error
+	RemoveFavourite(ctx context.Context, userID, recipeID string) error
+	ListFavourites(ctx context.Context, userID string, page, limit int) ([]*models.RecipeCard, int, error)
 }
 
 type RecipeHandler struct {
@@ -122,6 +126,20 @@ func (h *RecipeHandler) Get(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, detail)
+}
+
+// Red-stage stubs — replace bodies per the handoff doc's decisions 2/3/4/5.
+
+func (h *RecipeHandler) AddFavourite(c *gin.Context) {
+	internalError(c, "not implemented", errors.New("STUB: AddFavourite handler not implemented"))
+}
+
+func (h *RecipeHandler) RemoveFavourite(c *gin.Context) {
+	internalError(c, "not implemented", errors.New("STUB: RemoveFavourite handler not implemented"))
+}
+
+func (h *RecipeHandler) ListFavourites(c *gin.Context) {
+	internalError(c, "not implemented", errors.New("STUB: ListFavourites handler not implemented"))
 }
 
 // withinRecipeCap returns false (and writes the 409/500) when a capped role is at its limit or the count lookup fails.
