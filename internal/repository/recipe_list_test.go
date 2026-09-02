@@ -410,6 +410,35 @@ func TestGetRecipeForReader_MalformedIDReturnsError(t *testing.T) {
 	assert.NotErrorIs(t, err, models.ErrRecipeNotFound)
 }
 
+func TestListRecipes_IsFavouriteHydration(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	caller := insertTestUser(t, "Caller")
+	cat := insertTestRecipeCategory(t, "repo-test-rc-"+uuid.NewString())
+
+	favourited := createTestRecipe(t, recipeOpts{createdBy: owner, approved: true, categoryIDs: []uuid.UUID{cat}})
+	notFavourited := createTestRecipe(t, recipeOpts{createdBy: owner, approved: true, categoryIDs: []uuid.UUID{cat}})
+	require.NoError(t, recipeRepo.AddFavourite(ctx, caller.String(), favourited.String(), false))
+
+	f := models.RecipeListFilter{IncludeCategoryIDs: []uuid.UUID{cat}, CallerID: strptr(caller.String()), Page: 1, Limit: 50}
+	cards, _, err := recipeRepo.List(ctx, f)
+	require.NoError(t, err)
+
+	byID := make(map[uuid.UUID]bool, len(cards))
+	for _, c := range cards {
+		byID[c.ID] = c.IsFavourite
+	}
+	assert.True(t, byID[favourited])
+	assert.False(t, byID[notFavourited])
+
+	f.CallerID = nil
+	anonCards, _, err := recipeRepo.List(ctx, f)
+	require.NoError(t, err)
+	for _, c := range anonCards {
+		assert.False(t, c.IsFavourite, "anonymous caller never sees isFavourite true")
+	}
+}
+
 func TestGetRecipeForReader_HiddenRecipe(t *testing.T) {
 	ctx := context.Background()
 	owner := insertTestUser(t, "Owner")
@@ -430,4 +459,26 @@ func TestGetRecipeForReader_HiddenRecipe(t *testing.T) {
 	got, err = recipeRepo.GetByID(ctx, id.String(), strptr(other.String()), true)
 	require.NoError(t, err)
 	assert.Equal(t, id, got.ID)
+}
+
+func TestGetRecipeForReader_IsFavouriteReflectsCallerState(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Owner")
+	caller := insertTestUser(t, "Caller")
+	cat := insertTestRecipeCategory(t, "repo-test-rc-"+uuid.NewString())
+	id := createTestRecipe(t, recipeOpts{createdBy: owner, approved: true, categoryIDs: []uuid.UUID{cat}})
+
+	got, err := recipeRepo.GetByID(ctx, id.String(), nil, false)
+	require.NoError(t, err)
+	assert.False(t, got.IsFavourite, "anonymous caller never sees isFavourite true")
+
+	got, err = recipeRepo.GetByID(ctx, id.String(), strptr(caller.String()), false)
+	require.NoError(t, err)
+	assert.False(t, got.IsFavourite, "authenticated caller who hasn't favourited sees false")
+
+	require.NoError(t, recipeRepo.AddFavourite(ctx, caller.String(), id.String(), false))
+
+	got, err = recipeRepo.GetByID(ctx, id.String(), strptr(caller.String()), false)
+	require.NoError(t, err)
+	assert.True(t, got.IsFavourite)
 }

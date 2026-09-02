@@ -45,6 +45,7 @@ type RecipeCard struct {
 	Approved      bool          `json:"approved"`
 	Categories    []CategoryRef `json:"categories"`
 	CreatedAt     time.Time     `json:"createdAt"`
+	IsFavourite   bool          `json:"isFavourite"`
 }
 
 type HydratedIngredient struct {
