@@ -92,21 +92,8 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 		ids[i] = row.ID
 	}
 
-	if len(ids) > 0 {
-		catRows, err := q.ListRecipeCardCategories(ctx, ids)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to load recipe categories: %w", err)
-		}
-		byRecipe := make(map[uuid.UUID][]models.CategoryRef, len(ids))
-		for _, cr := range catRows {
-			rid := uuidValue(cr.RecipeID)
-			byRecipe[rid] = append(byRecipe[rid], models.CategoryRef{ID: uuidValue(cr.ID), Name: cr.Name})
-		}
-		for _, card := range cards {
-			if cats := byRecipe[card.ID]; cats != nil {
-				card.Categories = cats
-			}
-		}
+	if err := hydrateCardCategories(ctx, q, cards, ids); err != nil {
+		return nil, 0, err
 	}
 
 	if callerID.Valid && len(ids) > 0 {
@@ -127,6 +114,28 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 	}
 
 	return cards, int(total), nil
+}
+
+// hydrateCardCategories batch-loads categories for ids and assigns them onto the matching cards in place.
+func hydrateCardCategories(ctx context.Context, q *sqlc.Queries, cards []*models.RecipeCard, ids []pgtype.UUID) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	catRows, err := q.ListRecipeCardCategories(ctx, ids)
+	if err != nil {
+		return fmt.Errorf("failed to load recipe categories: %w", err)
+	}
+	byRecipe := make(map[uuid.UUID][]models.CategoryRef, len(ids))
+	for _, cr := range catRows {
+		rid := uuidValue(cr.RecipeID)
+		byRecipe[rid] = append(byRecipe[rid], models.CategoryRef{ID: uuidValue(cr.ID), Name: cr.Name})
+	}
+	for _, card := range cards {
+		if cats := byRecipe[card.ID]; cats != nil {
+			card.Categories = cats
+		}
+	}
+	return nil
 }
 
 func toRecipeCard(row sqlc.Recipe) *models.RecipeCard {

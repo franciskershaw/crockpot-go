@@ -362,3 +362,5 @@ instead.
    `go run .` locally — this is the ticket's real end-to-end verification,
    not a stand-in for it.
 8. Hand back for `/code-review medium main`, then close-out.
+
+Completed 2026-09-02.

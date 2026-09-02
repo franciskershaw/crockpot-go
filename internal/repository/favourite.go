@@ -6,7 +6,6 @@ import (
 
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/sqlc"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -100,21 +99,8 @@ func (r *PostgresRecipeRepository) ListFavourites(ctx context.Context, userID st
 		ids[i] = row.ID
 	}
 
-	if len(ids) > 0 {
-		catRows, err := q.ListRecipeCardCategories(ctx, ids)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to load recipe categories: %w", err)
-		}
-		byRecipe := make(map[uuid.UUID][]models.CategoryRef, len(ids))
-		for _, cr := range catRows {
-			rid := uuidValue(cr.RecipeID)
-			byRecipe[rid] = append(byRecipe[rid], models.CategoryRef{ID: uuidValue(cr.ID), Name: cr.Name})
-		}
-		for _, card := range cards {
-			if cats := byRecipe[card.ID]; cats != nil {
-				card.Categories = cats
-			}
-		}
+	if err := hydrateCardCategories(ctx, q, cards, ids); err != nil {
+		return nil, 0, err
 	}
 
 	return cards, int(total), nil

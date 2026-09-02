@@ -440,17 +440,13 @@ session.*
 - **CROC-017** — Admin approval (`PATCH /recipes/:id/approve`, admin-only).
   May add a `GET /recipes?approved=false` admin-only pending-queue filter
   (CROC-015 makes admins see all recipes but adds no focused filter).
-- **CROC-018** — Favourites (`POST`/`DELETE /recipes/:id/favourite`,
-  `GET /recipes/favourites`). Adds `isFavourite` to CROC-015's list-card
-  and detail DTOs (additive). Grilled 2026-09-01, hand-written,
-  `docs/handoffs/CROC-018.md`: full `AuthMiddleware` (not
-  `OptionalAuthMiddleware` — a favourites list has no anonymous case,
-  and this keeps all three new endpoints' auth story consistent); toggle
-  idempotent both directions; `recipe_favourites` gains a `created_at`
-  column so the list orders by most-recently-favourited, not the
-  recipe's own age. The `GET /recipes/favourites` vs. `GET /recipes/:id`
-  static-route question is resolved — verified via a real Gin
-  registration+dispatch test, static wins, no conflict.
+- **CROC-018** — Favourites: `POST`/`DELETE /recipes/:id/favourite`
+  (idempotent toggle) + `GET /recipes/favourites` (paginated, own
+  favourites only). **Done** (2026-09-02, `docs/handoffs/CROC-018.md`).
+  Landed full `AuthMiddleware` on all three routes (no anonymous case,
+  unlike `GET /recipes`), `recipe_favourites.created_at` for
+  favourited-at ordering, and `isFavourite` on `CROC-015`'s
+  list-card/detail DTOs.
 - **CROC-039** — User-suggested items via pending-approval. Mirrors
   `recipes.approved` onto `items` (`approved` flag + `created_by_id`): a
   user creating a recipe (CROC-014) can mint a *pending* item, usable in
