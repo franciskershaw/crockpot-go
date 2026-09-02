@@ -109,6 +109,23 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 		}
 	}
 
+	if callerID.Valid && len(ids) > 0 {
+		favIDs, err := q.ListFavouritedRecipeIDs(ctx, sqlc.ListFavouritedRecipeIDsParams{
+			UserID:    callerID,
+			RecipeIds: ids,
+		})
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to load favourited recipe ids: %w", err)
+		}
+		favourited := make(map[uuid.UUID]bool, len(favIDs))
+		for _, fid := range favIDs {
+			favourited[uuidValue(fid)] = true
+		}
+		for _, card := range cards {
+			card.IsFavourite = favourited[card.ID]
+		}
+	}
+
 	return cards, int(total), nil
 }
 
@@ -196,6 +213,17 @@ func (r *PostgresRecipeRepository) GetByID(ctx context.Context, id string, calle
 		notes = []string{}
 	}
 
+	var isFavourite bool
+	if cid.Valid {
+		isFavourite, err = q.IsRecipeFavourited(ctx, sqlc.IsRecipeFavouritedParams{
+			UserID:   cid,
+			RecipeID: recipeID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to check favourite status: %w", err)
+		}
+	}
+
 	return &models.RecipeDetail{
 		RecipeCard: models.RecipeCard{
 			ID:            uuidValue(row.ID),
@@ -207,6 +235,7 @@ func (r *PostgresRecipeRepository) GetByID(ctx context.Context, id string, calle
 			Approved:      row.Approved,
 			Categories:    categories,
 			CreatedAt:     row.CreatedAt.Time,
+			IsFavourite:   isFavourite,
 		},
 		Description:   textPtr(row.Description),
 		Instructions:  instructions,
