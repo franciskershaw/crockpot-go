@@ -88,8 +88,9 @@ type RecipeCategory struct {
 }
 
 type RecipeFavourite struct {
-	UserID   pgtype.UUID
-	RecipeID pgtype.UUID
+	UserID    pgtype.UUID
+	RecipeID  pgtype.UUID
+	CreatedAt pgtype.Timestamptz
 }
 
 type RecipeIngredient struct {

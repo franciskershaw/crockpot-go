@@ -114,14 +114,22 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
   synonym for "tests after". Two roadmaps have now stated the opposite
   by mistake; don't repeat it a third time.
   When this is chosen: `grill-me` still runs and still produces the
-  normal handoff doc, but Claude writes no code for that ticket — not
-  even TDD stubs. The founder implements against the handoff doc plus
-  whatever reference files it cites. Once done, Claude runs a
-  `code-review` pass on the diff and confirms the ticket's verification
-  mode was actually exercised (real command run, real screen looked at)
-  before close-out — same gate as a Claude-implemented ticket, just
-  applied to code Claude didn't write. `grill-me` asks which mode
-  applies at the start of each ticket rather than assuming either way.
+  normal handoff doc. Hand-written decides who writes the
+  *implementation*, not who writes the *tests* — on request, Claude
+  still writes each piece's failing test stubs (confirmed red, same
+  red-stage rules as AI-driven mode below: a stub fails for the right
+  reason, never a panic); the founder implements against the handoff doc
+  plus whatever reference files it cites, to turn each stub green.
+  (Corrected at CROC-018 — an earlier version of this line said Claude
+  writes no code at all "not even TDD stubs" for a hand-written ticket;
+  in practice the founder wants hands-on practice writing the
+  repo/handler function bodies, not the test boilerplate.) Once done,
+  Claude runs a `code-review` pass on the diff and confirms the ticket's
+  verification mode was actually exercised (real command run, real
+  screen looked at) before close-out — same gate as a Claude-implemented
+  ticket, just applied to implementation code Claude didn't write.
+  `grill-me` asks which mode applies at the start of each ticket rather
+  than assuming either way.
   Hand-written handoff docs also get a **Roadmap** section below the
   acceptance criteria: an ordered, numbered build sequence (dependency
   install → file-by-file creation → manual verification), each step
@@ -129,10 +137,10 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
   deltas where this project's code deliberately diverges from its
   reference. For a ticket whose verification mode is normally
   tests-first, the roadmap inserts a "write failing test stubs, confirm
-  red" step before each piece's "make it pass" step, per
-  `packing-list-go/CLAUDE.md`'s "TDD in Go" shape — CROC-001 itself
-  skipped that step because this layer is test-exempt, not because the
-  roadmap format omits it by default.
+  red" step (Claude's, per above) before each piece's "make it pass"
+  step (the founder's), per `packing-list-go/CLAUDE.md`'s "TDD in Go"
+  shape — CROC-001 itself skipped that step because this layer is
+  test-exempt, not because the roadmap format omits it by default.
 - **AI-driven tickets.** Claude works one coherent piece at a time (roughly
   file-sized, matching hand-written mode's roadmap granularity above):
   write the failing test(s), write a minimal stub that fails for the

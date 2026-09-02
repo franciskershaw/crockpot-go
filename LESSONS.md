@@ -382,3 +382,20 @@ implementation quality until CROC-001 lands.
 - **Pattern**: when you add a defensive clamp/guard for one input,
   apply it to every input of the same kind in the same pass — a
   half-applied guard reads as deliberate and hides the gap.
+
+## 2026-09-02 — CROC-018 — Favourites (POST/DELETE /recipes/:id/favourite, GET /recipes/favourites)
+
+- Hand-written mode's practice intent landed thin: repo/handler bodies
+  mostly ended up Claude-written after struggling first attempts that
+  each copied the wrong neighbouring method's shape (`AddFavourite`
+  copied `Get`/`GetByID`'s read-and-return pattern instead of the
+  check-then-write one). `CLAUDE.md`'s stale "Claude writes no code, not
+  even TDD stubs" line was corrected mid-ticket to match actual
+  practice.
+- `/code-review` caught one real duplication (category hydration
+  repeated in `List`/`ListFavourites`, now a shared
+  `hydrateCardCategories` helper) and one false positive already
+  covered by the ticket's own documented non-goal (decision 5).
+- **Pattern**: GUI git clients invoke hooks with a bare PATH (no
+  Homebrew bin dir) — `.githooks/pre-commit` now exports `PATH`
+  explicitly rather than trusting the caller's environment.

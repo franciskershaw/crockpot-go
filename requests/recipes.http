@@ -22,6 +22,14 @@
 # Focus: the wiring — a create that persists recipe + ingredients +
 # categories, and the 400 validation / invalid-reference translations.
 #
+# POST/DELETE /recipes/:id/favourite, GET /recipes/favourites — CROC-018.
+# All three behind full AuthMiddleware (no anonymous path, unlike GET
+# /recipes). The favourite section below runs the whole
+# favourite → appears in list + isFavourite true → unfavourite →
+# disappears from list + isFavourite false loop against the seeded
+# {{recipeId}} using the ADMIN token, then a separate auth/validation
+# section for the 401/400/404 cases.
+#
 # Fixtures below create two throwaway `items` rows (the catalog is empty
 # until CROC-024): one unconstrained, one constrained to a single unit,
 # so both the invalid_unit_id and unit_not_allowed_for_item paths can be
@@ -520,6 +528,111 @@ GET http://localhost:{{$dotenv PORT}}/recipes/not-a-uuid
 
 
 # ══════════════════════════════════════════
+#  Favourites — CROC-018 (happy path)
+# ══════════════════════════════════════════
+
+### ✅ 200 — favourite the seeded recipe.
+POST http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}/favourite
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — same call again: idempotent, still favourited, same message.
+POST http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}/favourite
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — isFavourite now true on the detail endpoint.
+GET http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — shows up in the favourites list, isFavourite: true, same
+### envelope shape as GET /recipes.
+GET http://localhost:{{$dotenv PORT}}/recipes/favourites
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — pagination on the favourites list, same params as GET /recipes.
+GET http://localhost:{{$dotenv PORT}}/recipes/favourites?page=1&limit=1
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — unfavourite.
+DELETE http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}/favourite
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — same call again: idempotent, still not favourited, same message.
+DELETE http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}/favourite
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — isFavourite flips back to false on the detail endpoint.
+GET http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — no longer in the favourites list.
+GET http://localhost:{{$dotenv PORT}}/recipes/favourites
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  Favourites — CROC-018 (auth + validation)
+# ══════════════════════════════════════════
+
+### 🚫 401 — no token on favourite.
+POST http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}/favourite
+
+###
+
+### 🚫 401 — no token on unfavourite.
+DELETE http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}/favourite
+
+###
+
+### 🚫 401 — no token on the favourites list (unlike GET /recipes, no anonymous path).
+GET http://localhost:{{$dotenv PORT}}/recipes/favourites
+
+###
+
+### 🚫 400 invalid_request — malformed id on favourite.
+POST http://localhost:{{$dotenv PORT}}/recipes/not-a-uuid/favourite
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 400 invalid_request — malformed id on unfavourite.
+DELETE http://localhost:{{$dotenv PORT}}/recipes/not-a-uuid/favourite
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 404 not_found — well-formed but nonexistent recipe on favourite.
+POST http://localhost:{{$dotenv PORT}}/recipes/00000000-0000-0000-0000-000000000000/favourite
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — unfavouriting the same nonexistent id is NOT a 404 (decision 5:
+### DELETE never re-checks visibility, so this affects 0 rows and succeeds).
+DELETE http://localhost:{{$dotenv PORT}}/recipes/00000000-0000-0000-0000-000000000000/favourite
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
 #  Cleanup
 # ══════════════════════════════════════════
 
@@ -532,3 +645,8 @@ GET http://localhost:{{$dotenv PORT}}/recipes/not-a-uuid
 ###
 ### (recipe_ingredients + recipe_categories_recipes cascade with the
 ### recipe rows.) A re-run from a clean DB then behaves identically.
+###
+### The favourites section above needs no cleanup of its own: the seeded
+### recipe is unfavourited again before the run ends, leaving no residue
+### (CROC-018's own roadmap note) — the 404-recipe DELETE just above never
+### inserted a row to begin with.

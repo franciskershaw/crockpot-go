@@ -71,6 +71,9 @@ func newRecipeMocks(t *testing.T) *recipeMocks {
 	authed := m.router.Group("/")
 	authed.Use(middleware.AuthMiddleware(testutil.TestAccessSecret))
 	authed.POST("/recipes", h.Create)
+	authed.GET("/recipes/favourites", h.ListFavourites)
+	authed.POST("/recipes/:id/favourite", h.AddFavourite)
+	authed.DELETE("/recipes/:id/favourite", h.RemoveFavourite)
 	optional := m.router.Group("/")
 	optional.Use(middleware.OptionalAuthMiddleware(testutil.TestAccessSecret))
 	optional.GET("/recipes", h.List)
@@ -490,6 +493,37 @@ func doRecipeGet(r *gin.Engine, id, auth string) *httptest.ResponseRecorder {
 	return w
 }
 
+func doRecipeFavourite(r *gin.Engine, method, id, auth string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, "/recipes/"+id+"/favourite", nil)
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func doRecipeListFavourites(r *gin.Engine, rawQuery, auth string) *httptest.ResponseRecorder {
+	url := "/recipes/favourites"
+	if rawQuery != "" {
+		url += "?" + rawQuery
+	}
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func recipeMsg(t *testing.T, w *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	return body["message"]
+}
+
 func fakeRecipeCard() *models.RecipeCard {
 	return &models.RecipeCard{
 		ID:            uuid.MustParse("c3c3c3c3-c3c3-c3c3-c3c3-c3c3c3c3c3c3"),
@@ -694,4 +728,164 @@ func TestRecipeGet_ThreadsCallerIdentity(t *testing.T) {
 		w := doRecipeGet(m.router, id, "")
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
+}
+
+func TestRecipeAddFavourite_NoToken_401(t *testing.T) {
+	m := newRecipeMocks(t)
+	w := doRecipeFavourite(m.router, http.MethodPost, uuid.NewString(), "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestRecipeAddFavourite_MalformedID_400(t *testing.T) {
+	m := newRecipeMocks(t)
+	w := doRecipeFavourite(m.router, http.MethodPost, "not-a-uuid", recipeAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_request", recipeErr(t, w))
+}
+
+func TestRecipeAddFavourite_Success_200MessageBody(t *testing.T) {
+	m := newRecipeMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().AddFavourite(mock.Anything, recipeUserID.String(), id, false).Return(nil)
+
+	w := doRecipeFavourite(m.router, http.MethodPost, id, recipeAuth(t, "FREE"))
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "recipe favourited", recipeMsg(t, w))
+}
+
+func TestRecipeAddFavourite_NotFound_404(t *testing.T) {
+	m := newRecipeMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().AddFavourite(mock.Anything, recipeUserID.String(), id, false).
+		Return(models.ErrRecipeNotFound)
+
+	w := doRecipeFavourite(m.router, http.MethodPost, id, recipeAuth(t, "FREE"))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, "not_found", recipeErr(t, w))
+}
+
+func TestRecipeAddFavourite_RepoError_500(t *testing.T) {
+	m := newRecipeMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().AddFavourite(mock.Anything, recipeUserID.String(), id, false).
+		Return(errors.New("db down"))
+
+	w := doRecipeFavourite(m.router, http.MethodPost, id, recipeAuth(t, "FREE"))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestRecipeAddFavourite_ThreadsCallerIsAdmin(t *testing.T) {
+	m := newRecipeMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().AddFavourite(mock.Anything, recipeUserID.String(), id, true).Return(nil)
+
+	w := doRecipeFavourite(m.router, http.MethodPost, id, recipeAuth(t, "ADMIN"))
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRecipeRemoveFavourite_NoToken_401(t *testing.T) {
+	m := newRecipeMocks(t)
+	w := doRecipeFavourite(m.router, http.MethodDelete, uuid.NewString(), "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestRecipeRemoveFavourite_MalformedID_400(t *testing.T) {
+	m := newRecipeMocks(t)
+	w := doRecipeFavourite(m.router, http.MethodDelete, "not-a-uuid", recipeAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_request", recipeErr(t, w))
+}
+
+func TestRecipeRemoveFavourite_Success_200MessageBody(t *testing.T) {
+	m := newRecipeMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().RemoveFavourite(mock.Anything, recipeUserID.String(), id).Return(nil)
+
+	w := doRecipeFavourite(m.router, http.MethodDelete, id, recipeAuth(t, "FREE"))
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "recipe unfavourited", recipeMsg(t, w))
+}
+
+func TestRecipeRemoveFavourite_RepoError_500(t *testing.T) {
+	m := newRecipeMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().RemoveFavourite(mock.Anything, recipeUserID.String(), id).
+		Return(errors.New("db down"))
+
+	w := doRecipeFavourite(m.router, http.MethodDelete, id, recipeAuth(t, "FREE"))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestRecipeListFavourites_NoToken_401(t *testing.T) {
+	m := newRecipeMocks(t)
+	w := doRecipeListFavourites(m.router, "", "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestRecipeListFavourites_EnvelopeShape(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().ListFavourites(mock.Anything, recipeUserID.String(), 1, 10).
+		Return([]*models.RecipeCard{fakeRecipeCard(), fakeRecipeCard()}, 25, nil)
+
+	w := doRecipeListFavourites(m.router, "limit=10", recipeAuth(t, "FREE"))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body struct {
+		Recipes    []map[string]json.RawMessage `json:"recipes"`
+		Page       int                          `json:"page"`
+		Limit      int                          `json:"limit"`
+		Total      int                          `json:"total"`
+		TotalPages int                          `json:"totalPages"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Len(t, body.Recipes, 2)
+	assert.Equal(t, 1, body.Page)
+	assert.Equal(t, 10, body.Limit)
+	assert.Equal(t, 25, body.Total)
+	assert.Equal(t, 3, body.TotalPages)
+}
+
+func TestRecipeListFavourites_EmptyRecipesSerializesAsArray(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().ListFavourites(mock.Anything, recipeUserID.String(), 1, 20).
+		Return(nil, 0, nil)
+
+	w := doRecipeListFavourites(m.router, "", recipeAuth(t, "FREE"))
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"recipes":[]`)
+	assert.Contains(t, w.Body.String(), `"totalPages":0`)
+}
+
+func TestRecipeListFavourites_DefaultsPageLimit(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().ListFavourites(mock.Anything, recipeUserID.String(), 1, 20).
+		Return([]*models.RecipeCard{}, 0, nil)
+
+	w := doRecipeListFavourites(m.router, "", recipeAuth(t, "FREE"))
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRecipeListFavourites_ClampsPageAndLimit(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().ListFavourites(mock.Anything, recipeUserID.String(), 1, 50).
+		Return([]*models.RecipeCard{}, 0, nil)
+
+	w := doRecipeListFavourites(m.router, "page=0&limit=999", recipeAuth(t, "FREE"))
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRecipeListFavourites_BadInput400(t *testing.T) {
+	m := newRecipeMocks(t)
+	w := doRecipeListFavourites(m.router, "page=notanumber", recipeAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_request", recipeErr(t, w))
+}
+
+func TestRecipeListFavourites_RepoError_500(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().ListFavourites(mock.Anything, recipeUserID.String(), 1, 20).
+		Return(nil, 0, errors.New("db down"))
+
+	w := doRecipeListFavourites(m.router, "", recipeAuth(t, "FREE"))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

@@ -23,6 +23,55 @@ func (_m *MockRecipeRepository) EXPECT() *MockRecipeRepository_Expecter {
 	return &MockRecipeRepository_Expecter{mock: &_m.Mock}
 }
 
+// AddFavourite provides a mock function with given fields: ctx, userID, recipeID, callerIsAdmin
+func (_m *MockRecipeRepository) AddFavourite(ctx context.Context, userID string, recipeID string, callerIsAdmin bool) error {
+	ret := _m.Called(ctx, userID, recipeID, callerIsAdmin)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AddFavourite")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, bool) error); ok {
+		r0 = rf(ctx, userID, recipeID, callerIsAdmin)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockRecipeRepository_AddFavourite_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddFavourite'
+type MockRecipeRepository_AddFavourite_Call struct {
+	*mock.Call
+}
+
+// AddFavourite is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - recipeID string
+//   - callerIsAdmin bool
+func (_e *MockRecipeRepository_Expecter) AddFavourite(ctx interface{}, userID interface{}, recipeID interface{}, callerIsAdmin interface{}) *MockRecipeRepository_AddFavourite_Call {
+	return &MockRecipeRepository_AddFavourite_Call{Call: _e.mock.On("AddFavourite", ctx, userID, recipeID, callerIsAdmin)}
+}
+
+func (_c *MockRecipeRepository_AddFavourite_Call) Run(run func(ctx context.Context, userID string, recipeID string, callerIsAdmin bool)) *MockRecipeRepository_AddFavourite_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(bool))
+	})
+	return _c
+}
+
+func (_c *MockRecipeRepository_AddFavourite_Call) Return(_a0 error) *MockRecipeRepository_AddFavourite_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockRecipeRepository_AddFavourite_Call) RunAndReturn(run func(context.Context, string, string, bool) error) *MockRecipeRepository_AddFavourite_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CountByCreator provides a mock function with given fields: ctx, userID
 func (_m *MockRecipeRepository) CountByCreator(ctx context.Context, userID string) (int, error) {
 	ret := _m.Called(ctx, userID)
@@ -262,6 +311,122 @@ func (_c *MockRecipeRepository_List_Call) Return(_a0 []*models.RecipeCard, _a1 i
 }
 
 func (_c *MockRecipeRepository_List_Call) RunAndReturn(run func(context.Context, models.RecipeListFilter) ([]*models.RecipeCard, int, error)) *MockRecipeRepository_List_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListFavourites provides a mock function with given fields: ctx, userID, page, limit
+func (_m *MockRecipeRepository) ListFavourites(ctx context.Context, userID string, page int, limit int) ([]*models.RecipeCard, int, error) {
+	ret := _m.Called(ctx, userID, page, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListFavourites")
+	}
+
+	var r0 []*models.RecipeCard
+	var r1 int
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, int, int) ([]*models.RecipeCard, int, error)); ok {
+		return rf(ctx, userID, page, limit)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, int, int) []*models.RecipeCard); ok {
+		r0 = rf(ctx, userID, page, limit)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*models.RecipeCard)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, int, int) int); ok {
+		r1 = rf(ctx, userID, page, limit)
+	} else {
+		r1 = ret.Get(1).(int)
+	}
+
+	if rf, ok := ret.Get(2).(func(context.Context, string, int, int) error); ok {
+		r2 = rf(ctx, userID, page, limit)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
+}
+
+// MockRecipeRepository_ListFavourites_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListFavourites'
+type MockRecipeRepository_ListFavourites_Call struct {
+	*mock.Call
+}
+
+// ListFavourites is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - page int
+//   - limit int
+func (_e *MockRecipeRepository_Expecter) ListFavourites(ctx interface{}, userID interface{}, page interface{}, limit interface{}) *MockRecipeRepository_ListFavourites_Call {
+	return &MockRecipeRepository_ListFavourites_Call{Call: _e.mock.On("ListFavourites", ctx, userID, page, limit)}
+}
+
+func (_c *MockRecipeRepository_ListFavourites_Call) Run(run func(ctx context.Context, userID string, page int, limit int)) *MockRecipeRepository_ListFavourites_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(int), args[3].(int))
+	})
+	return _c
+}
+
+func (_c *MockRecipeRepository_ListFavourites_Call) Return(_a0 []*models.RecipeCard, _a1 int, _a2 error) *MockRecipeRepository_ListFavourites_Call {
+	_c.Call.Return(_a0, _a1, _a2)
+	return _c
+}
+
+func (_c *MockRecipeRepository_ListFavourites_Call) RunAndReturn(run func(context.Context, string, int, int) ([]*models.RecipeCard, int, error)) *MockRecipeRepository_ListFavourites_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RemoveFavourite provides a mock function with given fields: ctx, userID, recipeID
+func (_m *MockRecipeRepository) RemoveFavourite(ctx context.Context, userID string, recipeID string) error {
+	ret := _m.Called(ctx, userID, recipeID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RemoveFavourite")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, userID, recipeID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockRecipeRepository_RemoveFavourite_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RemoveFavourite'
+type MockRecipeRepository_RemoveFavourite_Call struct {
+	*mock.Call
+}
+
+// RemoveFavourite is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - recipeID string
+func (_e *MockRecipeRepository_Expecter) RemoveFavourite(ctx interface{}, userID interface{}, recipeID interface{}) *MockRecipeRepository_RemoveFavourite_Call {
+	return &MockRecipeRepository_RemoveFavourite_Call{Call: _e.mock.On("RemoveFavourite", ctx, userID, recipeID)}
+}
+
+func (_c *MockRecipeRepository_RemoveFavourite_Call) Run(run func(ctx context.Context, userID string, recipeID string)) *MockRecipeRepository_RemoveFavourite_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockRecipeRepository_RemoveFavourite_Call) Return(_a0 error) *MockRecipeRepository_RemoveFavourite_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockRecipeRepository_RemoveFavourite_Call) RunAndReturn(run func(context.Context, string, string) error) *MockRecipeRepository_RemoveFavourite_Call {
 	_c.Call.Return(run)
 	return _c
 }

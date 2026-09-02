@@ -9,6 +9,10 @@
 # section.
 set -euo pipefail
 
+# GUI git clients launch hooks via launchd's bare PATH, not the login shell's —
+# neither go nor gofmt resolve there even though they work from any terminal.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 stash_count_before=$(git stash list | wc -l)
 git stash push --keep-index --include-untracked --quiet -m "pre-commit: unstaged snapshot" || true
 stash_count_after=$(git stash list | wc -l)

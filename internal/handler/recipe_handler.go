@@ -18,6 +18,10 @@ type RecipeRepository interface {
 	CountByCreator(ctx context.Context, userID string) (int, error)
 	List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error)
 	GetByID(ctx context.Context, id string, callerID *string, callerIsAdmin bool) (*models.RecipeDetail, error)
+
+	AddFavourite(ctx context.Context, userID, recipeID string, callerIsAdmin bool) error
+	RemoveFavourite(ctx context.Context, userID, recipeID string) error
+	ListFavourites(ctx context.Context, userID string, page, limit int) ([]*models.RecipeCard, int, error)
 }
 
 type RecipeHandler struct {
@@ -122,6 +126,88 @@ func (h *RecipeHandler) Get(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, detail)
+}
+
+func (h *RecipeHandler) AddFavourite(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+	id := c.Param("id")
+	if !parseID(c, id) {
+		return
+	}
+	isAdmin := c.GetString("role") == "ADMIN"
+
+	if err := h.repo.AddFavourite(c.Request.Context(), userID, id, isAdmin); err != nil {
+		if errors.Is(err, models.ErrRecipeNotFound) {
+			notFound(c, "not_found")
+			return
+		}
+		internalError(c, "failed to add favourite", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "recipe favourited"})
+}
+
+func (h *RecipeHandler) RemoveFavourite(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+	id := c.Param("id")
+	if !parseID(c, id) {
+		return
+	}
+
+	if err := h.repo.RemoveFavourite(c.Request.Context(), userID, id); err != nil {
+		internalError(c, "failed to remove favourite", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "recipe unfavourited"})
+}
+
+func (h *RecipeHandler) ListFavourites(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+
+	page, ok := parseIntQuery(c, "page", 1)
+	if !ok {
+		return
+	}
+	limit, ok := parseIntQuery(c, "limit", 20)
+	if !ok {
+		return
+	}
+	page = clampInt(page, 1, 1_000_000)
+	limit = clampInt(limit, 1, 50)
+
+	cards, total, err := h.repo.ListFavourites(c.Request.Context(), userID, page, limit)
+	if err != nil {
+		internalError(c, "failed to list favourites", err)
+		return
+	}
+	if cards == nil {
+		cards = []*models.RecipeCard{}
+	}
+
+	totalPages := 0
+	if total > 0 {
+		totalPages = (total + limit - 1) / limit
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"recipes":    cards,
+		"page":       page,
+		"limit":      limit,
+		"total":      total,
+		"totalPages": totalPages,
+	})
 }
 
 // withinRecipeCap returns false (and writes the 409/500) when a capped role is at its limit or the count lookup fails.
