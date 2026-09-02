@@ -173,6 +173,9 @@ func main() {
 	recipes.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess))
 	{
 		recipes.POST("", recipeHandler.Create)
+		recipes.GET("/favourites", recipeHandler.ListFavourites)
+		recipes.POST("/:id/favourite", recipeHandler.AddFavourite)
+		recipes.DELETE("/:id/favourite", recipeHandler.RemoveFavourite)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
