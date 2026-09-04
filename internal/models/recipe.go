@@ -70,6 +70,11 @@ type RecipeDetail struct {
 }
 
 // RecipeListFilter is the validated GET /recipes query, handler → repository.
+type RecipeTimeRange struct {
+	MinTime int
+	MaxTime int
+}
+
 type RecipeListFilter struct {
 	Query              string
 	IncludeCategoryIDs []uuid.UUID

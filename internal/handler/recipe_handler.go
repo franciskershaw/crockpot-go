@@ -18,6 +18,7 @@ type RecipeRepository interface {
 	CountByCreator(ctx context.Context, userID string) (int, error)
 	List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error)
 	GetByID(ctx context.Context, id string, callerID *string, callerIsAdmin bool) (*models.RecipeDetail, error)
+	GetTimeRange(ctx context.Context) (*models.RecipeTimeRange, error)
 
 	AddFavourite(ctx context.Context, userID, recipeID string, callerIsAdmin bool) error
 	RemoveFavourite(ctx context.Context, userID, recipeID string) error

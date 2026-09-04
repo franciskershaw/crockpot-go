@@ -25,11 +25,16 @@ func insertTestUser(t *testing.T, name string) uuid.UUID {
 
 func insertTestRecipeRow(t *testing.T, createdBy uuid.UUID, approved bool) uuid.UUID {
 	t.Helper()
+	return insertTestRecipeRowWithTime(t, createdBy, approved, 30)
+}
+
+func insertTestRecipeRowWithTime(t *testing.T, createdBy uuid.UUID, approved bool, timeInMinutes int) uuid.UUID {
+	t.Helper()
 	id := uuid.New()
 	_, err := db.DB.Exec(context.Background(),
 		`INSERT INTO recipes (id, name, time_in_minutes, instructions, serves, approved, created_by_id)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		id, "repo-test-recipe-"+id.String(), 30, []string{"step 1"}, 4, approved, createdBy,
+		id, "repo-test-recipe-"+id.String(), timeInMinutes, []string{"step 1"}, 4, approved, createdBy,
 	)
 	require.NoError(t, err)
 	cleanupExec(t, `DELETE FROM recipes WHERE id = $1`, id)
@@ -57,6 +62,16 @@ func rowCount(t *testing.T, query string, args ...any) int {
 	return n
 }
 
+// currentApprovedTimeBounds lets a test insert values guaranteed outside it, without
+// assuming anything about the shared dev DB's existing (real, migrated) recipe data.
+func currentApprovedTimeBounds(t *testing.T) (min, max int) {
+	t.Helper()
+	require.NoError(t, db.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(MIN(time_in_minutes), 0), COALESCE(MAX(time_in_minutes), 120) FROM recipes WHERE approved`,
+	).Scan(&min, &max))
+	return min, max
+}
+
 func TestCountRecipesByCreator_CountsApprovedAndUnapproved(t *testing.T) {
 	ctx := context.Background()
 	userID := insertTestUser(t, "Repo Test Cook")
@@ -76,6 +91,22 @@ func TestCountRecipesByCreator_ZeroWhenNone(t *testing.T) {
 	count, err := recipeRepo.CountByCreator(ctx, userID.String())
 	require.NoError(t, err)
 	assert.Equal(t, 0, count)
+}
+
+func TestGetTimeRange_ReflectsOnlyApprovedRecipes(t *testing.T) {
+	ctx := context.Background()
+	userID := insertTestUser(t, "Time Range Cook")
+	baseMin, baseMax := currentApprovedTimeBounds(t)
+
+	insertTestRecipeRowWithTime(t, userID, true, baseMin-1)
+	insertTestRecipeRowWithTime(t, userID, true, baseMax+1)
+	insertTestRecipeRowWithTime(t, userID, false, baseMin-1000)
+	insertTestRecipeRowWithTime(t, userID, false, baseMax+1000)
+
+	got, err := recipeRepo.GetTimeRange(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, baseMin-1, got.MinTime)
+	assert.Equal(t, baseMax+1, got.MaxTime)
 }
 
 func TestCreateRecipe_MinimalPersistsAllParts(t *testing.T) {

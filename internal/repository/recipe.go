@@ -39,6 +39,14 @@ func (r *PostgresRecipeRepository) CountByCreator(ctx context.Context, userID st
 	return int(count), nil
 }
 
+func (r *PostgresRecipeRepository) GetTimeRange(ctx context.Context) (*models.RecipeTimeRange, error) {
+	row, err := queriesFor(ctx, r.db).GetRecipeTimeRange(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recipe time range: %w", err)
+	}
+	return &models.RecipeTimeRange{MinTime: int(row.MinTime), MaxTime: int(row.MaxTime)}, nil
+}
+
 func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error) {
 	q := queriesFor(ctx, r.db)
 
