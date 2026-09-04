@@ -18,6 +18,7 @@ type RecipeRepository interface {
 	CountByCreator(ctx context.Context, userID string) (int, error)
 	List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error)
 	GetByID(ctx context.Context, id string, callerID *string, callerIsAdmin bool) (*models.RecipeDetail, error)
+	GetTimeRange(ctx context.Context) (*models.RecipeTimeRange, error)
 
 	AddFavourite(ctx context.Context, userID, recipeID string, callerIsAdmin bool) error
 	RemoveFavourite(ctx context.Context, userID, recipeID string) error
@@ -102,6 +103,15 @@ func (h *RecipeHandler) List(c *gin.Context) {
 		"total":      total,
 		"totalPages": totalPages,
 	})
+}
+
+func (h *RecipeHandler) GetTimeRange(c *gin.Context) {
+	timeRange, err := h.repo.GetTimeRange(c.Request.Context())
+	if err != nil {
+		internalError(c, "failed to get recipe time range", err)
+		return
+	}
+	c.JSON(http.StatusOK, timeRange)
 }
 
 func (h *RecipeHandler) Get(c *gin.Context) {

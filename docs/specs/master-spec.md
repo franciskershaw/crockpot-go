@@ -393,6 +393,23 @@ session.*
   credentials, preflight short-circuit; port of `packing-list-go`'s).
   Real cross-origin/browser proof is owed by `crockpot-react` CFE-002a.
   **Done.** See `docs/handoffs/CROC-009a.md`.
+- **CROC-044** — Drop user profile images entirely: remove `image` from
+  `models.User`, the sqlc `users` queries/generated code
+  (`internal/sqlc/queries/users.sql` + regenerated output), the
+  repository layer (`GetOrCreateUser`/`refreshLoginProfile`'s
+  `avatarURL` param), the Google OAuth claim capture
+  (`internal/auth/google.go`'s `IDTokenClaims.AvatarURL`), the `/me`
+  response (`CROC-009`), and the `users.image` column via a migration
+  (already nullable — no `NOT NULL`/data-shape blocker, but dropping it
+  deletes whatever's currently stored). Also update `cmd/migrate-data`'s
+  source/transform/load structs, which currently copy it through from
+  Mongo. Surfaced at `crockpot-react` CFE-004 (2026-09-04): Google's
+  `lh3.googleusercontent.com` avatar URLs 429 unpredictably, even on a
+  single first-load request, so `crockpot-react` stopped rendering them
+  in favour of initials-only — `image` is now fully unused by the
+  frontend. Needs its own grill (drop the column now vs. leave it
+  nullable-and-unused for a while; whether `IDTokenClaims.AvatarURL`
+  itself is worth deleting or just left uncaptured).
 
 ### Epic 3: Reference Data
 - **CROC-010** — Item categories CRUD (admin-only writes, public reads).
@@ -490,6 +507,74 @@ session.*
   `ORDER BY` and adds fields to the list-card DTO — additive. Match-
   explanation response fields are **blocked on a design artifact** for
   that UI. Needs its own grill.
+- **CROC-043** — Recipe cooking-time bounds. **Done** (2026-09-04). Surfaced at `crockpot-react`
+  CFE-004's grill (2026-09-02): the old app got this from a live Prisma
+  aggregate (`getRecipes.ts:74-99`, cached hourly); `crockpot-go` has no
+  equivalent today. **Blocks** CFE-004's time-slider piece specifically —
+  small and isolated enough that the rest of CFE-004 doesn't wait on it.
+  **Grilled 2026-09-04 (AI-driven, cheap-to-undo — no separate handoff
+  doc):**
+  - **Own endpoint, `GET /recipes/time-range`, not folded onto `GET
+    /recipes`** — the bounds are fetched once on browse-page mount, not
+    on every paginated/filtered list request; folding it in would either
+    recompute the aggregate on every call or make the bounds visibly
+    jitter as other filters narrow the list, which isn't what a slider's
+    range should do. Same fetch-once-and-cache-separately shape as
+    `/recipe-categories`/`/items` (CFE-004 decision 9).
+  - **Approved-only visibility (`WHERE approved`), not the full CROC-015
+    caller-aware predicate** — matches the old app's own
+    `getRecipeTimeRange()` exactly (`WHERE approved: true`, no
+    per-caller branch). Public route, no `OptionalAuthMiddleware`. Trade-
+    off accepted: an admin/creator's own pending recipe's cook time could
+    theoretically sit outside the returned range — narrow and rare
+    against the complexity of a caller-parameterized query for a control
+    whose job is a rough bound, not an exact enclosure.
+  - **No server-side cache — live query every request.** No caching
+    infrastructure exists anywhere in `crockpot-go` today (checked); the
+    old app's "1hr precedent" is `unstable_cache`, a Next.js-specific
+    mechanism with no Go equivalent already in place. The aggregate
+    itself is trivially cheap (`MIN`/`MAX` over ~213 rows, no join). The
+    frontend applies its own long `staleTime` instead, matching the
+    pattern CFE-004 decision 9 already uses for `/items`/
+    `/recipe-categories`.
+  - **`{"minTime": 0, "maxTime": 120}` fallback** when the aggregate is
+    `NULL` (zero approved recipes) — same fallback values the old app
+    hardcodes for the same empty-aggregate case.
+  - **Field names `minTime`/`maxTime`**, not the old app's `{min,max}` —
+    matches the name this concept already has everywhere else in both
+    codebases (`ListRecipes`/`CountRecipes`'s `min_time`/`max_time` sqlc
+    params, `crockpot-react`'s `RecipeListParams.minTime`/`maxTime`);
+    `{min,max}` was only ever an artifact of Prisma's `aggregate()` shape.
+
+  Query: `SELECT COALESCE(MIN(time_in_minutes),0)::int AS min_time,
+  COALESCE(MAX(time_in_minutes),120)::int AS max_time FROM recipes WHERE
+  approved` — one row always returned (bare aggregate, no `GROUP BY`), so
+  the fallback lives in SQL, not a Go-side null check.
+
+  **Acceptance criteria**:
+  - [ ] `GET /recipes/time-range` → `200 {"minTime": N, "maxTime": M}`,
+        no auth required, registered alongside `GET /recipes`/`GET
+        /recipes/:id` (same public route group, `main.go`).
+  - [ ] Bounds reflect only `approved = true` recipes — an unapproved
+        recipe with a cook time outside the approved range never changes
+        the response, regardless of caller/auth state.
+  - [ ] Zero approved recipes → `{"minTime": 0, "maxTime": 120}`.
+  - [ ] `requests/recipes.http` gets a `Time Range` section.
+  - [ ] `go test ./internal/handler/...`, `./scripts/test-repo.sh`,
+        `golangci-lint run --max-same-issues=0
+        --max-issues-per-linter=0 ./...`, `gofmt`, `go vet` all clean.
+
+  **Non-goals**: server-side caching; per-caller/admin-aware visibility;
+  wiring the `crockpot-react` slider itself (CFE-004 roadmap step 6,
+  separate follow-up once this ships).
+
+  **Verification**: handler tests (mocked repo) assert the response
+  shape and the zero-recipe fallback; repository tests against the real
+  Neon dev DB (`./scripts/test-repo.sh`) seed an approved + an
+  out-of-range unapproved recipe and assert only the approved one is
+  reflected, plus the fallback with zero approved rows; `requests/
+  recipes.http`'s new section run for real against the local server;
+  `/code-review medium main` once green, before close-out.
 
 ### Epic 5: Meal Planning
 - **CROC-019** — Menu read/upsert-entry (`GET /menu`, `POST /menu/entries`,

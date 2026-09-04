@@ -22,6 +22,9 @@
 # Focus: the wiring — a create that persists recipe + ingredients +
 # categories, and the 400 validation / invalid-reference translations.
 #
+# GET /recipes/time-range — CROC-043. Public, no auth. {minTime, maxTime}
+# over approved recipes only, live query, no server-side cache.
+#
 # POST/DELETE /recipes/:id/favourite, GET /recipes/favourites — CROC-018.
 # All three behind full AuthMiddleware (no anonymous path, unlike GET
 # /recipes). The favourite section below runs the whole
@@ -495,6 +498,16 @@ GET http://localhost:{{$dotenv PORT}}/recipes?categoryMode=sideways
 
 ### 🚫 400 invalid_request — non-numeric page.
 GET http://localhost:{{$dotenv PORT}}/recipes?page=abc
+
+###
+
+
+# ══════════════════════════════════════════
+#  GET /recipes/time-range — CROC-043
+# ══════════════════════════════════════════
+
+### ✅ 200 — {minTime, maxTime} across approved recipes only. No auth required.
+GET http://localhost:{{$dotenv PORT}}/recipes/time-range
 
 ###
 

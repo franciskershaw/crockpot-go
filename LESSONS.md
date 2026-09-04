@@ -399,3 +399,28 @@ implementation quality until CROC-001 lands.
 - **Pattern**: GUI git clients invoke hooks with a bare PATH (no
   Homebrew bin dir) — `.githooks/pre-commit` now exports `PATH`
   explicitly rather than trusting the caller's environment.
+
+## 2026-09-04 — CROC-043 — Recipe cooking-time bounds (`GET /recipes/time-range`)
+
+- No implementation rework — sqlc query, repository, and handler each
+  went red→green clean, one piece at a time.
+- `/code-review medium main` found two things: `RecipeTimeRange`
+  (`internal/models/recipe.go`) shipped with no `json` tags, the only
+  model in that file without them — forced the handler into a hand-rolled
+  `gin.H{...}` instead of the `c.JSON(status, model)` every other
+  single-object handler uses. Fixed immediately (tags added, handler
+  simplified) — real, cheap, no rework.
+- Also flagged: each piece's red→green ran as one continuous motion
+  after the founder's go-ahead, with no second stop *between* confirming
+  red and implementing. This is the same gap `CROC-004` and `CROC-005`
+  already named — third occurrence now. Per this project's own "same
+  feedback three times, mechanise or drop" rule: the founder's
+  "go ahead"/"go go go" replies are being read (correctly, by working
+  practice) as authorizing the whole next piece, not as permission to
+  fold the red-stage stop into it — `CLAUDE.md`'s "AI-driven tickets"
+  wording should say that explicitly rather than get re-flagged a fourth
+  time. Not changed this ticket — founder asked to close out with
+  minimal fuss; revisit at the next relevant grill.
+- **Pattern**: a model with no `json` tags is a signal, not just a style
+  gap — every sibling in the same file having them makes the omission
+  the kind of thing a diff review should always catch, and did.
