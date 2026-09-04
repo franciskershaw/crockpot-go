@@ -71,8 +71,8 @@ type RecipeDetail struct {
 
 // RecipeListFilter is the validated GET /recipes query, handler → repository.
 type RecipeTimeRange struct {
-	MinTime int
-	MaxTime int
+	MinTime int `json:"minTime"`
+	MaxTime int `json:"maxTime"`
 }
 
 type RecipeListFilter struct {

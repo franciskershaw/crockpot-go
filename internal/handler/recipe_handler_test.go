@@ -78,6 +78,7 @@ func newRecipeMocks(t *testing.T) *recipeMocks {
 	optional.Use(middleware.OptionalAuthMiddleware(testutil.TestAccessSecret))
 	optional.GET("/recipes", h.List)
 	optional.GET("/recipes/:id", h.Get)
+	m.router.GET("/recipes/time-range", h.GetTimeRange)
 	return m
 }
 
@@ -483,6 +484,13 @@ func doRecipeList(r *gin.Engine, rawQuery, auth string) *httptest.ResponseRecord
 	return w
 }
 
+func doRecipeTimeRange(r *gin.Engine) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/recipes/time-range", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
 func doRecipeGet(r *gin.Engine, id, auth string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, "/recipes/"+id, nil)
 	if auth != "" {
@@ -651,6 +659,42 @@ func TestRecipeList_RepoError500(t *testing.T) {
 	m.repo.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, errors.New("db down"))
 
 	w := doRecipeList(m.router, "", "")
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, "server_error", recipeErr(t, w))
+}
+
+func TestRecipeTimeRange_Success200(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().GetTimeRange(mock.Anything).
+		Return(&models.RecipeTimeRange{MinTime: 15, MaxTime: 240}, nil)
+
+	w := doRecipeTimeRange(m.router)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body struct {
+		MinTime int `json:"minTime"`
+		MaxTime int `json:"maxTime"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, 15, body.MinTime)
+	assert.Equal(t, 240, body.MaxTime)
+}
+
+func TestRecipeTimeRange_EmptyCatalogFallbackPassedThrough(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().GetTimeRange(mock.Anything).
+		Return(&models.RecipeTimeRange{MinTime: 0, MaxTime: 120}, nil)
+
+	w := doRecipeTimeRange(m.router)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.JSONEq(t, `{"minTime":0,"maxTime":120}`, w.Body.String())
+}
+
+func TestRecipeTimeRange_RepoError500(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().GetTimeRange(mock.Anything).Return(nil, errors.New("db down"))
+
+	w := doRecipeTimeRange(m.router)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Equal(t, "server_error", recipeErr(t, w))
 }

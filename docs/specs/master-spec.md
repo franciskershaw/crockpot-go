@@ -507,7 +507,7 @@ session.*
   `ORDER BY` and adds fields to the list-card DTO — additive. Match-
   explanation response fields are **blocked on a design artifact** for
   that UI. Needs its own grill.
-- **CROC-043** — Recipe cooking-time bounds. Surfaced at `crockpot-react`
+- **CROC-043** — Recipe cooking-time bounds. **Done** (2026-09-04). Surfaced at `crockpot-react`
   CFE-004's grill (2026-09-02): the old app got this from a live Prisma
   aggregate (`getRecipes.ts:74-99`, cached hourly); `crockpot-go` has no
   equivalent today. **Blocks** CFE-004's time-slider piece specifically —

@@ -167,6 +167,7 @@ func main() {
 	}
 
 	server.GET("/recipes", middleware.OptionalAuthMiddleware(cfg.JWTSecretAccess), recipeHandler.List)
+	server.GET("/recipes/time-range", recipeHandler.GetTimeRange)
 	server.GET("/recipes/:id", middleware.OptionalAuthMiddleware(cfg.JWTSecretAccess), recipeHandler.Get)
 
 	recipes := server.Group("/recipes")

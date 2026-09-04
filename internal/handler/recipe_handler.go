@@ -105,6 +105,15 @@ func (h *RecipeHandler) List(c *gin.Context) {
 	})
 }
 
+func (h *RecipeHandler) GetTimeRange(c *gin.Context) {
+	timeRange, err := h.repo.GetTimeRange(c.Request.Context())
+	if err != nil {
+		internalError(c, "failed to get recipe time range", err)
+		return
+	}
+	c.JSON(http.StatusOK, timeRange)
+}
+
 func (h *RecipeHandler) Get(c *gin.Context) {
 	id := c.Param("id")
 	if !parseID(c, id) {
