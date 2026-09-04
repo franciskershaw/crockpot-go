@@ -240,6 +240,26 @@ func (q *Queries) GetRecipeForReader(ctx context.Context, arg GetRecipeForReader
 	return i, err
 }
 
+const getRecipeTimeRange = `-- name: GetRecipeTimeRange :one
+SELECT
+    COALESCE(MIN(time_in_minutes), 0)::int AS min_time,
+    COALESCE(MAX(time_in_minutes), 120)::int AS max_time
+FROM recipes
+WHERE approved
+`
+
+type GetRecipeTimeRangeRow struct {
+	MinTime int32
+	MaxTime int32
+}
+
+func (q *Queries) GetRecipeTimeRange(ctx context.Context) (GetRecipeTimeRangeRow, error) {
+	row := q.db.QueryRow(ctx, getRecipeTimeRange)
+	var i GetRecipeTimeRangeRow
+	err := row.Scan(&i.MinTime, &i.MaxTime)
+	return i, err
+}
+
 const listRecipeCardCategories = `-- name: ListRecipeCardCategories :many
 SELECT rcr.recipe_id, rc.id, rc.name
 FROM recipe_categories_recipes rcr

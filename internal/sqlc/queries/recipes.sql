@@ -37,6 +37,13 @@ VALUES ($1, $2);
 SELECT count(*) FROM recipes
 WHERE created_by_id = $1;
 
+-- name: GetRecipeTimeRange :one
+SELECT
+    COALESCE(MIN(time_in_minutes), 0)::int AS min_time,
+    COALESCE(MAX(time_in_minutes), 120)::int AS max_time
+FROM recipes
+WHERE approved;
+
 -- name: ListRecipeIngredients :many
 SELECT item_id, unit_id, quantity FROM recipe_ingredients
 WHERE recipe_id = $1
