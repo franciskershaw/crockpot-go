@@ -687,43 +687,22 @@ few-line addendum to a `GET /me` ticket.*
   `CONCURRENTLY` can't run in `golang-migrate`'s per-file transaction).
   Query-shaped composite/covering/partial indexes and `pg_trgm` are out
   of scope — bare FK coverage only. Built ahead of CROC-015.
-- **CROC-033** — Decide and implement (or deliberately drop) periodic
-  cleanup of stale/expired rows in `refresh_tokens`,
-  `email_verification_tokens`, `password_reset_tokens` — currently only
-  opportunistic, per-user, on next login. Resolve `lifecycle.go`'s dead,
-  stale-against-current-interfaces sweeper code either way. Finding 3.
-  *(grilled 2026-09-06)*
-  - **Decision**: build a real sweep (not drop) — revive `lifecycle.go`'s
-    dead `runTokenSweeper` shape (ticker + context-cancellation on
-    graceful shutdown) with real repository methods, in-process rather
-    than `pg_cron`. Reasoning: `pg_cron` only fires while Neon compute is
-    active — on a scale-to-zero tier a sweep scheduled during a suspended
-    window silently never runs, and enabling it needs an out-of-band
-    dashboard/API call outside version control. An in-process goroutine
-    has exactly the app's own reliability envelope, zero extra infra.
-  - **AC**: all three tables covered (not just `refresh_tokens`, which
-    already has per-user precedent) — leaving the other two unaddressed
-    wouldn't actually close the finding. New global (non-per-user)
-    sqlc queries: `DeleteAllStaleRefreshTokenFamilies` (existing
-    definition: `revoked_at IS NOT NULL OR expires_at < now()`),
-    `DeleteAllStaleEmailVerificationTokens` /
-    `DeleteAllStalePasswordResetTokens` (new definition, symmetric with
-    the above: `expires_at < now() OR used_at IS NOT NULL` — a used
-    token is this table's equivalent of "revoked", nothing is lost
-    deleting it). Ticker interval: 24h (token lifetimes here are already
-    short — access 15min, refresh 7-day sliding, email/reset tokens
-    hours-to-a-day — so rows never accumulate for long). Each table's
-    delete runs independently per tick; one table's failure is
-    `slog.Error`-logged and does not block the other two (unrelated
-    tables, unrelated failure causes; the next tick retries the failed
-    one anyway).
-  - **Non-goals**: no admin-facing manual-trigger endpoint; no metrics/
-    alerting on sweep failures beyond the log line.
-  - **Verify**: service boundary, real DB — new repo tests per table
-    (seed one stale + one live row, run the delete, assert only the
-    stale row is gone) via `./scripts/test-repo.sh`; manual dev-run check
-    that the goroutine fires on interval and logs, and exits cleanly on
-    shutdown.
+- **CROC-033** — **Done** (2026-09-06). Periodic in-process sweep
+  (`lifecycle.go`'s `runTokenSweeper`, ticker + `ctx.Done()` on graceful
+  shutdown, wired in `main.go` with a `sync.WaitGroup`) deletes stale
+  rows from all three token tables every 24h, independently per table
+  (one failure `slog.Error`-logged, doesn't block the other two). New
+  repository methods: `DeleteAllStaleFamilies` (refresh_tokens, existing
+  `revoked_at IS NOT NULL OR expires_at < now()` definition) and
+  `DeleteAllStale` on both `email_verification_tokens`/
+  `password_reset_tokens` (`expires_at < now() OR used_at IS NOT NULL`
+  — a used token is this table's equivalent of "revoked"). In-process
+  over `pg_cron`: Neon's cron only fires while compute is active, a real
+  gap on a scale-to-zero tier. Real-DB repo tests per table (seed one
+  stale + one live row, assert only the stale one is gone); manual
+  dev-run confirmed clean startup and clean shutdown (`SIGINT` →
+  `ctx.Done()` → `wg.Wait()` returns, no hang) against the real Neon dev
+  DB. Finding 3.
 - **CROC-034** — Add a request body-size-limit middleware — promised by
   `CLAUDE.md`'s folder-layout doc, never built. Finding 4.
   *(grilled 2026-09-06)*

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -190,6 +191,10 @@ func main() {
 		}
 	}()
 
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go runTokenSweeper(ctx, refreshTokenRepo, emailVerificationTokenRepo, passwordResetTokenRepo, tokenSweepInterval, &wg)
+
 	<-ctx.Done()
 	slog.Info("shutting down")
 
@@ -198,4 +203,5 @@ func main() {
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		fmt.Fprintf(os.Stderr, "graceful shutdown failed: %v\n", err)
 	}
+	wg.Wait()
 }
