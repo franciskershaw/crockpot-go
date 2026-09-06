@@ -677,7 +677,18 @@ few-line addendum to a `GET /me` ticket.*
   an active `WithinTx` transaction (matches every other repository's
   `queriesFor(ctx, r.db)` pattern). Not currently exploitable, but a
   silent atomicity trap for the next ticket that wraps it in a
-  transaction. Finding 1.
+  transaction. Finding 1. *(grilled 2026-09-06)*
+  - **AC**: struct field → `db sqlc.DBTX`, every method routed through
+    `queriesFor(ctx, r.db)`, matching `password_reset_token.go` exactly
+    (verified byte-for-byte at grill). New repo test wraps a call in
+    `transactor.WithinTx` and asserts a forced rollback actually undoes
+    it — nothing today exercises this path, so the fix needs its own
+    proof, not just unchanged existing assertions.
+  - **Non-goals**: no behavior change to any current call site (none
+    runs inside `WithinTx` today).
+  - **Verify**: service boundary, real DB — `./scripts/test-repo.sh -run
+    TestEmailVerificationToken` (existing suite green + new rollback
+    test passes).
 - **CROC-032** — **Done** (2026-08-31). Migration `000008` indexes all
   10 base-schema FK columns that weren't already a leading index column
   (finding 2); `internal/repository/schema_test.go` asserts the property
@@ -690,18 +701,78 @@ few-line addendum to a `GET /me` ticket.*
   `email_verification_tokens`, `password_reset_tokens` — currently only
   opportunistic, per-user, on next login. Resolve `lifecycle.go`'s dead,
   stale-against-current-interfaces sweeper code either way. Finding 3.
+  *(grilled 2026-09-06)*
+  - **Decision**: build a real sweep (not drop) — revive `lifecycle.go`'s
+    dead `runTokenSweeper` shape (ticker + context-cancellation on
+    graceful shutdown) with real repository methods, in-process rather
+    than `pg_cron`. Reasoning: `pg_cron` only fires while Neon compute is
+    active — on a scale-to-zero tier a sweep scheduled during a suspended
+    window silently never runs, and enabling it needs an out-of-band
+    dashboard/API call outside version control. An in-process goroutine
+    has exactly the app's own reliability envelope, zero extra infra.
+  - **AC**: all three tables covered (not just `refresh_tokens`, which
+    already has per-user precedent) — leaving the other two unaddressed
+    wouldn't actually close the finding. New global (non-per-user)
+    sqlc queries: `DeleteAllStaleRefreshTokenFamilies` (existing
+    definition: `revoked_at IS NOT NULL OR expires_at < now()`),
+    `DeleteAllStaleEmailVerificationTokens` /
+    `DeleteAllStalePasswordResetTokens` (new definition, symmetric with
+    the above: `expires_at < now() OR used_at IS NOT NULL` — a used
+    token is this table's equivalent of "revoked", nothing is lost
+    deleting it). Ticker interval: 24h (token lifetimes here are already
+    short — access 15min, refresh 7-day sliding, email/reset tokens
+    hours-to-a-day — so rows never accumulate for long). Each table's
+    delete runs independently per tick; one table's failure is
+    `slog.Error`-logged and does not block the other two (unrelated
+    tables, unrelated failure causes; the next tick retries the failed
+    one anyway).
+  - **Non-goals**: no admin-facing manual-trigger endpoint; no metrics/
+    alerting on sweep failures beyond the log line.
+  - **Verify**: service boundary, real DB — new repo tests per table
+    (seed one stale + one live row, run the delete, assert only the
+    stale row is gone) via `./scripts/test-repo.sh`; manual dev-run check
+    that the goroutine fires on interval and logs, and exits cleanly on
+    shutdown.
 - **CROC-034** — Add a request body-size-limit middleware — promised by
   `CLAUDE.md`'s folder-layout doc, never built. Finding 4.
+  *(grilled 2026-09-06)*
+  - **AC**: new `internal/middleware/body_limit.go` wrapping requests in
+    `http.MaxBytesReader`, cap **1 MiB**, wired via `server.Use(...)` in
+    `main.go` alongside CORS/rate-limit. Oversized body → consistent
+    error shape with the rest of the API (`{"error":
+    "request_too_large"}`, matching the snake_case-code convention
+    `CROC-041` unified everything else onto).
+  - **Non-goals**: no per-route override (every endpoint gets the same
+    1 MiB cap — no current endpoint's legitimate payload is anywhere
+    close to that size).
+  - **Verify**: logic w/ assertable behaviour — `go test
+    ./internal/middleware/...`, new `body_limit_test.go`: oversized body
+    rejected with the right status/code, in-limit body passes through
+    unchanged.
 - **CROC-035** — Collapse `email.ResendClient`'s two near-identical
-  send methods into one shared helper. Finding 5.
+  send methods into one shared helper. Finding 5. *(grilled 2026-09-06)*
+  - **AC**: both `SendConfirmationCode`/`SendPasswordResetLink` route
+    through one `send(ctx, toEmail, subject, html, text string) error`
+    helper in `resend.go`. Pure refactor — no behavior change.
+  - **Verify**: logic w/ assertable behaviour — `go test
+    ./internal/email/...`, existing `resend_test.go` green unmodified.
 - **CROC-036** — `db.go`'s three `fmt.Print*` log lines → `slog`, to
   match the app's structured logger (`main.go:37`). Finding 7. *(Findings
   6 and 8 — rate-limit error-body codes, and the `auth_handler.go`
   helper retrofit — moved to `CROC-041` at that ticket's grill, same
-  error-shape theme.)*
+  error-shape theme.)* *(grilled 2026-09-06)*
+  - **AC**: all 3 lines (`db.go:48,71,80`) → `slog.Info`/`slog.Error`.
+  - **Verify**: real dependency — `go run .` locally, eyeball stdout: all
+    3 lines now formatted like the rest of startup logging.
 - **CROC-037** — Drop the `lib/pq` dependency: switch `db.go`'s migrator
   to `golang-migrate`'s native `database/pgx/v5` driver, reusing the
-  app's existing pgx stack. Finding 9.
+  app's existing pgx stack. Finding 9. *(grilled 2026-09-06)*
+  - **AC**: `runMigrations` uses `database/pgx/v5`'s driver against the
+    existing `pgxpool.Pool` (no second connection-string parse);
+    `_ "github.com/lib/pq"` blank import removed; `go mod tidy` at
+    ticket-end drops it from `go.mod`.
+  - **Verify**: service boundary, real DB — `migrate up` /`down 1`/`up`
+    round-trip against the Neon dev DB, same pattern `CROC-032` used.
 - **CROC-041** — **Done** (2026-08-31, `docs/handoffs/CROC-041.md`).
   API error responses go through shared helpers in `handler/errors.go`
   (`badRequest`/`notFound`/`conflict`/`unauthorized`/`forbidden`/
