@@ -356,6 +356,27 @@ revisit if/when a "trash" UX is wanted for recipes or menus.
 
 ## Ticket backlog
 
+*Next-phase priority set 2026-09-06: the founder's own call, superseding an
+earlier Claude-roadmap suggestion to do `CROC-016` (recipe update/delete)
+next. Goal: make the browse page feel feature-complete before anything
+else — random ordering, real ranking, on-card match info, and add-to-menu
+(including a per-card quick-add). Sequenced by reversibility:
+**`CROC-019` (menu read/upsert-entry) grills and builds first** — small,
+CRUD-shaped, same pattern as `CROC-018` favourites, unblocks two
+`crockpot-react` tickets (`CFE-005`'s detail-page add-to-menu action and
+a new browse-card quick-add ticket). **`CROC-042` (relevance ranking)
+follows** — the bigger, more open-ended piece (scoring model, a probable
+`recipe_categories` schema change, random ordering). Its match-explanation
+UI does *not* need a fresh design pass: the old app's
+`src/app/recipes/components/RecipeCard.tsx` (`RelevanceBadge`, "Best
+Match"/"Good Match" star badges + inline "N ingredients/categories
+matched" chips, shown only when content filters are active) is real,
+working precedent for the **presentation** — reuse it. Its **scoring
+algorithm** (`src/data/recipes/helper.ts`/`relevance-cache.ts`) stays
+rejected per the reasoning already captured in `CROC-042`'s own appendix
+below (flat weights, ignores recipe size/category kind) — port the look,
+not the math.*
+
 ### Epic 1: Foundations
 - **CROC-001** — Project scaffold. **Done.**
 - **CROC-002** — Initial schema migration. **Done.**
@@ -579,7 +600,11 @@ session.*
 ### Epic 5: Meal Planning
 - **CROC-019** — Menu read/upsert-entry (`GET /menu`, `POST /menu/entries`,
   `PATCH`/`DELETE /menu/entries/:recipeId`) — one menu per user, entries
-  keyed by recipe with a serving count.
+  keyed by recipe with a serving count. **Done** (2026-09-06,
+  `docs/handoffs/CROC-019.md`). Landed an atomic `ON CONFLICT` upsert on
+  a new `recipe_menu_entries` unique constraint, lazy menu creation, and
+  `created_at`-ordered entries. Unblocks `crockpot-react`'s `CFE-020` and
+  `CFE-005`'s add-to-menu action.
 - **CROC-020** — Menu history tracking (increment/first/last-added,
   last-removed) as entries are added/removed — powers "you've made this
   before" style features later.

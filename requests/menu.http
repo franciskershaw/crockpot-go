@@ -1,0 +1,357 @@
+# Crockpot API — /menu
+#
+# GET /menu, POST /menu/entries, PATCH/DELETE /menu/entries/:recipeId —
+# CROC-019. All four behind full AuthMiddleware (no anonymous path, same
+# as favourites). One menu per user, created lazily on the first POST —
+# there is no separate "create menu" step.
+#
+# This file creates its own throwaway recipes with the ADMIN account
+# (auto-approved), so the hidden-recipe 404 case on POST /menu/entries
+# can't be exercised here the same way a non-admin caller would hit it
+# (an admin sees every recipe that exists) — that path is covered at the
+# repository/handler layers with mocked/seeded non-admin callers
+# (internal/repository/menu_test.go, internal/handler/menu_handler_test.go).
+# What IS exercised for real here: a well-formed but nonexistent recipe id
+# 404s the same way regardless of caller role, since RecipeVisibleToCaller
+# requires the row to exist at all.
+#
+# Run top-to-bottom: creates recipeA (added to the menu) and recipeB
+# (left off it, used for the PATCH/DELETE "not on menu" cases).
+
+
+# ══════════════════════════════════════════
+#  Login (ADMIN account)
+# ══════════════════════════════════════════
+
+### Login, to get a token for the checks below.
+# @name login
+POST http://localhost:{{$dotenv PORT}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "password": "correcthorsebattery"
+}
+
+###
+
+@authToken = {{login.response.body.accessToken}}
+
+
+# ══════════════════════════════════════════
+#  Fixtures — two throwaway approved recipes
+# ══════════════════════════════════════════
+
+### Real item category to hang a throwaway item off.
+# @name itemCategory
+GET http://localhost:{{$dotenv PORT}}/item-categories
+
+###
+
+@itemCategoryId = {{itemCategory.response.body.$[0].id}}
+
+### Real seeded recipe category.
+# @name recipeCategories
+GET http://localhost:{{$dotenv PORT}}/recipe-categories
+
+###
+
+@recipeCategoryId = {{recipeCategories.response.body.$[0].id}}
+
+### Throwaway item.
+# @name item
+POST http://localhost:{{$dotenv PORT}}/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-menu-item",
+  "categoryId": "{{itemCategoryId}}"
+}
+
+###
+
+@itemId = {{item.response.body.id}}
+
+### recipeA — will be added to the menu.
+# @name recipeA
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-menu Recipe A",
+  "timeInMinutes": 30,
+  "serves": 4,
+  "instructions": ["Cook it"],
+  "categoryIds": ["{{recipeCategoryId}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+
+###
+
+@recipeAId = {{recipeA.response.body.id}}
+
+### recipeB — left off the menu, used for the "not on menu" PATCH/DELETE cases.
+# @name recipeB
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-menu Recipe B",
+  "timeInMinutes": 30,
+  "serves": 4,
+  "instructions": ["Cook it too"],
+  "categoryIds": ["{{recipeCategoryId}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+
+###
+
+@recipeBId = {{recipeB.response.body.id}}
+
+
+# ══════════════════════════════════════════
+#  GET /menu — before anything's added
+# ══════════════════════════════════════════
+
+### ✅ 200 — empty entries. No error even if this account has never had a menu.
+GET http://localhost:{{$dotenv PORT}}/menu
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  POST /menu/entries — upsert (happy path)
+# ══════════════════════════════════════════
+
+### ✅ 200 — add recipeA, serves 4. Lazily creates the menu row.
+POST http://localhost:{{$dotenv PORT}}/menu/entries
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "recipeId": "{{recipeAId}}",
+  "serves": 4
+}
+
+###
+
+### ✅ 200 — recipeA now appears in GET /menu, hydrated with its recipe card + category.
+GET http://localhost:{{$dotenv PORT}}/menu
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — adding recipeA again with a different serves updates it in place —
+### no duplicate entry, GET /menu below should still show exactly one entry.
+POST http://localhost:{{$dotenv PORT}}/menu/entries
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "recipeId": "{{recipeAId}}",
+  "serves": 8
+}
+
+###
+
+### ✅ 200 — confirm: still one entry, serves now 8.
+GET http://localhost:{{$dotenv PORT}}/menu
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  PATCH /menu/entries/:recipeId
+# ══════════════════════════════════════════
+
+### ✅ 200 — change recipeA's serves.
+PATCH http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeAId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "serves": 2
+}
+
+###
+
+### ✅ 200 — confirm the new serves.
+GET http://localhost:{{$dotenv PORT}}/menu
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 404 menu_entry_not_found — recipeB was never added.
+PATCH http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeBId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "serves": 2
+}
+
+###
+
+
+# ══════════════════════════════════════════
+#  DELETE /menu/entries/:recipeId
+# ══════════════════════════════════════════
+
+### ✅ 200 — remove recipeA.
+DELETE http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeAId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — confirm: back to empty entries.
+GET http://localhost:{{$dotenv PORT}}/menu
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — removing it again is idempotent, same message, not a 404.
+DELETE http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeAId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — recipeB was never on the menu either; removing it is also a no-op 200.
+DELETE http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeBId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  Auth + validation
+# ══════════════════════════════════════════
+
+### 🚫 401 — no token on GET.
+GET http://localhost:{{$dotenv PORT}}/menu
+
+###
+
+### 🚫 401 — no token on POST.
+POST http://localhost:{{$dotenv PORT}}/menu/entries
+Content-Type: application/json
+
+{
+  "recipeId": "{{recipeAId}}",
+  "serves": 4
+}
+
+###
+
+### 🚫 401 — no token on PATCH.
+PATCH http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeAId}}
+Content-Type: application/json
+
+{
+  "serves": 4
+}
+
+###
+
+### 🚫 401 — no token on DELETE.
+DELETE http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeAId}}
+
+###
+
+### 🚫 400 invalid_request — malformed recipeId in the POST body.
+POST http://localhost:{{$dotenv PORT}}/menu/entries
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "recipeId": "not-a-uuid",
+  "serves": 4
+}
+
+###
+
+### 🚫 400 invalid_serves — too low.
+POST http://localhost:{{$dotenv PORT}}/menu/entries
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "recipeId": "{{recipeAId}}",
+  "serves": 0
+}
+
+###
+
+### 🚫 400 invalid_serves — too high.
+POST http://localhost:{{$dotenv PORT}}/menu/entries
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "recipeId": "{{recipeAId}}",
+  "serves": 51
+}
+
+###
+
+### 🚫 404 not_found — well-formed but nonexistent recipe id. Requires the
+### row to exist at all, regardless of caller role — 404s even for ADMIN.
+POST http://localhost:{{$dotenv PORT}}/menu/entries
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "recipeId": "00000000-0000-0000-0000-000000000000",
+  "serves": 4
+}
+
+###
+
+### 🚫 400 invalid_request — malformed recipeId in the PATCH path.
+PATCH http://localhost:{{$dotenv PORT}}/menu/entries/not-a-uuid
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "serves": 4
+}
+
+###
+
+### 🚫 400 invalid_serves — out of range on PATCH.
+PATCH http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeAId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "serves": 0
+}
+
+###
+
+### 🚫 400 invalid_request — malformed recipeId in the DELETE path.
+DELETE http://localhost:{{$dotenv PORT}}/menu/entries/not-a-uuid
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  Cleanup
+# ══════════════════════════════════════════
+
+### No DELETE /recipes endpoint until CROC-016. Run this SQL against the
+### dev DB to reset:
+###
+###   DELETE FROM recipes WHERE name LIKE 'http-test-menu%';
+###   DELETE FROM items   WHERE name LIKE 'http-test-menu-item%';
+###
+### (recipe_menu_entries cascades with the recipe rows via ON DELETE
+### CASCADE — nothing to clean up there directly.) The menu section above
+### already leaves the ADMIN account's menu empty by the end of the run,
+### so the leftover empty recipe_menus row is harmless — same shape any
+### real user's menu takes after removing everything.
