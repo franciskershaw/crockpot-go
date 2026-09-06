@@ -424,3 +424,34 @@ implementation quality until CROC-001 lands.
 - **Pattern**: a model with no `json` tags is a signal, not just a style
   gap — every sibling in the same file having them makes the omission
   the kind of thing a diff review should always catch, and did.
+
+## 2026-09-06 — CROC-031, 033–037 — Second tech-debt pass shipped clean; `/code-review` caught a self-inflicted regression, not an implementation bug
+
+- All six tickets went red→green clean on the first attempt — no
+  implementation rework. Mid-batch, a process gap surfaced: two tickets
+  were implemented back-to-back before the founder had actually
+  committed the first, despite "stop at reasonable commit boundaries" —
+  corrected explicitly, followed correctly for the remaining four.
+- `/code-review medium main` (run once across the whole six-ticket
+  batch, not per-ticket) found the one real bug of this batch: writing
+  CROC-037's `db_test.go`, `Write` was used on a file that already
+  existed (with `TestInitDB_EmptyDatabaseURL` in it) and silently
+  clobbered that test instead of appending to it — not self-caught.
+  Also flagged (and fixed): `runTokenSweeper`'s own orchestration logic
+  had no test, only the repository methods it calls did; two
+  structurally identical sweep interfaces should have been one.
+- The review itself hit a real cost problem, unrelated to the code:
+  launched at 68% session usage, its 9-agent parallel fan-out (shared
+  usage pool across all sub-agents) tipped the session over its limit
+  within seconds, failing with zero findings delivered. An identical
+  re-run after a full limit reset cost only ~5% — likely because
+  retry/backoff thrashing near an already-strained limit inflates real
+  cost far above the same work run with headroom (not fully verified,
+  no per-agent telemetry available). Reported as product feedback; no
+  policy change made this ticket (founder deferred the decision).
+- **Pattern**: before adding a new test file, check whether it already
+  exists and read it first — don't assume a file is new just because
+  the current ticket's own tests are the only ones you're thinking
+  about. And: a multi-agent review's cost is unpredictable in advance —
+  prefer running one with real usage headroom (well under the limit),
+  not saved up for the end of a session.
