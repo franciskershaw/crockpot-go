@@ -430,21 +430,21 @@ WITH candidates AS (
     FROM recipes r
     WHERE (
             r.approved
-            OR $5::boolean
-            OR ($6::uuid IS NOT NULL AND r.created_by_id = $6::uuid)
+            OR $10::boolean
+            OR ($11::uuid IS NOT NULL AND r.created_by_id = $11::uuid)
         )
         AND (
-            NOT $7::boolean
-            OR ($6::uuid IS NOT NULL AND r.created_by_id = $6::uuid)
+            NOT $12::boolean
+            OR ($11::uuid IS NOT NULL AND r.created_by_id = $11::uuid)
         )
-        AND ($8::text = '' OR r.name ILIKE '%' || $8::text || '%')
-        AND ($9::int = 0 OR r.time_in_minutes >= $9::int)
-        AND ($10::int = 0 OR r.time_in_minutes <= $10::int)
+        AND ($4::text = '' OR r.name ILIKE '%' || $4::text || '%')
+        AND ($5::int = 0 OR r.time_in_minutes >= $5::int)
+        AND ($6::int = 0 OR r.time_in_minutes <= $6::int)
         AND (
-            cardinality($11::uuid[]) = 0
+            cardinality($3::uuid[]) = 0
             OR NOT EXISTS (
                 SELECT 1 FROM recipe_categories_recipes x
-                WHERE x.recipe_id = r.id AND x.category_id = ANY($11::uuid[])
+                WHERE x.recipe_id = r.id AND x.category_id = ANY($3::uuid[])
             )
         )
         AND (
@@ -461,40 +461,59 @@ WITH candidates AS (
                 WHERE x.recipe_id = r.id AND x.item_id = ANY($1::uuid[])
             )
         )
+), scored AS (
+    SELECT
+        candidates.id, candidates.name, candidates.description, candidates.time_in_minutes, candidates.image_url, candidates.image_filename, candidates.instructions, candidates.notes, candidates.approved, candidates.serves, candidates.created_by_id, candidates.created_by_name, candidates.created_at, candidates.updated_at, candidates.total_ingredient_count, candidates.matched_ingredient_count, candidates.matched_category_count,
+        (CASE
+            WHEN cardinality($1::uuid[]) = 0 AND cardinality($2::uuid[]) = 0
+                THEN 0::float8
+            WHEN cardinality($2::uuid[]) = 0
+                THEN COALESCE(matched_ingredient_count::float8 / NULLIF(total_ingredient_count, 0), 0)
+            WHEN cardinality($1::uuid[]) = 0
+                THEN matched_category_count::float8 / cardinality($2::uuid[])
+            ELSE
+                (
+                    COALESCE(matched_ingredient_count::float8 / NULLIF(total_ingredient_count, 0), 0)
+                        * cardinality($1::uuid[])
+                    + matched_category_count::float8
+                ) / (cardinality($1::uuid[]) + cardinality($2::uuid[]))
+        END)::float8 AS score
+    FROM candidates
 )
-SELECT
-    candidates.id, candidates.name, candidates.description, candidates.time_in_minutes, candidates.image_url, candidates.image_filename, candidates.instructions, candidates.notes, candidates.approved, candidates.serves, candidates.created_by_id, candidates.created_by_name, candidates.created_at, candidates.updated_at, candidates.total_ingredient_count, candidates.matched_ingredient_count, candidates.matched_category_count,
+SELECT scored.id, scored.name, scored.description, scored.time_in_minutes, scored.image_url, scored.image_filename, scored.instructions, scored.notes, scored.approved, scored.serves, scored.created_by_id, scored.created_by_name, scored.created_at, scored.updated_at, scored.total_ingredient_count, scored.matched_ingredient_count, scored.matched_category_count, scored.score
+FROM scored
+ORDER BY
     (CASE
-        WHEN cardinality($1::uuid[]) = 0 AND cardinality($2::uuid[]) = 0
-            THEN 0::float8
-        WHEN cardinality($2::uuid[]) = 0
-            THEN COALESCE(matched_ingredient_count::float8 / NULLIF(total_ingredient_count, 0), 0)
+        WHEN cardinality($1::uuid[]) > 0 OR cardinality($2::uuid[]) > 0
+            THEN scored.score
+    END) DESC,
+    (CASE
         WHEN cardinality($1::uuid[]) = 0
-            THEN matched_category_count::float8 / cardinality($2::uuid[])
-        ELSE
-            (
-                COALESCE(matched_ingredient_count::float8 / NULLIF(total_ingredient_count, 0), 0)
-                    * cardinality($1::uuid[])
-                + matched_category_count::float8
-            ) / (cardinality($1::uuid[]) + cardinality($2::uuid[]))
-    END)::float8 AS score
-FROM candidates
-ORDER BY candidates.created_at DESC, candidates.id
-LIMIT $4::int OFFSET $3::int
+            AND cardinality($2::uuid[]) = 0
+            AND cardinality($3::uuid[]) = 0
+            AND $4::text = ''
+            AND $5::int = 0
+            AND $6::int = 0
+            THEN md5(scored.id::text || $7::text)
+    END) ASC,
+    scored.created_at DESC,
+    scored.id
+LIMIT $9::int OFFSET $8::int
 `
 
 type ListRecipesParams struct {
 	IngredientIds      []pgtype.UUID
 	IncludeCategoryIds []pgtype.UUID
+	ExcludeCategoryIds []pgtype.UUID
+	NameQuery          string
+	MinTime            int32
+	MaxTime            int32
+	Seed               string
 	ResultOffset       int32
 	ResultLimit        int32
 	CallerIsAdmin      bool
 	CallerID           pgtype.UUID
 	OnlyMine           bool
-	NameQuery          string
-	MinTime            int32
-	MaxTime            int32
-	ExcludeCategoryIds []pgtype.UUID
 }
 
 type ListRecipesRow struct {
@@ -522,15 +541,16 @@ func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]Lis
 	rows, err := q.db.Query(ctx, listRecipes,
 		arg.IngredientIds,
 		arg.IncludeCategoryIds,
+		arg.ExcludeCategoryIds,
+		arg.NameQuery,
+		arg.MinTime,
+		arg.MaxTime,
+		arg.Seed,
 		arg.ResultOffset,
 		arg.ResultLimit,
 		arg.CallerIsAdmin,
 		arg.CallerID,
 		arg.OnlyMine,
-		arg.NameQuery,
-		arg.MinTime,
-		arg.MaxTime,
-		arg.ExcludeCategoryIds,
 	)
 	if err != nil {
 		return nil, err

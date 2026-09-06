@@ -2,6 +2,9 @@ package repository_test
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
+	"sort"
 	"testing"
 	"time"
 
@@ -483,6 +486,135 @@ func setCreatedAt(t *testing.T, id uuid.UUID, ts time.Time) {
 	t.Helper()
 	_, err := db.DB.Exec(context.Background(), `UPDATE recipes SET created_at = $1 WHERE id = $2`, ts, id)
 	require.NoError(t, err)
+}
+
+// seededOrder mirrors the SQL ordering expression (md5(id::text || seed) ascending) in Go.
+func seededOrder(ids []uuid.UUID, seed string) []uuid.UUID {
+	type keyed struct {
+		id   uuid.UUID
+		hash string
+	}
+	pairs := make([]keyed, len(ids))
+	for i, id := range ids {
+		sum := md5.Sum([]byte(id.String() + seed))
+		pairs[i] = keyed{id, hex.EncodeToString(sum[:])}
+	}
+	sort.Slice(pairs, func(i, j int) bool { return pairs[i].hash < pairs[j].hash })
+	out := make([]uuid.UUID, len(pairs))
+	for i, p := range pairs {
+		out[i] = p.id
+	}
+	return out
+}
+
+func indexOfID(ids []uuid.UUID, target uuid.UUID) int {
+	for i, id := range ids {
+		if id == target {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestListRecipes_Ordering_ScoredModeOrdersByScoreDescending(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	itemCat := insertTestItemCategory(t, "repo-test-ic-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	item1 := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	item2 := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	item3 := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	extra1 := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	extra2 := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+
+	// high has coverage 1.0 (3/3), low has 1/3 (padded with unmatched extras); high is created first too.
+	high := createTestRecipe(t, recipeOpts{
+		createdBy: owner, approved: true,
+		ingredients: []models.Ingredient{{ItemID: item1, Quantity: 1}, {ItemID: item2, Quantity: 1}, {ItemID: item3, Quantity: 1}},
+	})
+	low := createTestRecipe(t, recipeOpts{
+		createdBy: owner, approved: true,
+		ingredients: []models.Ingredient{{ItemID: item1, Quantity: 1}, {ItemID: extra1, Quantity: 1}, {ItemID: extra2, Quantity: 1}},
+	})
+
+	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+		IngredientIDs: []uuid.UUID{item1, item2, item3}, Page: 1, Limit: 50,
+	})
+	require.NoError(t, err)
+	ids := cardIDs(cards)
+	assert.Less(t, indexOfID(ids, high), indexOfID(ids, low), "the fuller ingredient match should rank ahead")
+}
+
+func TestListRecipes_Ordering_NameQueryOnlyKeepsPlainDefaultOrder(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	marker := "Zqx" + uuid.NewString()[:8]
+	a := createTestRecipe(t, recipeOpts{name: "Plain Order A " + marker, createdBy: owner, approved: true})
+	b := createTestRecipe(t, recipeOpts{name: "Plain Order B " + marker, createdBy: owner, approved: true})
+	c := createTestRecipe(t, recipeOpts{name: "Plain Order C " + marker, createdBy: owner, approved: true})
+
+	now := time.Now()
+	setCreatedAt(t, a, now.Add(-1*time.Hour))
+	setCreatedAt(t, b, now.Add(-3*time.Hour))
+	setCreatedAt(t, c, now.Add(-2*time.Hour))
+
+	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+		Query: marker, Seed: "should-be-ignored-in-this-mode", Page: 1, Limit: 50,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []uuid.UUID{a, c, b}, cardIDs(cards))
+}
+
+func TestListRecipes_Ordering_NoFiltersUsesSeededRandomOrder(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	marker := "Zqx" + uuid.NewString()[:8]
+	a := createTestRecipe(t, recipeOpts{name: "Seed Marker A " + marker, createdBy: owner, approved: true})
+	b := createTestRecipe(t, recipeOpts{name: "Seed Marker B " + marker, createdBy: owner, approved: true})
+	c := createTestRecipe(t, recipeOpts{name: "Seed Marker C " + marker, createdBy: owner, approved: true})
+
+	seed := "test-seed-" + uuid.NewString()
+	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Seed: seed, Page: 1, Limit: 1000})
+	require.NoError(t, err)
+
+	want := map[uuid.UUID]bool{a: true, b: true, c: true}
+	var actual []uuid.UUID
+	for _, card := range cards {
+		if want[card.ID] {
+			actual = append(actual, card.ID)
+		}
+	}
+	expected := seededOrder([]uuid.UUID{a, b, c}, seed)
+	assert.Equal(t, expected, actual)
+}
+
+func TestListRecipes_Ordering_SameSeedIsStableAcrossCalls(t *testing.T) {
+	ctx := context.Background()
+	seed := "stable-seed-" + uuid.NewString()
+	f := models.RecipeListFilter{Seed: seed, Page: 1, Limit: 50}
+
+	first, _, err := recipeRepo.List(ctx, f)
+	require.NoError(t, err)
+	second, _, err := recipeRepo.List(ctx, f)
+	require.NoError(t, err)
+	assert.Equal(t, cardIDs(first), cardIDs(second))
+}
+
+func TestListRecipes_Ordering_SeededPaginationHasNoDuplicatesOrGaps(t *testing.T) {
+	ctx := context.Background()
+	seed := "page-seed-" + uuid.NewString()
+
+	full, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Seed: seed, Page: 1, Limit: 20})
+	require.NoError(t, err)
+	require.Len(t, full, 20)
+
+	page1, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Seed: seed, Page: 1, Limit: 10})
+	require.NoError(t, err)
+	page2, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Seed: seed, Page: 2, Limit: 10})
+	require.NoError(t, err)
+
+	fullIDs := cardIDs(full)
+	assert.Equal(t, fullIDs[:10], cardIDs(page1))
+	assert.Equal(t, fullIDs[10:20], cardIDs(page2))
 }
 
 func TestListRecipes_Pagination(t *testing.T) {

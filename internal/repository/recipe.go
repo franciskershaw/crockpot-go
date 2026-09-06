@@ -71,6 +71,7 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 		ExcludeCategoryIds: pgUUIDs(filter.ExcludeCategoryIDs),
 		IncludeCategoryIds: pgUUIDs(filter.IncludeCategoryIDs),
 		IngredientIds:      pgUUIDs(filter.IngredientIDs),
+		Seed:               filter.Seed,
 		ResultLimit:        int32(filter.Limit),
 		ResultOffset:       int32(offset),
 	})

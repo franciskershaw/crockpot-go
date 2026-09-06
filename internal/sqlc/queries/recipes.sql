@@ -96,25 +96,43 @@ WITH candidates AS (
                 WHERE x.recipe_id = r.id AND x.item_id = ANY(sqlc.arg(ingredient_ids)::uuid[])
             )
         )
+), scored AS (
+    SELECT
+        candidates.*,
+        (CASE
+            WHEN cardinality(sqlc.arg(ingredient_ids)::uuid[]) = 0 AND cardinality(sqlc.arg(include_category_ids)::uuid[]) = 0
+                THEN 0::float8
+            WHEN cardinality(sqlc.arg(include_category_ids)::uuid[]) = 0
+                THEN COALESCE(matched_ingredient_count::float8 / NULLIF(total_ingredient_count, 0), 0)
+            WHEN cardinality(sqlc.arg(ingredient_ids)::uuid[]) = 0
+                THEN matched_category_count::float8 / cardinality(sqlc.arg(include_category_ids)::uuid[])
+            ELSE
+                (
+                    COALESCE(matched_ingredient_count::float8 / NULLIF(total_ingredient_count, 0), 0)
+                        * cardinality(sqlc.arg(ingredient_ids)::uuid[])
+                    + matched_category_count::float8
+                ) / (cardinality(sqlc.arg(ingredient_ids)::uuid[]) + cardinality(sqlc.arg(include_category_ids)::uuid[]))
+        END)::float8 AS score
+    FROM candidates
 )
-SELECT
-    candidates.*,
+SELECT scored.*
+FROM scored
+ORDER BY
     (CASE
-        WHEN cardinality(sqlc.arg(ingredient_ids)::uuid[]) = 0 AND cardinality(sqlc.arg(include_category_ids)::uuid[]) = 0
-            THEN 0::float8
-        WHEN cardinality(sqlc.arg(include_category_ids)::uuid[]) = 0
-            THEN COALESCE(matched_ingredient_count::float8 / NULLIF(total_ingredient_count, 0), 0)
+        WHEN cardinality(sqlc.arg(ingredient_ids)::uuid[]) > 0 OR cardinality(sqlc.arg(include_category_ids)::uuid[]) > 0
+            THEN scored.score
+    END) DESC,
+    (CASE
         WHEN cardinality(sqlc.arg(ingredient_ids)::uuid[]) = 0
-            THEN matched_category_count::float8 / cardinality(sqlc.arg(include_category_ids)::uuid[])
-        ELSE
-            (
-                COALESCE(matched_ingredient_count::float8 / NULLIF(total_ingredient_count, 0), 0)
-                    * cardinality(sqlc.arg(ingredient_ids)::uuid[])
-                + matched_category_count::float8
-            ) / (cardinality(sqlc.arg(ingredient_ids)::uuid[]) + cardinality(sqlc.arg(include_category_ids)::uuid[]))
-    END)::float8 AS score
-FROM candidates
-ORDER BY candidates.created_at DESC, candidates.id
+            AND cardinality(sqlc.arg(include_category_ids)::uuid[]) = 0
+            AND cardinality(sqlc.arg(exclude_category_ids)::uuid[]) = 0
+            AND sqlc.arg(name_query)::text = ''
+            AND sqlc.arg(min_time)::int = 0
+            AND sqlc.arg(max_time)::int = 0
+            THEN md5(scored.id::text || sqlc.arg(seed)::text)
+    END) ASC,
+    scored.created_at DESC,
+    scored.id
 LIMIT sqlc.arg(result_limit)::int OFFSET sqlc.arg(result_offset)::int;
 
 -- name: CountRecipes :one

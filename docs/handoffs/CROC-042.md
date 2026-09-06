@@ -171,32 +171,49 @@ it's just hashed).
 
 ## Acceptance criteria
 
-- [ ] Selecting ingredients and/or categories scores and orders results
+- [x] Selecting ingredients and/or categories scores and orders results
       by the selection-count-weighted coverage formula (Decision 4),
       verified against hand-built fixture recipes with known
-      ingredient/category overlaps.
-- [ ] Selecting only categories (no ingredients) still produces a
+      ingredient/category overlaps. `TestListRecipes_Score_BothAxesWeightedBySelectionCount`,
+      `TestListRecipes_Ordering_ScoredModeOrdersByScoreDescending`.
+- [x] Selecting only categories (no ingredients) still produces a
       meaningful score (`categoryCoverage` alone) — a recipe matching
       all selected categories scores 1.0 regardless of its own tag
-      count.
-- [ ] Selecting only ingredients (no categories) still produces a
-      meaningful score (`ingredientCoverage` alone).
-- [ ] `q` and time-range filters remain hard `AND` filters and do not
-      affect score, order, or the match-explanation fields.
-- [ ] No filters at all → results ordered by `md5(id || seed)`, stable
+      count. `TestListRecipes_Score_CategoryOnlyIsPlainCoverage`.
+- [x] Selecting only ingredients (no categories) still produces a
+      meaningful score (`ingredientCoverage` alone). `TestListRecipes_Score_IngredientOnlyIsPlainCoverage`.
+- [x] `q` and time-range filters remain hard `AND` filters and do not
+      affect score, order, or the match-explanation fields. Unchanged
+      pre-existing tests (`TestListRecipes_NameQueryCaseInsensitivePartial`,
+      `TestListRecipes_TimeRangeIsAHardFilter`) still pass; score is 0
+      on a query-only request (`TestListRecipes_Score_NoFiltersIsZeroWithNoTier`)
+      and the score `CASE` expression never references `name_query`/
+      `min_time`/`max_time` (`internal/sqlc/queries/recipes.sql`).
+- [x] No filters at all → results ordered by `md5(id || seed)`, stable
       across repeated requests with the same seed, and paginate without
       duplicates or gaps across multiple pages for a fixed seed.
-- [ ] Only `q`/time set, no categories/ingredients → ordering is
+      `TestListRecipes_Ordering_NoFiltersUsesSeededRandomOrder`,
+      `TestListRecipes_Ordering_SameSeedIsStableAcrossCalls`,
+      `TestListRecipes_Ordering_SeededPaginationHasNoDuplicatesOrGaps`.
+- [x] Only `q`/time set, no categories/ingredients → ordering is
       unchanged from current behaviour (`created_at DESC, id`).
-- [ ] `matchedIngredientCount`, `totalIngredientCount`,
+      `TestListRecipes_Ordering_NameQueryOnlyKeepsPlainDefaultOrder`.
+- [x] `matchedIngredientCount`, `totalIngredientCount`,
       `matchedCategoryCount`, `score`, `tier` are present on every
       `RecipeCard` in the scored-ordering mode, and zero/null in the
-      other two modes.
-- [ ] `tier` is `"best"` at score ≥ 0.8, `"good"` at score ≥ 0.5,
-      `null` below — verified at the boundary values.
-- [ ] `CountRecipes`/pagination totals are unaffected by ordering mode
-      (same `WHERE`-only count as today).
-- [ ] `requests/recipes.http` extended to cover: ingredients+categories
+      other two modes. `TestListRecipes_IngredientCoverageCounts`,
+      `TestListRecipes_CategoryCoverageCounts`,
+      `TestListRecipes_Score_NoFiltersIsZeroWithNoTier` — the score
+      `CASE`'s no-signal branch is identical for the seeded-random and
+      plain-default modes (both gated on the same ingredient/category
+      cardinality check), so one test covers both.
+- [x] `tier` is `"best"` at score ≥ 0.8, `"good"` at score ≥ 0.5,
+      `null` below — verified at the boundary values. `TestListRecipes_Tier_Thresholds`.
+- [x] `CountRecipes`/pagination totals are unaffected by ordering mode
+      (same `WHERE`-only count as today). `CountRecipes` was never
+      touched by this ticket's changes (confirmed by inspection);
+      `TestListRecipes_CountMatchesListLength` still passes.
+- [x] `requests/recipes.http` extended to cover: ingredients+categories
       scored request, categories-only, ingredients-only, no-filters
       seeded request run twice with the same seed (same order), and a
       `q`-only request (unchanged ordering).
