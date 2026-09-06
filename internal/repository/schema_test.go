@@ -44,3 +44,43 @@ func TestSchemaFKColumnsAreIndexed(t *testing.T) {
 		})
 	}
 }
+
+// Upsert-entry needs an atomic ON CONFLICT target and created_at for ordering.
+func TestRecipeMenuEntriesUpsertSupport(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("unique constraint on (recipe_menu_id, recipe_id)", func(t *testing.T) {
+		rows, err := db.DB.Query(ctx, `
+			SELECT a.attname
+			FROM pg_constraint con
+			JOIN pg_class t ON t.oid = con.conrelid
+			JOIN LATERAL unnest(con.conkey) AS colnum ON true
+			JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = colnum
+			WHERE t.relname = 'recipe_menu_entries' AND con.contype = 'u'`)
+		require.NoError(t, err)
+		defer rows.Close()
+
+		var cols []string
+		for rows.Next() {
+			var name string
+			require.NoError(t, rows.Scan(&name))
+			cols = append(cols, name)
+		}
+		require.NoError(t, rows.Err())
+
+		assert.ElementsMatch(t, []string{"recipe_menu_id", "recipe_id"}, cols,
+			"recipe_menu_entries has no unique constraint on exactly (recipe_menu_id, recipe_id)")
+	})
+
+	t.Run("created_at column exists, not null, defaulted", func(t *testing.T) {
+		var isNullable, columnDefault string
+		err := db.DB.QueryRow(ctx, `
+			SELECT is_nullable, COALESCE(column_default, '')
+			FROM information_schema.columns
+			WHERE table_name = 'recipe_menu_entries' AND column_name = 'created_at'`).
+			Scan(&isNullable, &columnDefault)
+		require.NoError(t, err)
+		assert.Equal(t, "NO", isNullable, "recipe_menu_entries.created_at must be NOT NULL")
+		assert.Contains(t, columnDefault, "CURRENT_TIMESTAMP", "recipe_menu_entries.created_at must default to the current time")
+	})
+}
