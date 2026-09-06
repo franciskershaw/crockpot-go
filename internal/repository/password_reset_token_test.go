@@ -158,6 +158,48 @@ func TestPasswordResetTokenMarkUsed_ConcurrentCallersOnlyOneClaims(t *testing.T)
 	assert.Equal(t, 1, claimedCount, "exactly one concurrent MarkUsed call should have claimed the token")
 }
 
+func TestPasswordResetTokenDeleteAllStale_DeletesExpiredAndUsed_KeepsActive(t *testing.T) {
+	ctx := context.Background()
+
+	// Separate user: the active-user unique index forbids two simultaneously-unused rows for one user.
+	otherUserID := createTestUser(t)
+
+	expiredHash := "repo-test-hash-" + uuid.NewString()
+	expired, err := passwordResetTokenRepo.Create(ctx, otherUserID.String(), expiredHash, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM password_reset_tokens WHERE id = $1`, expired.ID)
+	_, err = db.DB.Exec(ctx, `UPDATE password_reset_tokens SET expires_at = $2 WHERE id = $1`, expired.ID, time.Now().Add(-time.Minute))
+	require.NoError(t, err)
+
+	used, err := passwordResetTokenRepo.Create(ctx, repoUserID.String(), "repo-test-hash-"+uuid.NewString(), time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM password_reset_tokens WHERE id = $1`, used.ID)
+	claimed, err := passwordResetTokenRepo.MarkUsed(ctx, used.ID.String())
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	active, err := passwordResetTokenRepo.Create(ctx, repoUserID.String(), "repo-test-hash-"+uuid.NewString(), time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM password_reset_tokens WHERE id = $1`, active.ID)
+
+	err = passwordResetTokenRepo.DeleteAllStale(ctx)
+	require.NoError(t, err)
+
+	var remainingIDs []string
+	rows, err := db.DB.Query(ctx, `SELECT id FROM password_reset_tokens WHERE id = ANY($1)`, []string{expired.ID.String(), used.ID.String(), active.ID.String()})
+	require.NoError(t, err)
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		require.NoError(t, rows.Scan(&id))
+		remainingIDs = append(remainingIDs, id.String())
+	}
+
+	assert.NotContains(t, remainingIDs, expired.ID.String(), "expired token should have been deleted")
+	assert.NotContains(t, remainingIDs, used.ID.String(), "used token should have been deleted")
+	assert.Contains(t, remainingIDs, active.ID.String(), "active token should not have been deleted")
+}
+
 func TestPasswordResetTokenDeleteActiveForUser_RemovesActiveRow(t *testing.T) {
 	ctx := context.Background()
 	hash := "repo-test-hash-" + uuid.NewString()

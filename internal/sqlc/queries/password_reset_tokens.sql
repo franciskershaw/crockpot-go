@@ -20,5 +20,9 @@ WHERE id = $1 AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP;
 DELETE FROM password_reset_tokens
 WHERE user_id = $1 AND used_at IS NULL;
 
+-- name: DeleteAllStalePasswordResetTokens :exec
+DELETE FROM password_reset_tokens
+WHERE expires_at < CURRENT_TIMESTAMP OR used_at IS NOT NULL;
+
 -- name: AcquireUserPasswordResetLock :exec
 SELECT pg_advisory_xact_lock(hashtext($1)::bigint);

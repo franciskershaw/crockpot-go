@@ -21,3 +21,7 @@ WHERE id = $1;
 -- name: DeleteActiveEmailVerificationTokensForUser :exec
 DELETE FROM email_verification_tokens
 WHERE user_id = $1 AND used_at IS NULL;
+
+-- name: DeleteAllStaleEmailVerificationTokens :exec
+DELETE FROM email_verification_tokens
+WHERE expires_at < CURRENT_TIMESTAMP OR used_at IS NOT NULL;

@@ -90,6 +90,13 @@ func (r *PostgresEmailVerificationTokenRepository) DeleteActiveForUser(ctx conte
 	return nil
 }
 
+func (r *PostgresEmailVerificationTokenRepository) DeleteAllStale(ctx context.Context) error {
+	if err := queriesFor(ctx, r.db).DeleteAllStaleEmailVerificationTokens(ctx); err != nil {
+		return fmt.Errorf("failed to delete all stale email verification tokens: %w", err)
+	}
+	return nil
+}
+
 func toModelEmailVerificationToken(t sqlc.EmailVerificationToken) *models.EmailVerificationToken {
 	return &models.EmailVerificationToken{
 		ID:        uuidValue(t.ID),

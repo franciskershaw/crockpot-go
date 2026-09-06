@@ -80,3 +80,19 @@ func cleanupExec(t *testing.T, query string, args ...any) {
 		}
 	})
 }
+
+// createTestUser inserts a throwaway user and registers its cleanup, for tests needing more than
+// the shared repoUserID (e.g. asserting per-user isolation, or a unique-per-user index constraint).
+func createTestUser(t *testing.T) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	_, err := db.DB.Exec(context.Background(),
+		`INSERT INTO users (id, google_id, email) VALUES ($1, $2, $3)`,
+		id, "repo-test-google-"+id.String(), "repo-test-"+id.String()+"@example.com",
+	)
+	if err != nil {
+		t.Fatalf("failed to create test user: %v", err)
+	}
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, id)
+	return id
+}
