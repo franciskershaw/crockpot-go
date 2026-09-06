@@ -673,22 +673,13 @@ few-line addendum to a `GET /me` ticket.*
 ### Tech Debt & Production Readiness
 *From the first whole-codebase tech-debt pass, 2026-08-30. Full detail:
 `docs/findings/2026-08-30-tech-debt.md`.*
-- **CROC-031** — Fix `PostgresEmailVerificationTokenRepository` to honor
-  an active `WithinTx` transaction (matches every other repository's
-  `queriesFor(ctx, r.db)` pattern). Not currently exploitable, but a
-  silent atomicity trap for the next ticket that wraps it in a
-  transaction. Finding 1. *(grilled 2026-09-06)*
-  - **AC**: struct field → `db sqlc.DBTX`, every method routed through
-    `queriesFor(ctx, r.db)`, matching `password_reset_token.go` exactly
-    (verified byte-for-byte at grill). New repo test wraps a call in
-    `transactor.WithinTx` and asserts a forced rollback actually undoes
-    it — nothing today exercises this path, so the fix needs its own
-    proof, not just unchanged existing assertions.
-  - **Non-goals**: no behavior change to any current call site (none
-    runs inside `WithinTx` today).
-  - **Verify**: service boundary, real DB — `./scripts/test-repo.sh -run
-    TestEmailVerificationToken` (existing suite green + new rollback
-    test passes).
+- **CROC-031** — **Done** (2026-09-06). `PostgresEmailVerificationTokenRepository`
+  now honors an active `WithinTx` transaction (`db sqlc.DBTX` +
+  `queriesFor(ctx, r.db)`, matching `password_reset_token.go`). New
+  `TestWithinTx_RollsBackEmailVerificationTokenWritesOnError` (confirmed
+  red against the old bypass-the-pool code, green after the fix) proves
+  the rollback actually works; full `./scripts/test-repo.sh` and
+  `internal/handler` suites stay green. Finding 1.
 - **CROC-032** — **Done** (2026-08-31). Migration `000008` indexes all
   10 base-schema FK columns that weren't already a leading index column
   (finding 2); `internal/repository/schema_test.go` asserts the property

@@ -13,11 +13,11 @@ import (
 )
 
 type PostgresEmailVerificationTokenRepository struct {
-	q *sqlc.Queries
+	db sqlc.DBTX
 }
 
 func NewPostgresEmailVerificationTokenRepository(db sqlc.DBTX) *PostgresEmailVerificationTokenRepository {
-	return &PostgresEmailVerificationTokenRepository{q: sqlc.New(db)}
+	return &PostgresEmailVerificationTokenRepository{db: db}
 }
 
 func (r *PostgresEmailVerificationTokenRepository) Create(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*models.EmailVerificationToken, error) {
@@ -26,7 +26,7 @@ func (r *PostgresEmailVerificationTokenRepository) Create(ctx context.Context, u
 		return nil, fmt.Errorf("invalid user id: %w", err)
 	}
 
-	created, err := r.q.CreateEmailVerificationToken(ctx, sqlc.CreateEmailVerificationTokenParams{
+	created, err := queriesFor(ctx, r.db).CreateEmailVerificationToken(ctx, sqlc.CreateEmailVerificationTokenParams{
 		UserID:    userUUID,
 		TokenHash: tokenHash,
 		ExpiresAt: pgtype.Timestamptz{Time: expiresAt, Valid: true},
@@ -43,7 +43,7 @@ func (r *PostgresEmailVerificationTokenRepository) FindActiveByUserID(ctx contex
 		return nil, fmt.Errorf("invalid user id: %w", err)
 	}
 
-	found, err := r.q.FindActiveEmailVerificationTokenByUserID(ctx, userUUID)
+	found, err := queriesFor(ctx, r.db).FindActiveEmailVerificationTokenByUserID(ctx, userUUID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, models.ErrNoActiveEmailVerificationToken
@@ -59,7 +59,7 @@ func (r *PostgresEmailVerificationTokenRepository) IncrementAttempts(ctx context
 		return nil, fmt.Errorf("invalid token id: %w", err)
 	}
 
-	updated, err := r.q.IncrementEmailVerificationTokenAttempts(ctx, idUUID)
+	updated, err := queriesFor(ctx, r.db).IncrementEmailVerificationTokenAttempts(ctx, idUUID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to increment email verification token attempts: %w", err)
 	}
@@ -72,7 +72,7 @@ func (r *PostgresEmailVerificationTokenRepository) MarkUsed(ctx context.Context,
 		return fmt.Errorf("invalid token id: %w", err)
 	}
 
-	if err := r.q.MarkEmailVerificationTokenUsed(ctx, idUUID); err != nil {
+	if err := queriesFor(ctx, r.db).MarkEmailVerificationTokenUsed(ctx, idUUID); err != nil {
 		return fmt.Errorf("failed to mark email verification token used: %w", err)
 	}
 	return nil
@@ -84,7 +84,7 @@ func (r *PostgresEmailVerificationTokenRepository) DeleteActiveForUser(ctx conte
 		return fmt.Errorf("invalid user id: %w", err)
 	}
 
-	if err := r.q.DeleteActiveEmailVerificationTokensForUser(ctx, userUUID); err != nil {
+	if err := queriesFor(ctx, r.db).DeleteActiveEmailVerificationTokensForUser(ctx, userUUID); err != nil {
 		return fmt.Errorf("failed to delete active email verification tokens: %w", err)
 	}
 	return nil
