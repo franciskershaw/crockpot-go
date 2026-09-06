@@ -713,13 +713,12 @@ few-line addendum to a `GET /me` ticket.*
   capped too. Three tests: oversized declared length rejected, in-limit
   body passes through, and an understated-length body's read is capped
   mid-handler. Finding 4.
-- **CROC-035** — Collapse `email.ResendClient`'s two near-identical
-  send methods into one shared helper. Finding 5. *(grilled 2026-09-06)*
-  - **AC**: both `SendConfirmationCode`/`SendPasswordResetLink` route
-    through one `send(ctx, toEmail, subject, html, text string) error`
-    helper in `resend.go`. Pure refactor — no behavior change.
-  - **Verify**: logic w/ assertable behaviour — `go test
-    ./internal/email/...`, existing `resend_test.go` green unmodified.
+- **CROC-035** — **Done** (2026-09-06). `SendConfirmationCode`/
+  `SendPasswordResetLink` both route through one new `send(ctx, toEmail,
+  subject, html, text string) error` helper in `resend.go` — each
+  public method now only renders its own templates, then delegates.
+  Pure refactor: existing `resend_test.go` (6 tests) green unmodified.
+  Finding 5.
 - **CROC-036** — `db.go`'s three `fmt.Print*` log lines → `slog`, to
   match the app's structured logger (`main.go:37`). Finding 7. *(Findings
   6 and 8 — rate-limit error-body codes, and the `auth_handler.go`
