@@ -212,6 +212,81 @@ func TestListRecipes_IngredientAndUnionSemantics(t *testing.T) {
 	assert.NotContains(t, cardIDs(union), neither)
 }
 
+func cardByID(cards []*models.RecipeCard, id uuid.UUID) *models.RecipeCard {
+	for _, c := range cards {
+		if c.ID == id {
+			return c
+		}
+	}
+	return nil
+}
+
+func TestListRecipes_IngredientCoverageCounts(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	itemCat := insertTestItemCategory(t, "repo-test-ic-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	itemA := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	itemB := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	itemC := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+
+	recipeID := createTestRecipe(t, recipeOpts{
+		createdBy: owner, approved: true,
+		ingredients: []models.Ingredient{
+			{ItemID: itemA, Quantity: 1},
+			{ItemID: itemB, Quantity: 1},
+			{ItemID: itemC, Quantity: 1},
+		},
+	})
+
+	t.Run("counts matched ingredients against the total on the recipe", func(t *testing.T) {
+		cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+			IngredientIDs: []uuid.UUID{itemA, itemB}, Page: 1, Limit: 50,
+		})
+		require.NoError(t, err)
+		card := cardByID(cards, recipeID)
+		require.NotNil(t, card)
+		assert.Equal(t, 3, card.TotalIngredientCount)
+		assert.Equal(t, 2, card.MatchedIngredientCount)
+	})
+
+	t.Run("matched count is zero when no ingredients are selected", func(t *testing.T) {
+		cat := insertTestRecipeCategory(t, "repo-test-rc-"+uuid.NewString())
+		scoped := createTestRecipe(t, recipeOpts{
+			createdBy: owner, approved: true, categoryIDs: []uuid.UUID{cat},
+			ingredients: []models.Ingredient{{ItemID: itemA, Quantity: 1}, {ItemID: itemB, Quantity: 1}},
+		})
+		cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+			IncludeCategoryIDs: []uuid.UUID{cat}, Page: 1, Limit: 50,
+		})
+		require.NoError(t, err)
+		card := cardByID(cards, scoped)
+		require.NotNil(t, card)
+		assert.Equal(t, 2, card.TotalIngredientCount)
+		assert.Equal(t, 0, card.MatchedIngredientCount)
+	})
+}
+
+func TestListRecipes_CategoryCoverageCounts(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	catA := insertTestRecipeCategory(t, "repo-test-rc-a-"+uuid.NewString())
+	catB := insertTestRecipeCategory(t, "repo-test-rc-b-"+uuid.NewString())
+	catC := insertTestRecipeCategory(t, "repo-test-rc-c-"+uuid.NewString())
+
+	recipeID := createTestRecipe(t, recipeOpts{
+		createdBy: owner, approved: true,
+		categoryIDs: []uuid.UUID{catA, catB, catC},
+	})
+
+	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+		IncludeCategoryIDs: []uuid.UUID{catA, catB}, Page: 1, Limit: 50,
+	})
+	require.NoError(t, err)
+	card := cardByID(cards, recipeID)
+	require.NotNil(t, card)
+	assert.Equal(t, 2, card.MatchedCategoryCount)
+}
+
 func TestListRecipes_TimeRangeIsAHardFilter(t *testing.T) {
 	ctx := context.Background()
 	owner := insertTestUser(t, "Cook")

@@ -96,7 +96,20 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 	cards := make([]*models.RecipeCard, len(rows))
 	ids := make([]pgtype.UUID, len(rows))
 	for i, row := range rows {
-		cards[i] = toRecipeCard(row)
+		card := &models.RecipeCard{
+			ID:                     uuidValue(row.ID),
+			Name:                   row.Name,
+			ImageURL:               textPtr(row.ImageUrl),
+			ImageFilename:          textPtr(row.ImageFilename),
+			TimeInMinutes:          int(row.TimeInMinutes),
+			Serves:                 int(row.Serves),
+			Approved:               row.Approved,
+			Categories:             []models.CategoryRef{},
+			CreatedAt:              row.CreatedAt.Time,
+			TotalIngredientCount:   int(row.TotalIngredientCount),
+			MatchedIngredientCount: int(row.MatchedIngredientCount),
+		}
+		cards[i] = card
 		ids[i] = row.ID
 	}
 

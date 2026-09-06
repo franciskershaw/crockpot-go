@@ -50,7 +50,13 @@ WHERE recipe_id = $1
 ORDER BY position;
 
 -- name: ListRecipes :many
-SELECT r.*
+SELECT
+    r.*,
+    (SELECT count(*) FROM recipe_ingredients x WHERE x.recipe_id = r.id)::int AS total_ingredient_count,
+    (
+        SELECT count(*) FROM recipe_ingredients x
+        WHERE x.recipe_id = r.id AND x.item_id = ANY(sqlc.arg(ingredient_ids)::uuid[])
+    )::int AS matched_ingredient_count
 FROM recipes r
 WHERE (
         r.approved
