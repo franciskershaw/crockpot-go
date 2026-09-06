@@ -29,6 +29,8 @@ import (
 // Must exceed newHTTPServer's WriteTimeout (15s) so in-flight requests within their own allowed timeout aren't cut off by shutdown first.
 const shutdownGracePeriod = 20 * time.Second
 
+const maxRequestBodyBytes = 1 << 20 // 1 MiB
+
 var globalRateLimit = limiter.Rate{Period: time.Minute, Limit: 120}
 var authRateLimit = limiter.Rate{Period: time.Minute, Limit: 10}
 var authRefreshRateLimit = limiter.Rate{Period: time.Minute, Limit: 30}
@@ -91,6 +93,7 @@ func main() {
 	}
 	// CORS before the rate limiter so preflight OPTIONS aren't charged against the global bucket.
 	server.Use(middleware.CORS(cfg.FrontendURL))
+	server.Use(middleware.BodySizeLimit(maxRequestBodyBytes))
 	server.Use(middleware.NewRateLimitMiddleware(memory.NewStore(), globalRateLimit).Handler())
 
 	server.GET("/health", func(c *gin.Context) {

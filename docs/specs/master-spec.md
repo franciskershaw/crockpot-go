@@ -703,22 +703,16 @@ few-line addendum to a `GET /me` ticket.*
   dev-run confirmed clean startup and clean shutdown (`SIGINT` →
   `ctx.Done()` → `wg.Wait()` returns, no hang) against the real Neon dev
   DB. Finding 3.
-- **CROC-034** — Add a request body-size-limit middleware — promised by
-  `CLAUDE.md`'s folder-layout doc, never built. Finding 4.
-  *(grilled 2026-09-06)*
-  - **AC**: new `internal/middleware/body_limit.go` wrapping requests in
-    `http.MaxBytesReader`, cap **1 MiB**, wired via `server.Use(...)` in
-    `main.go` alongside CORS/rate-limit. Oversized body → consistent
-    error shape with the rest of the API (`{"error":
-    "request_too_large"}`, matching the snake_case-code convention
-    `CROC-041` unified everything else onto).
-  - **Non-goals**: no per-route override (every endpoint gets the same
-    1 MiB cap — no current endpoint's legitimate payload is anywhere
-    close to that size).
-  - **Verify**: logic w/ assertable behaviour — `go test
-    ./internal/middleware/...`, new `body_limit_test.go`: oversized body
-    rejected with the right status/code, in-limit body passes through
-    unchanged.
+- **CROC-034** — **Done** (2026-09-06). New
+  `internal/middleware/BodySizeLimit` (1 MiB cap), wired in `main.go`
+  alongside CORS/rate-limit. Rejects a request whose declared
+  `Content-Length` exceeds the cap up front with `413
+  {"error":"request_too_large"}` before any buffering; backstops a
+  missing/understated `Content-Length` (chunked, or a lying client) by
+  wrapping the body in `http.MaxBytesReader` so the actual read is
+  capped too. Three tests: oversized declared length rejected, in-limit
+  body passes through, and an understated-length body's read is capped
+  mid-handler. Finding 4.
 - **CROC-035** — Collapse `email.ResendClient`'s two near-identical
   send methods into one shared helper. Finding 5. *(grilled 2026-09-06)*
   - **AC**: both `SendConfirmationCode`/`SendPasswordResetLink` route
