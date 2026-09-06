@@ -577,6 +577,26 @@ func TestRecipeList_ParsesAllParams(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestRecipeList_ParsesSeedParam(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().List(mock.Anything, mock.MatchedBy(func(f models.RecipeListFilter) bool {
+		return f.Seed == "abc123"
+	})).Return([]*models.RecipeCard{}, 0, nil)
+
+	w := doRecipeList(m.router, "seed=abc123", "")
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRecipeList_SeedDefaultsToEmpty(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().List(mock.Anything, mock.MatchedBy(func(f models.RecipeListFilter) bool {
+		return f.Seed == ""
+	})).Return([]*models.RecipeCard{}, 0, nil)
+
+	w := doRecipeList(m.router, "", "")
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
 func TestRecipeList_CategoryModeIncludeIsDefault(t *testing.T) {
 	m := newRecipeMocks(t)
 	cat := uuid.NewString()

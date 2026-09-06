@@ -212,6 +212,7 @@ func parseRecipeListFilter(c *gin.Context) (models.RecipeListFilter, bool) {
 	var f models.RecipeListFilter
 	f.Query = strings.TrimSpace(c.Query("q"))
 	f.Mine = c.Query("mine") == "true"
+	f.Seed = strings.TrimSpace(c.Query("seed"))
 
 	categoryIDs, ok := parseUUIDQuery(c, "categoryId")
 	if !ok {
