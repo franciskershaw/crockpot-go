@@ -61,6 +61,13 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 	}
 	offset := (page - 1) * filter.Limit
 
+	hasScoreSignal := len(filter.IngredientIDs) > 0 || len(filter.IncludeCategoryIDs) > 0
+	isUnfiltered := !hasScoreSignal &&
+		len(filter.ExcludeCategoryIDs) == 0 &&
+		filter.Query == "" &&
+		filter.MinTime == 0 &&
+		filter.MaxTime == 0
+
 	rows, err := q.ListRecipes(ctx, sqlc.ListRecipesParams{
 		CallerIsAdmin:      filter.CallerIsAdmin,
 		CallerID:           callerID,
@@ -71,6 +78,9 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 		ExcludeCategoryIds: pgUUIDs(filter.ExcludeCategoryIDs),
 		IncludeCategoryIds: pgUUIDs(filter.IncludeCategoryIDs),
 		IngredientIds:      pgUUIDs(filter.IngredientIDs),
+		HasScoreSignal:     hasScoreSignal,
+		IsUnfiltered:       isUnfiltered,
+		Seed:               filter.Seed,
 		ResultLimit:        int32(filter.Limit),
 		ResultOffset:       int32(offset),
 	})
@@ -96,7 +106,23 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 	cards := make([]*models.RecipeCard, len(rows))
 	ids := make([]pgtype.UUID, len(rows))
 	for i, row := range rows {
-		cards[i] = toRecipeCard(row)
+		card := &models.RecipeCard{
+			ID:                     uuidValue(row.ID),
+			Name:                   row.Name,
+			ImageURL:               textPtr(row.ImageUrl),
+			ImageFilename:          textPtr(row.ImageFilename),
+			TimeInMinutes:          int(row.TimeInMinutes),
+			Serves:                 int(row.Serves),
+			Approved:               row.Approved,
+			Categories:             []models.CategoryRef{},
+			CreatedAt:              row.CreatedAt.Time,
+			TotalIngredientCount:   int(row.TotalIngredientCount),
+			MatchedIngredientCount: int(row.MatchedIngredientCount),
+			MatchedCategoryCount:   int(row.MatchedCategoryCount),
+			Score:                  row.Score,
+			Tier:                   scoreTier(row.Score),
+		}
+		cards[i] = card
 		ids[i] = row.ID
 	}
 
@@ -144,6 +170,19 @@ func hydrateCardCategories(ctx context.Context, q *sqlc.Queries, cards []*models
 		}
 	}
 	return nil
+}
+
+func scoreTier(score float64) *string {
+	var tier string
+	switch {
+	case score >= 0.8:
+		tier = "best"
+	case score >= 0.5:
+		tier = "good"
+	default:
+		return nil
+	}
+	return &tier
 }
 
 func toRecipeCard(row sqlc.Recipe) *models.RecipeCard {
@@ -243,16 +282,17 @@ func (r *PostgresRecipeRepository) GetByID(ctx context.Context, id string, calle
 
 	return &models.RecipeDetail{
 		RecipeCard: models.RecipeCard{
-			ID:            uuidValue(row.ID),
-			Name:          row.Name,
-			ImageURL:      textPtr(row.ImageUrl),
-			ImageFilename: textPtr(row.ImageFilename),
-			TimeInMinutes: int(row.TimeInMinutes),
-			Serves:        int(row.Serves),
-			Approved:      row.Approved,
-			Categories:    categories,
-			CreatedAt:     row.CreatedAt.Time,
-			IsFavourite:   isFavourite,
+			ID:                   uuidValue(row.ID),
+			Name:                 row.Name,
+			ImageURL:             textPtr(row.ImageUrl),
+			ImageFilename:        textPtr(row.ImageFilename),
+			TimeInMinutes:        int(row.TimeInMinutes),
+			Serves:               int(row.Serves),
+			Approved:             row.Approved,
+			Categories:           categories,
+			CreatedAt:            row.CreatedAt.Time,
+			IsFavourite:          isFavourite,
+			TotalIngredientCount: len(ingredients),
 		},
 		Description:   textPtr(row.Description),
 		Instructions:  instructions,

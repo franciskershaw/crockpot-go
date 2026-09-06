@@ -2,6 +2,9 @@ package repository_test
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
+	"sort"
 	"testing"
 	"time"
 
@@ -212,6 +215,232 @@ func TestListRecipes_IngredientAndUnionSemantics(t *testing.T) {
 	assert.NotContains(t, cardIDs(union), neither)
 }
 
+func cardByID(cards []*models.RecipeCard, id uuid.UUID) *models.RecipeCard {
+	for _, c := range cards {
+		if c.ID == id {
+			return c
+		}
+	}
+	return nil
+}
+
+func TestListRecipes_IngredientCoverageCounts(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	itemCat := insertTestItemCategory(t, "repo-test-ic-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	itemA := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	itemB := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	itemC := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+
+	recipeID := createTestRecipe(t, recipeOpts{
+		createdBy: owner, approved: true,
+		ingredients: []models.Ingredient{
+			{ItemID: itemA, Quantity: 1},
+			{ItemID: itemB, Quantity: 1},
+			{ItemID: itemC, Quantity: 1},
+		},
+	})
+
+	t.Run("counts matched ingredients against the total on the recipe", func(t *testing.T) {
+		cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+			IngredientIDs: []uuid.UUID{itemA, itemB}, Page: 1, Limit: 50,
+		})
+		require.NoError(t, err)
+		card := cardByID(cards, recipeID)
+		require.NotNil(t, card)
+		assert.Equal(t, 3, card.TotalIngredientCount)
+		assert.Equal(t, 2, card.MatchedIngredientCount)
+	})
+
+	t.Run("matched count is zero when no ingredients are selected", func(t *testing.T) {
+		cat := insertTestRecipeCategory(t, "repo-test-rc-"+uuid.NewString())
+		scoped := createTestRecipe(t, recipeOpts{
+			createdBy: owner, approved: true, categoryIDs: []uuid.UUID{cat},
+			ingredients: []models.Ingredient{{ItemID: itemA, Quantity: 1}, {ItemID: itemB, Quantity: 1}},
+		})
+		cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+			IncludeCategoryIDs: []uuid.UUID{cat}, Page: 1, Limit: 50,
+		})
+		require.NoError(t, err)
+		card := cardByID(cards, scoped)
+		require.NotNil(t, card)
+		assert.Equal(t, 2, card.TotalIngredientCount)
+		assert.Equal(t, 0, card.MatchedIngredientCount)
+	})
+}
+
+func TestListRecipes_CategoryCoverageCounts(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	catA := insertTestRecipeCategory(t, "repo-test-rc-a-"+uuid.NewString())
+	catB := insertTestRecipeCategory(t, "repo-test-rc-b-"+uuid.NewString())
+	catC := insertTestRecipeCategory(t, "repo-test-rc-c-"+uuid.NewString())
+
+	recipeID := createTestRecipe(t, recipeOpts{
+		createdBy: owner, approved: true,
+		categoryIDs: []uuid.UUID{catA, catB, catC},
+	})
+
+	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+		IncludeCategoryIDs: []uuid.UUID{catA, catB}, Page: 1, Limit: 50,
+	})
+	require.NoError(t, err)
+	card := cardByID(cards, recipeID)
+	require.NotNil(t, card)
+	assert.Equal(t, 2, card.MatchedCategoryCount)
+}
+
+func TestListRecipes_Score_BothAxesWeightedBySelectionCount(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	itemCat := insertTestItemCategory(t, "repo-test-ic-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	itemX := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	itemY := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	other1 := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	other2 := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	catP := insertTestRecipeCategory(t, "repo-test-rc-p-"+uuid.NewString())
+	catQ := insertTestRecipeCategory(t, "repo-test-rc-q-"+uuid.NewString())
+
+	// 4 ingredients total; of {itemX, itemY} selected, only itemX is on the recipe -> ingredientCoverage = 1/4.
+	// Tagged with catP only; of {catP, catQ} selected, only catP matches -> matchedCategoryCount = 1.
+	recipeID := createTestRecipe(t, recipeOpts{
+		createdBy:   owner,
+		approved:    true,
+		categoryIDs: []uuid.UUID{catP},
+		ingredients: []models.Ingredient{
+			{ItemID: itemX, Quantity: 1}, {ItemID: other1, Quantity: 1}, {ItemID: other2, Quantity: 1},
+		},
+	})
+	// pad to 4 total ingredients
+	fourth := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	_, err := db.DB.Exec(ctx, `INSERT INTO recipe_ingredients (recipe_id, item_id, unit_id, quantity) VALUES ($1, $2, NULL, 1)`, recipeID, fourth)
+	require.NoError(t, err)
+	// registered after the item's own cleanup so it runs first (t.Cleanup is LIFO), clearing the RESTRICT FK before the item delete
+	cleanupExec(t, `DELETE FROM recipe_ingredients WHERE recipe_id = $1 AND item_id = $2`, recipeID, fourth)
+
+	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+		IngredientIDs:      []uuid.UUID{itemX, itemY},
+		IncludeCategoryIDs: []uuid.UUID{catP, catQ},
+		Page:               1, Limit: 50,
+	})
+	require.NoError(t, err)
+	card := cardByID(cards, recipeID)
+	require.NotNil(t, card)
+	// score = (ingredientCoverage*I + matchedCategoryCount) / (I+C) = (0.25*2 + 1) / 4 = 0.375
+	assert.InDelta(t, 0.375, card.Score, 0.0001)
+}
+
+func TestListRecipes_Score_IngredientOnlyIsPlainCoverage(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	itemCat := insertTestItemCategory(t, "repo-test-ic-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	itemA := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	itemB := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	itemC := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	itemD := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+
+	recipeID := createTestRecipe(t, recipeOpts{
+		createdBy: owner, approved: true,
+		ingredients: []models.Ingredient{
+			{ItemID: itemA, Quantity: 1}, {ItemID: itemB, Quantity: 1},
+			{ItemID: itemC, Quantity: 1}, {ItemID: itemD, Quantity: 1},
+		},
+	})
+
+	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+		IngredientIDs: []uuid.UUID{itemA, itemB, itemC}, Page: 1, Limit: 50,
+	})
+	require.NoError(t, err)
+	card := cardByID(cards, recipeID)
+	require.NotNil(t, card)
+	assert.InDelta(t, 0.75, card.Score, 0.0001)
+}
+
+func TestListRecipes_Score_CategoryOnlyIsPlainCoverage(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	cat1 := insertTestRecipeCategory(t, "repo-test-rc-1-"+uuid.NewString())
+	cat2 := insertTestRecipeCategory(t, "repo-test-rc-2-"+uuid.NewString())
+	cat3 := insertTestRecipeCategory(t, "repo-test-rc-3-"+uuid.NewString())
+	cat4 := insertTestRecipeCategory(t, "repo-test-rc-4-"+uuid.NewString())
+
+	recipeID := createTestRecipe(t, recipeOpts{
+		createdBy: owner, approved: true,
+		categoryIDs: []uuid.UUID{cat1, cat2, cat3, cat4},
+	})
+
+	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+		IncludeCategoryIDs: []uuid.UUID{cat1, cat2, cat3, cat4}, Page: 1, Limit: 50,
+	})
+	require.NoError(t, err)
+	card := cardByID(cards, recipeID)
+	require.NotNil(t, card)
+	assert.InDelta(t, 1.0, card.Score, 0.0001)
+}
+
+func TestListRecipes_Score_NoFiltersIsZeroWithNoTier(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	marker := "Zqx" + uuid.NewString()[:8]
+	recipeID := createTestRecipe(t, recipeOpts{name: "Score Marker " + marker, createdBy: owner, approved: true})
+
+	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Query: marker, Page: 1, Limit: 50})
+	require.NoError(t, err)
+	card := cardByID(cards, recipeID)
+	require.NotNil(t, card)
+	assert.InDelta(t, 0.0, card.Score, 0.0001)
+	assert.Nil(t, card.Tier)
+}
+
+func TestListRecipes_Tier_Thresholds(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+
+	// newScoredRecipe tags a recipe with `matched` categories out of `total` distinct selected ones,
+	// so filtering by all `total` yields a categoryCoverage of matched/total.
+	newScoredRecipe := func(total, matched int) (uuid.UUID, []uuid.UUID) {
+		var selected, tagged []uuid.UUID
+		for i := 0; i < total; i++ {
+			c := insertTestRecipeCategory(t, "repo-test-rc-tier-"+uuid.NewString())
+			selected = append(selected, c)
+			if i < matched {
+				tagged = append(tagged, c)
+			}
+		}
+		id := createTestRecipe(t, recipeOpts{createdBy: owner, approved: true, categoryIDs: tagged})
+		return id, selected
+	}
+
+	t.Run("score of exactly 0.8 is best", func(t *testing.T) {
+		recipeID, selected := newScoredRecipe(5, 4)
+		cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{IncludeCategoryIDs: selected, Page: 1, Limit: 50})
+		require.NoError(t, err)
+		card := cardByID(cards, recipeID)
+		require.NotNil(t, card)
+		require.NotNil(t, card.Tier)
+		assert.Equal(t, "best", *card.Tier)
+	})
+
+	t.Run("score of exactly 0.5 is good", func(t *testing.T) {
+		recipeID, selected := newScoredRecipe(2, 1)
+		cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{IncludeCategoryIDs: selected, Page: 1, Limit: 50})
+		require.NoError(t, err)
+		card := cardByID(cards, recipeID)
+		require.NotNil(t, card)
+		require.NotNil(t, card.Tier)
+		assert.Equal(t, "good", *card.Tier)
+	})
+
+	t.Run("score just below 0.5 has no tier", func(t *testing.T) {
+		recipeID, selected := newScoredRecipe(3, 1)
+		cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{IncludeCategoryIDs: selected, Page: 1, Limit: 50})
+		require.NoError(t, err)
+		card := cardByID(cards, recipeID)
+		require.NotNil(t, card)
+		assert.Nil(t, card.Tier)
+	})
+}
+
 func TestListRecipes_TimeRangeIsAHardFilter(t *testing.T) {
 	ctx := context.Background()
 	owner := insertTestUser(t, "Cook")
@@ -257,6 +486,139 @@ func setCreatedAt(t *testing.T, id uuid.UUID, ts time.Time) {
 	t.Helper()
 	_, err := db.DB.Exec(context.Background(), `UPDATE recipes SET created_at = $1 WHERE id = $2`, ts, id)
 	require.NoError(t, err)
+}
+
+// seededOrder mirrors the SQL ordering expression (md5(id::text || seed) ascending) in Go.
+func seededOrder(ids []uuid.UUID, seed string) []uuid.UUID {
+	type keyed struct {
+		id   uuid.UUID
+		hash string
+	}
+	pairs := make([]keyed, len(ids))
+	for i, id := range ids {
+		sum := md5.Sum([]byte(id.String() + seed))
+		pairs[i] = keyed{id, hex.EncodeToString(sum[:])}
+	}
+	sort.Slice(pairs, func(i, j int) bool { return pairs[i].hash < pairs[j].hash })
+	out := make([]uuid.UUID, len(pairs))
+	for i, p := range pairs {
+		out[i] = p.id
+	}
+	return out
+}
+
+func indexOfID(ids []uuid.UUID, target uuid.UUID) int {
+	for i, id := range ids {
+		if id == target {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestListRecipes_Ordering_ScoredModeOrdersByScoreDescending(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	itemCat := insertTestItemCategory(t, "repo-test-ic-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	item1 := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	item2 := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	item3 := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	extra1 := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+	extra2 := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+
+	// high has coverage 1.0 (3/3), low has 1/3 (padded with unmatched extras); high is created first too.
+	high := createTestRecipe(t, recipeOpts{
+		createdBy: owner, approved: true,
+		ingredients: []models.Ingredient{{ItemID: item1, Quantity: 1}, {ItemID: item2, Quantity: 1}, {ItemID: item3, Quantity: 1}},
+	})
+	low := createTestRecipe(t, recipeOpts{
+		createdBy: owner, approved: true,
+		ingredients: []models.Ingredient{{ItemID: item1, Quantity: 1}, {ItemID: extra1, Quantity: 1}, {ItemID: extra2, Quantity: 1}},
+	})
+
+	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+		IngredientIDs: []uuid.UUID{item1, item2, item3}, Page: 1, Limit: 50,
+	})
+	require.NoError(t, err)
+	ids := cardIDs(cards)
+	assert.Less(t, indexOfID(ids, high), indexOfID(ids, low), "the fuller ingredient match should rank ahead")
+}
+
+func TestListRecipes_Ordering_NameQueryOnlyKeepsPlainDefaultOrder(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	marker := "Zqx" + uuid.NewString()[:8]
+	a := createTestRecipe(t, recipeOpts{name: "Plain Order A " + marker, createdBy: owner, approved: true})
+	b := createTestRecipe(t, recipeOpts{name: "Plain Order B " + marker, createdBy: owner, approved: true})
+	c := createTestRecipe(t, recipeOpts{name: "Plain Order C " + marker, createdBy: owner, approved: true})
+
+	now := time.Now()
+	setCreatedAt(t, a, now.Add(-1*time.Hour))
+	setCreatedAt(t, b, now.Add(-3*time.Hour))
+	setCreatedAt(t, c, now.Add(-2*time.Hour))
+
+	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+		Query: marker, Seed: "should-be-ignored-in-this-mode", Page: 1, Limit: 50,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []uuid.UUID{a, c, b}, cardIDs(cards))
+}
+
+func TestListRecipes_Ordering_NoFiltersUsesSeededRandomOrder(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	marker := "Zqx" + uuid.NewString()[:8]
+	a := createTestRecipe(t, recipeOpts{name: "Seed Marker A " + marker, createdBy: owner, approved: true})
+	b := createTestRecipe(t, recipeOpts{name: "Seed Marker B " + marker, createdBy: owner, approved: true})
+	c := createTestRecipe(t, recipeOpts{name: "Seed Marker C " + marker, createdBy: owner, approved: true})
+
+	seed := "test-seed-" + uuid.NewString()
+	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Seed: seed, Page: 1, Limit: 1000})
+	require.NoError(t, err)
+
+	want := map[uuid.UUID]bool{a: true, b: true, c: true}
+	var actual []uuid.UUID
+	for _, card := range cards {
+		if want[card.ID] {
+			actual = append(actual, card.ID)
+		}
+	}
+	expected := seededOrder([]uuid.UUID{a, b, c}, seed)
+	assert.Equal(t, expected, actual)
+}
+
+func TestListRecipes_Ordering_SameSeedIsStableAcrossCalls(t *testing.T) {
+	ctx := context.Background()
+	seed := "stable-seed-" + uuid.NewString()
+	f := models.RecipeListFilter{Seed: seed, Page: 1, Limit: 50}
+
+	first, _, err := recipeRepo.List(ctx, f)
+	require.NoError(t, err)
+	second, _, err := recipeRepo.List(ctx, f)
+	require.NoError(t, err)
+	assert.Equal(t, cardIDs(first), cardIDs(second))
+}
+
+func TestListRecipes_Ordering_SeededPaginationHasNoDuplicatesOrGaps(t *testing.T) {
+	ctx := context.Background()
+	seed := "page-seed-" + uuid.NewString()
+
+	full, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Seed: seed, Page: 1, Limit: 1000})
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(full), 4, "need at least a handful of approved recipes in the dev DB to exercise pagination")
+
+	pageSize := len(full) / 2
+	if pageSize > 10 {
+		pageSize = 10
+	}
+	page1, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Seed: seed, Page: 1, Limit: pageSize})
+	require.NoError(t, err)
+	page2, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Seed: seed, Page: 2, Limit: pageSize})
+	require.NoError(t, err)
+
+	fullIDs := cardIDs(full)
+	assert.Equal(t, fullIDs[:pageSize], cardIDs(page1))
+	assert.Equal(t, fullIDs[pageSize:pageSize*2], cardIDs(page2))
 }
 
 func TestListRecipes_Pagination(t *testing.T) {

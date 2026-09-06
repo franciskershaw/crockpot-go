@@ -38,6 +38,14 @@
 # so both the invalid_unit_id and unit_not_allowed_for_item paths can be
 # exercised. Cleanup is a SQL note at the bottom — there is no
 # DELETE /recipes endpoint until CROC-016.
+#
+# GET /recipes — relevance ranking (CROC-042). Scored ordering (ingredients
+# and/or categories selected) vs. seeded-random (no filters at all) vs. the
+# plain created_at-DESC default (q/time only). The section below reuses the
+# two seeded recipes above — the stew (2 ingredients, 2 categories) and the
+# minimal recipe (1 ingredient, 1 category) — which have deliberately
+# different coverage against the same filter, so the two cards come back at
+# different scores/tiers, not tied.
 
 
 # ══════════════════════════════════════════
@@ -498,6 +506,47 @@ GET http://localhost:{{$dotenv PORT}}/recipes?categoryMode=sideways
 
 ### 🚫 400 invalid_request — non-numeric page.
 GET http://localhost:{{$dotenv PORT}}/recipes?page=abc
+
+###
+
+
+# ══════════════════════════════════════════
+#  GET /recipes — relevance ranking (CROC-042)
+# ══════════════════════════════════════════
+
+### ✅ 200 — ingredients + categories both selected: scored mode. The minimal
+### recipe (1/1 ingredient, 1/1 category) outscores the stew (1/2 ingredient,
+### 1/1 category) — check `score`/`tier` on each card.
+GET http://localhost:{{$dotenv PORT}}/recipes?ingredientId={{itemId}}&categoryId={{recipeCategoryId1}}
+
+###
+
+### ✅ 200 — categories only: score falls back to plain categoryCoverage
+### (matchedCategoryCount / categories selected), no ingredient signal at all.
+GET http://localhost:{{$dotenv PORT}}/recipes?categoryId={{recipeCategoryId1}}&categoryId={{recipeCategoryId2}}
+
+###
+
+### ✅ 200 — ingredients only: score falls back to plain ingredientCoverage.
+GET http://localhost:{{$dotenv PORT}}/recipes?ingredientId={{itemId}}
+
+###
+
+### ✅ 200 — no filters at all: seeded random order. matchedIngredientCount/
+### matchedCategoryCount/score are 0 and tier is null on every card.
+GET http://localhost:{{$dotenv PORT}}/recipes?seed=http-test-seed-1
+
+###
+
+### ✅ 200 — same seed again: `recipes[].id` order should be identical to the
+### request above.
+GET http://localhost:{{$dotenv PORT}}/recipes?seed=http-test-seed-1
+
+###
+
+### ✅ 200 — name query only, no categories/ingredients: plain created_at-DESC
+### order, unaffected by seed even though one is supplied here.
+GET http://localhost:{{$dotenv PORT}}/recipes?q=http-test&seed=should-be-ignored
 
 ###
 

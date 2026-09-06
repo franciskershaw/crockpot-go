@@ -46,6 +46,12 @@ type RecipeCard struct {
 	Categories    []CategoryRef `json:"categories"`
 	CreatedAt     time.Time     `json:"createdAt"`
 	IsFavourite   bool          `json:"isFavourite"`
+
+	MatchedIngredientCount int     `json:"matchedIngredientCount"`
+	TotalIngredientCount   int     `json:"totalIngredientCount"`
+	MatchedCategoryCount   int     `json:"matchedCategoryCount"`
+	Score                  float64 `json:"score"`
+	Tier                   *string `json:"tier"`
 }
 
 type HydratedIngredient struct {
@@ -83,6 +89,7 @@ type RecipeListFilter struct {
 	MinTime            int
 	MaxTime            int
 	Mine               bool
+	Seed               string
 	CallerID           *string
 	CallerIsAdmin      bool
 	Page               int
