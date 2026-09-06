@@ -515,19 +515,15 @@ session.*
   size/format/folder limits is a defensible interim if deferred. Grill
   before building — which params are signed, signature TTL, per-user
   rate limit, whether FREE users may upload at all.
-- **CROC-042** — Recipe relevance ranking. Split from CROC-015 at its
-  grill (2026-08-31) — the "I have these ingredients, what can I cook?"
-  ordering, especially for anonymous users, plus a visible match
-  explanation (which ingredients/categories matched). **Full requirements
-  + open questions captured in `docs/handoffs/CROC-015.md` appendix.**
-  Do **not** port the old app's algorithm — absolute match count ignores
-  recipe size, and the 28 flat `recipe_categories` mix dietary / lifestyle
-  / cuisine / meal-type kinds that need different ranking weight (probable
-  `recipe_categories` schema change). Also owns the low-signal **random
-  ordering** (seed mechanism, no Next-style cache). Plugs into CROC-015's
-  `ORDER BY` and adds fields to the list-card DTO — additive. Match-
-  explanation response fields are **blocked on a design artifact** for
-  that UI. Needs its own grill.
+- **CROC-042** — Recipe relevance ranking. Grilled 2026-09-06, AI-driven,
+  not yet built — see `docs/handoffs/CROC-042.md`. Coverage-based scoring
+  (ingredients: matched/total on the recipe; categories: matched/selected),
+  combined via a selection-count-weighted average, computed in SQL. Three
+  ordering modes (scored / seeded-random / plain-default) replace the
+  always-`created_at DESC` default. No `recipe_categories` schema change —
+  the dietary-distinction idea raised at this grill was descoped and
+  parked separately (see below). Unblocks `crockpot-react`'s `CFE-021`
+  (match/ranking display) and the random-ordering half of `CFE-020`.
 - **CROC-043** — Recipe cooking-time bounds. **Done** (2026-09-04). Surfaced at `crockpot-react`
   CFE-004's grill (2026-09-02): the old app got this from a live Prisma
   aggregate (`getRecipes.ts:74-99`, cached hourly); `crockpot-go` has no
@@ -796,3 +792,27 @@ to resolve. Paired with `crockpot-react`'s `CFE-015`.*
   on existing rows); whether adding a default to the list is "add all"
   or per-item picking; interaction with the FREE/PREMIUM tier split, if
   any.
+
+*Raised 2026-09-06 during `CROC-042`'s grill, parked here for the same
+reason as `CROC-038` above — a loosely-scoped idea, not sequenced.*
+- **Dietary/allergen flags on recipes**: came up while discussing
+  `CROC-042`'s ranking of the `Meaty`/`Veggie`/`Fishy` categories —
+  picking "Veggie" can currently surface a meat recipe (it's an
+  inclusion tag in a broad OR'd candidate net, not an exclusion), which
+  reads as a bug to a user rather than the intended ingredient-first
+  design. Deliberately kept out of `CROC-042` (a ranking ticket): this
+  is a **hard-exclude** concern (vegan/dairy-free users don't want
+  non-matching recipes ranked lower, they want them absent), a different
+  filter semantic from every other category, and very likely a different
+  data shape too — probably boolean/enum columns on `recipe` or a
+  separate `recipe_dietary_flags` table for multi-select (vegan,
+  vegetarian, dairy-free, gluten-free, nut-free...), not another
+  `recipe_categories` row. Structurally independent from the
+  ranking/category system either way: it would add `WHERE` predicates
+  that run before candidates reach ranking, same pattern as
+  `exclude_category_ids` today, so building it later doesn't require
+  unwinding anything `CROC-042` ships. Open for its grill: schema shape
+  (columns vs. table), whether it's an admin-curated classification
+  (consistent with recipe categories) or creator-set per recipe, and
+  whether the shopping-list/menu side needs any awareness of it at all
+  or this is purely a browse/filter feature.
