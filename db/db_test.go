@@ -2,6 +2,13 @@ package db
 
 import "testing"
 
+func TestInitDB_EmptyDatabaseURL(t *testing.T) {
+	err := InitDB("")
+	if err == nil {
+		t.Fatal("expected error for empty databaseURL, got nil")
+	}
+}
+
 func TestWithPgx5Scheme_RewritesSchemePreservesRest(t *testing.T) {
 	got, err := withPgx5Scheme("postgresql://user:pass@host.example.com/dbname?sslmode=require&channel_binding=require")
 	if err != nil {

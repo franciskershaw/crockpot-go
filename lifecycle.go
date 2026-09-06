@@ -16,11 +16,9 @@ type refreshTokenSweepRepository interface {
 	DeleteAllStaleFamilies(ctx context.Context) error
 }
 
-type emailVerificationTokenSweepRepository interface {
-	DeleteAllStale(ctx context.Context) error
-}
-
-type passwordResetTokenSweepRepository interface {
+// staleTokenDeleter is shared by email_verification_tokens and password_reset_tokens — both
+// expose the same DeleteAllStale(ctx) error shape for their sweep.
+type staleTokenDeleter interface {
 	DeleteAllStale(ctx context.Context) error
 }
 
@@ -49,8 +47,8 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 func runTokenSweeper(
 	ctx context.Context,
 	refreshTokens refreshTokenSweepRepository,
-	emailVerificationTokens emailVerificationTokenSweepRepository,
-	passwordResetTokens passwordResetTokenSweepRepository,
+	emailVerificationTokens staleTokenDeleter,
+	passwordResetTokens staleTokenDeleter,
 	interval time.Duration,
 	wg *sync.WaitGroup,
 ) {
