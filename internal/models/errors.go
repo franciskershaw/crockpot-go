@@ -59,3 +59,5 @@ var ErrIngredientUnitNotAllowed = errors.New("unit not allowed for item")
 var ErrRecipeDuplicateIngredient = errors.New("recipe has a duplicate ingredient item")
 
 var ErrRecipeNotFound = errors.New("recipe not found")
+
+var ErrMenuEntryNotFound = errors.New("menu entry not found")

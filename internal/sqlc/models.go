@@ -114,6 +114,7 @@ type RecipeMenuEntry struct {
 	RecipeMenuID pgtype.UUID
 	RecipeID     pgtype.UUID
 	Serves       int32
+	CreatedAt    pgtype.Timestamptz
 }
 
 type RefreshToken struct {
