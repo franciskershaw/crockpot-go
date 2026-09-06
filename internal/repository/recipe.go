@@ -61,6 +61,13 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 	}
 	offset := (page - 1) * filter.Limit
 
+	hasScoreSignal := len(filter.IngredientIDs) > 0 || len(filter.IncludeCategoryIDs) > 0
+	isUnfiltered := !hasScoreSignal &&
+		len(filter.ExcludeCategoryIDs) == 0 &&
+		filter.Query == "" &&
+		filter.MinTime == 0 &&
+		filter.MaxTime == 0
+
 	rows, err := q.ListRecipes(ctx, sqlc.ListRecipesParams{
 		CallerIsAdmin:      filter.CallerIsAdmin,
 		CallerID:           callerID,
@@ -71,6 +78,8 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 		ExcludeCategoryIds: pgUUIDs(filter.ExcludeCategoryIDs),
 		IncludeCategoryIds: pgUUIDs(filter.IncludeCategoryIDs),
 		IngredientIds:      pgUUIDs(filter.IngredientIDs),
+		HasScoreSignal:     hasScoreSignal,
+		IsUnfiltered:       isUnfiltered,
 		Seed:               filter.Seed,
 		ResultLimit:        int32(filter.Limit),
 		ResultOffset:       int32(offset),
@@ -273,16 +282,17 @@ func (r *PostgresRecipeRepository) GetByID(ctx context.Context, id string, calle
 
 	return &models.RecipeDetail{
 		RecipeCard: models.RecipeCard{
-			ID:            uuidValue(row.ID),
-			Name:          row.Name,
-			ImageURL:      textPtr(row.ImageUrl),
-			ImageFilename: textPtr(row.ImageFilename),
-			TimeInMinutes: int(row.TimeInMinutes),
-			Serves:        int(row.Serves),
-			Approved:      row.Approved,
-			Categories:    categories,
-			CreatedAt:     row.CreatedAt.Time,
-			IsFavourite:   isFavourite,
+			ID:                   uuidValue(row.ID),
+			Name:                 row.Name,
+			ImageURL:             textPtr(row.ImageUrl),
+			ImageFilename:        textPtr(row.ImageFilename),
+			TimeInMinutes:        int(row.TimeInMinutes),
+			Serves:               int(row.Serves),
+			Approved:             row.Approved,
+			Categories:           categories,
+			CreatedAt:            row.CreatedAt.Time,
+			IsFavourite:          isFavourite,
+			TotalIngredientCount: len(ingredients),
 		},
 		Description:   textPtr(row.Description),
 		Instructions:  instructions,

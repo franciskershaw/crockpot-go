@@ -515,15 +515,15 @@ session.*
   size/format/folder limits is a defensible interim if deferred. Grill
   before building — which params are signed, signature TTL, per-user
   rate limit, whether FREE users may upload at all.
-- **CROC-042** — Recipe relevance ranking. Grilled 2026-09-06, AI-driven,
-  not yet built — see `docs/handoffs/CROC-042.md`. Coverage-based scoring
-  (ingredients: matched/total on the recipe; categories: matched/selected),
-  combined via a selection-count-weighted average, computed in SQL. Three
-  ordering modes (scored / seeded-random / plain-default) replace the
-  always-`created_at DESC` default. No `recipe_categories` schema change —
-  the dietary-distinction idea raised at this grill was descoped and
-  parked separately (see below). Unblocks `crockpot-react`'s `CFE-021`
-  (match/ranking display) and the random-ordering half of `CFE-020`.
+- **CROC-042** — **Done** (2026-09-06, `docs/handoffs/CROC-042.md`).
+  Coverage-based scoring (ingredients: matched/total on the recipe;
+  categories: matched/selected), combined via a selection-count-weighted
+  average, computed in SQL. Three ordering modes (scored / seeded-random
+  / plain-default) replace the always-`created_at DESC` default. No
+  `recipe_categories` schema change — the dietary-distinction idea raised
+  at this grill was descoped and parked separately (see below). Unblocks
+  `crockpot-react`'s `CFE-021` (match/ranking display) and the
+  random-ordering half of `CFE-020`.
 - **CROC-043** — Recipe cooking-time bounds. **Done** (2026-09-04). Surfaced at `crockpot-react`
   CFE-004's grill (2026-09-02): the old app got this from a live Prisma
   aggregate (`getRecipes.ts:74-99`, cached hourly); `crockpot-go` has no

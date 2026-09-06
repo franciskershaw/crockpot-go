@@ -603,18 +603,22 @@ func TestListRecipes_Ordering_SeededPaginationHasNoDuplicatesOrGaps(t *testing.T
 	ctx := context.Background()
 	seed := "page-seed-" + uuid.NewString()
 
-	full, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Seed: seed, Page: 1, Limit: 20})
+	full, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Seed: seed, Page: 1, Limit: 1000})
 	require.NoError(t, err)
-	require.Len(t, full, 20)
+	require.GreaterOrEqual(t, len(full), 4, "need at least a handful of approved recipes in the dev DB to exercise pagination")
 
-	page1, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Seed: seed, Page: 1, Limit: 10})
+	pageSize := len(full) / 2
+	if pageSize > 10 {
+		pageSize = 10
+	}
+	page1, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Seed: seed, Page: 1, Limit: pageSize})
 	require.NoError(t, err)
-	page2, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Seed: seed, Page: 2, Limit: 10})
+	page2, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Seed: seed, Page: 2, Limit: pageSize})
 	require.NoError(t, err)
 
 	fullIDs := cardIDs(full)
-	assert.Equal(t, fullIDs[:10], cardIDs(page1))
-	assert.Equal(t, fullIDs[10:20], cardIDs(page2))
+	assert.Equal(t, fullIDs[:pageSize], cardIDs(page1))
+	assert.Equal(t, fullIDs[pageSize:pageSize*2], cardIDs(page2))
 }
 
 func TestListRecipes_Pagination(t *testing.T) {

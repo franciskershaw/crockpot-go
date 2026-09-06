@@ -83,10 +83,7 @@ WITH candidates AS (
             )
         )
         AND (
-            (
-                cardinality(sqlc.arg(include_category_ids)::uuid[]) = 0
-                AND cardinality(sqlc.arg(ingredient_ids)::uuid[]) = 0
-            )
+            NOT sqlc.arg(has_score_signal)::boolean
             OR EXISTS (
                 SELECT 1 FROM recipe_categories_recipes x
                 WHERE x.recipe_id = r.id AND x.category_id = ANY(sqlc.arg(include_category_ids)::uuid[])
@@ -100,18 +97,14 @@ WITH candidates AS (
     SELECT
         candidates.*,
         (CASE
-            WHEN cardinality(sqlc.arg(ingredient_ids)::uuid[]) = 0 AND cardinality(sqlc.arg(include_category_ids)::uuid[]) = 0
+            WHEN NOT sqlc.arg(has_score_signal)::boolean
                 THEN 0::float8
-            WHEN cardinality(sqlc.arg(include_category_ids)::uuid[]) = 0
-                THEN COALESCE(matched_ingredient_count::float8 / NULLIF(total_ingredient_count, 0), 0)
-            WHEN cardinality(sqlc.arg(ingredient_ids)::uuid[]) = 0
-                THEN matched_category_count::float8 / cardinality(sqlc.arg(include_category_ids)::uuid[])
             ELSE
                 (
                     COALESCE(matched_ingredient_count::float8 / NULLIF(total_ingredient_count, 0), 0)
                         * cardinality(sqlc.arg(ingredient_ids)::uuid[])
                     + matched_category_count::float8
-                ) / (cardinality(sqlc.arg(ingredient_ids)::uuid[]) + cardinality(sqlc.arg(include_category_ids)::uuid[]))
+                ) / NULLIF(cardinality(sqlc.arg(ingredient_ids)::uuid[]) + cardinality(sqlc.arg(include_category_ids)::uuid[]), 0)
         END)::float8 AS score
     FROM candidates
 )
@@ -119,16 +112,11 @@ SELECT scored.*
 FROM scored
 ORDER BY
     (CASE
-        WHEN cardinality(sqlc.arg(ingredient_ids)::uuid[]) > 0 OR cardinality(sqlc.arg(include_category_ids)::uuid[]) > 0
+        WHEN sqlc.arg(has_score_signal)::boolean
             THEN scored.score
     END) DESC,
     (CASE
-        WHEN cardinality(sqlc.arg(ingredient_ids)::uuid[]) = 0
-            AND cardinality(sqlc.arg(include_category_ids)::uuid[]) = 0
-            AND cardinality(sqlc.arg(exclude_category_ids)::uuid[]) = 0
-            AND sqlc.arg(name_query)::text = ''
-            AND sqlc.arg(min_time)::int = 0
-            AND sqlc.arg(max_time)::int = 0
+        WHEN sqlc.arg(is_unfiltered)::boolean
             THEN md5(scored.id::text || sqlc.arg(seed)::text)
     END) ASC,
     scored.created_at DESC,
