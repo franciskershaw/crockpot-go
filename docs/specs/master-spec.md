@@ -719,14 +719,14 @@ few-line addendum to a `GET /me` ticket.*
   public method now only renders its own templates, then delegates.
   Pure refactor: existing `resend_test.go` (6 tests) green unmodified.
   Finding 5.
-- **CROC-036** — `db.go`'s three `fmt.Print*` log lines → `slog`, to
-  match the app's structured logger (`main.go:37`). Finding 7. *(Findings
-  6 and 8 — rate-limit error-body codes, and the `auth_handler.go`
-  helper retrofit — moved to `CROC-041` at that ticket's grill, same
-  error-shape theme.)* *(grilled 2026-09-06)*
-  - **AC**: all 3 lines (`db.go:48,71,80`) → `slog.Info`/`slog.Error`.
-  - **Verify**: real dependency — `go run .` locally, eyeball stdout: all
-    3 lines now formatted like the rest of startup logging.
+- **CROC-036** — **Done** (2026-09-06). `db.go`'s three `fmt.Print*`
+  calls → `slog.Info`/`slog.Error`, matching the app's structured logger
+  (`main.go:37`). Confirmed via a real `go run .` dev run: both startup
+  lines now render as `time=... level=INFO msg="..."`, consistent with
+  the rest of the app's logging. Finding 7. *(Findings 6 and 8 —
+  rate-limit error-body codes, and the `auth_handler.go` helper
+  retrofit — moved to `CROC-041` at that ticket's grill, same
+  error-shape theme.)*
 - **CROC-037** — Drop the `lib/pq` dependency: switch `db.go`'s migrator
   to `golang-migrate`'s native `database/pgx/v5` driver, reusing the
   app's existing pgx stack. Finding 9. *(grilled 2026-09-06)*

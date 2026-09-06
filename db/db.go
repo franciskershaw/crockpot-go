@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -45,7 +46,7 @@ func InitDB(databaseURL string) error {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	fmt.Println("Database connection established")
+	slog.Info("database connection established")
 
 	// Run migrations
 	err = runMigrations(databaseURL)
@@ -68,7 +69,7 @@ func runMigrations(databaseURL string) error {
 	}
 	defer func() {
 		if srcErr, dbErr := m.Close(); srcErr != nil || dbErr != nil {
-			fmt.Printf("failed to close migrator: source=%v db=%v\n", srcErr, dbErr)
+			slog.Error("failed to close migrator", "source_error", srcErr, "db_error", dbErr)
 		}
 	}()
 
@@ -77,7 +78,7 @@ func runMigrations(databaseURL string) error {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	fmt.Println("Migrations completed successfully")
+	slog.Info("migrations completed successfully")
 	return nil
 }
 
