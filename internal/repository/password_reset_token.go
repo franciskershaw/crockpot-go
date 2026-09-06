@@ -99,6 +99,13 @@ func (r *PostgresPasswordResetTokenRepository) DeleteActiveForUser(ctx context.C
 	return nil
 }
 
+func (r *PostgresPasswordResetTokenRepository) DeleteAllStale(ctx context.Context) error {
+	if err := queriesFor(ctx, r.db).DeleteAllStalePasswordResetTokens(ctx); err != nil {
+		return fmt.Errorf("failed to delete all stale password reset tokens: %w", err)
+	}
+	return nil
+}
+
 func toModelPasswordResetToken(t sqlc.PasswordResetToken) *models.PasswordResetToken {
 	return &models.PasswordResetToken{
 		ID:        uuidValue(t.ID),

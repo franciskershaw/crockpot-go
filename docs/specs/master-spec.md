@@ -673,11 +673,13 @@ few-line addendum to a `GET /me` ticket.*
 ### Tech Debt & Production Readiness
 *From the first whole-codebase tech-debt pass, 2026-08-30. Full detail:
 `docs/findings/2026-08-30-tech-debt.md`.*
-- **CROC-031** — Fix `PostgresEmailVerificationTokenRepository` to honor
-  an active `WithinTx` transaction (matches every other repository's
-  `queriesFor(ctx, r.db)` pattern). Not currently exploitable, but a
-  silent atomicity trap for the next ticket that wraps it in a
-  transaction. Finding 1.
+- **CROC-031** — **Done** (2026-09-06). `PostgresEmailVerificationTokenRepository`
+  now honors an active `WithinTx` transaction (`db sqlc.DBTX` +
+  `queriesFor(ctx, r.db)`, matching `password_reset_token.go`). New
+  `TestWithinTx_RollsBackEmailVerificationTokenWritesOnError` (confirmed
+  red against the old bypass-the-pool code, green after the fix) proves
+  the rollback actually works; full `./scripts/test-repo.sh` and
+  `internal/handler` suites stay green. Finding 1.
 - **CROC-032** — **Done** (2026-08-31). Migration `000008` indexes all
   10 base-schema FK columns that weren't already a leading index column
   (finding 2); `internal/repository/schema_test.go` asserts the property
@@ -685,23 +687,64 @@ few-line addendum to a `GET /me` ticket.*
   `CONCURRENTLY` can't run in `golang-migrate`'s per-file transaction).
   Query-shaped composite/covering/partial indexes and `pg_trgm` are out
   of scope — bare FK coverage only. Built ahead of CROC-015.
-- **CROC-033** — Decide and implement (or deliberately drop) periodic
-  cleanup of stale/expired rows in `refresh_tokens`,
-  `email_verification_tokens`, `password_reset_tokens` — currently only
-  opportunistic, per-user, on next login. Resolve `lifecycle.go`'s dead,
-  stale-against-current-interfaces sweeper code either way. Finding 3.
-- **CROC-034** — Add a request body-size-limit middleware — promised by
-  `CLAUDE.md`'s folder-layout doc, never built. Finding 4.
-- **CROC-035** — Collapse `email.ResendClient`'s two near-identical
-  send methods into one shared helper. Finding 5.
-- **CROC-036** — `db.go`'s three `fmt.Print*` log lines → `slog`, to
-  match the app's structured logger (`main.go:37`). Finding 7. *(Findings
-  6 and 8 — rate-limit error-body codes, and the `auth_handler.go`
-  helper retrofit — moved to `CROC-041` at that ticket's grill, same
+- **CROC-033** — **Done** (2026-09-06). Periodic in-process sweep
+  (`lifecycle.go`'s `runTokenSweeper`, ticker + `ctx.Done()` on graceful
+  shutdown, wired in `main.go` with a `sync.WaitGroup`) deletes stale
+  rows from all three token tables every 24h, independently per table
+  (one failure `slog.Error`-logged, doesn't block the other two). New
+  repository methods: `DeleteAllStaleFamilies` (refresh_tokens, existing
+  `revoked_at IS NOT NULL OR expires_at < now()` definition) and
+  `DeleteAllStale` on both `email_verification_tokens`/
+  `password_reset_tokens` (`expires_at < now() OR used_at IS NOT NULL`
+  — a used token is this table's equivalent of "revoked"). In-process
+  over `pg_cron`: Neon's cron only fires while compute is active, a real
+  gap on a scale-to-zero tier. Real-DB repo tests per table (seed one
+  stale + one live row, assert only the stale one is gone); manual
+  dev-run confirmed clean startup and clean shutdown (`SIGINT` →
+  `ctx.Done()` → `wg.Wait()` returns, no hang) against the real Neon dev
+  DB. Finding 3.
+- **CROC-034** — **Done** (2026-09-06). New
+  `internal/middleware/BodySizeLimit` (1 MiB cap), wired in `main.go`
+  alongside CORS/rate-limit. Rejects a request whose declared
+  `Content-Length` exceeds the cap up front with `413
+  {"error":"request_too_large"}` before any buffering; backstops a
+  missing/understated `Content-Length` (chunked, or a lying client) by
+  wrapping the body in `http.MaxBytesReader` so the actual read is
+  capped too. Three tests: oversized declared length rejected, in-limit
+  body passes through, and an understated-length body's read is capped
+  mid-handler. Finding 4.
+- **CROC-035** — **Done** (2026-09-06). `SendConfirmationCode`/
+  `SendPasswordResetLink` both route through one new `send(ctx, toEmail,
+  subject, html, text string) error` helper in `resend.go` — each
+  public method now only renders its own templates, then delegates.
+  Pure refactor: existing `resend_test.go` (6 tests) green unmodified.
+  Finding 5.
+- **CROC-036** — **Done** (2026-09-06). `db.go`'s three `fmt.Print*`
+  calls → `slog.Info`/`slog.Error`, matching the app's structured logger
+  (`main.go:37`). Confirmed via a real `go run .` dev run: both startup
+  lines now render as `time=... level=INFO msg="..."`, consistent with
+  the rest of the app's logging. Finding 7. *(Findings 6 and 8 —
+  rate-limit error-body codes, and the `auth_handler.go` helper
+  retrofit — moved to `CROC-041` at that ticket's grill, same
   error-shape theme.)*
-- **CROC-037** — Drop the `lib/pq` dependency: switch `db.go`'s migrator
-  to `golang-migrate`'s native `database/pgx/v5` driver, reusing the
-  app's existing pgx stack. Finding 9.
+- **CROC-037** — **Done** (2026-09-06). `db.go`'s migrator now uses
+  `golang-migrate`'s `database/pgx/v5` driver (registers under scheme
+  `pgx5`, dispatch is by URL scheme not by imported package) instead of
+  `database/postgres` (which needed `lib/pq`'s blank import just to
+  register against). New `withPgx5Scheme` helper rewrites the
+  connection URL's scheme for the migrator only — `pgxpool.ParseConfig`
+  elsewhere in `InitDB` still gets the original `postgresql://` URL
+  unchanged. Note: the pgx/v5 driver still goes through `database/sql`
+  internally (via `pgx/v5/stdlib`), not the app's own `pgxpool.Pool`
+  directly — the finding's actual goal (one Postgres driver library in
+  the tree, not two) is still fully met. `_ "github.com/lib/pq"` removed;
+  `go mod tidy` drops it from `go.mod`'s direct requires (a `go.sum`
+  hash for it persists — normal module-graph bookkeeping for
+  golang-migrate's own other driver packages, not something compiled
+  into this binary). Verified with a real `migrate down 1`/`up`
+  round-trip against the Neon dev DB via the same `pgx5`-driver CLI, and
+  the full `./scripts/test-repo.sh` suite (which boots via `db.InitDB`)
+  green. Finding 9.
 - **CROC-041** — **Done** (2026-08-31, `docs/handoffs/CROC-041.md`).
   API error responses go through shared helpers in `handler/errors.go`
   (`badRequest`/`notFound`/`conflict`/`unauthorized`/`forbidden`/

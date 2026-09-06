@@ -36,3 +36,7 @@ WHERE id = $1
 UPDATE refresh_tokens
 SET revoked_at = CURRENT_TIMESTAMP
 WHERE id = $1;
+
+-- name: DeleteAllStaleRefreshTokenFamilies :exec
+DELETE FROM refresh_tokens
+WHERE revoked_at IS NOT NULL OR expires_at < CURRENT_TIMESTAMP;

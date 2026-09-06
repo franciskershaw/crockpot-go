@@ -53,6 +53,13 @@ func (r *PostgresRefreshTokenRepository) DeleteStaleFamiliesForUser(ctx context.
 	return nil
 }
 
+func (r *PostgresRefreshTokenRepository) DeleteAllStaleFamilies(ctx context.Context) error {
+	if err := queriesFor(ctx, r.db).DeleteAllStaleRefreshTokenFamilies(ctx); err != nil {
+		return fmt.Errorf("failed to delete all stale refresh token families: %w", err)
+	}
+	return nil
+}
+
 func (r *PostgresRefreshTokenRepository) RevokeAllFamiliesForUser(ctx context.Context, userID string) error {
 	userUUID, err := uuidParam(userID)
 	if err != nil {

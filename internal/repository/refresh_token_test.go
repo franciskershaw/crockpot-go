@@ -70,6 +70,48 @@ func TestDeleteStaleFamiliesForUser_DeletesExpiredAndRevoked_KeepsActive(t *test
 	assert.Contains(t, remainingIDs, activeID, "active family should not have been deleted")
 }
 
+func TestDeleteAllStaleFamilies_DeletesExpiredAndRevoked_KeepsActive(t *testing.T) {
+	ctx := context.Background()
+
+	expiredID := uuid.NewString()
+	revokedID := uuid.NewString()
+	activeID := uuid.NewString()
+
+	_, err := db.DB.Exec(ctx,
+		`INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)`,
+		expiredID, repoUserID, "repo-test-hash-"+uuid.NewString(), time.Now().Add(-time.Hour),
+	)
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM refresh_tokens WHERE id = $1`, expiredID)
+
+	_, err = refreshTokenRepo.CreateFamily(ctx, revokedID, repoUserID.String(), "repo-test-hash-"+uuid.NewString(), time.Now().Add(7*24*time.Hour))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM refresh_tokens WHERE id = $1`, revokedID)
+	_, err = db.DB.Exec(ctx, `UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = $1`, revokedID)
+	require.NoError(t, err)
+
+	_, err = refreshTokenRepo.CreateFamily(ctx, activeID, repoUserID.String(), "repo-test-hash-"+uuid.NewString(), time.Now().Add(7*24*time.Hour))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM refresh_tokens WHERE id = $1`, activeID)
+
+	err = refreshTokenRepo.DeleteAllStaleFamilies(ctx)
+	require.NoError(t, err)
+
+	var remainingIDs []string
+	rows, err := db.DB.Query(ctx, `SELECT id FROM refresh_tokens WHERE id = ANY($1)`, []string{expiredID, revokedID, activeID})
+	require.NoError(t, err)
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		require.NoError(t, rows.Scan(&id))
+		remainingIDs = append(remainingIDs, id.String())
+	}
+
+	assert.NotContains(t, remainingIDs, expiredID, "expired family should have been deleted")
+	assert.NotContains(t, remainingIDs, revokedID, "revoked family should have been deleted")
+	assert.Contains(t, remainingIDs, activeID, "active family should not have been deleted")
+}
+
 func TestRevokeAllFamiliesForUser_RevokesLive_LeavesAlreadyRevokedAndExpiredUntouched(t *testing.T) {
 	ctx := context.Background()
 

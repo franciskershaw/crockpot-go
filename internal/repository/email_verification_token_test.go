@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/franciskershaw/crockpot-go/db"
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -81,6 +82,43 @@ func TestEmailVerificationTokenMarkUsed_ExcludesFromActiveLookup(t *testing.T) {
 
 	_, err = emailVerificationTokenRepo.FindActiveByUserID(ctx, repoUserID.String())
 	assert.ErrorIs(t, err, models.ErrNoActiveEmailVerificationToken)
+}
+
+func TestEmailVerificationTokenDeleteAllStale_DeletesExpiredAndUsed_KeepsActive(t *testing.T) {
+	ctx := context.Background()
+
+	// Separate user: the active-user unique index forbids two simultaneously-unused rows for one user.
+	otherUserID := createTestUser(t)
+
+	expired, err := emailVerificationTokenRepo.Create(ctx, otherUserID.String(), "repo-test-hash-"+uuid.NewString(), time.Now().Add(-time.Minute))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM email_verification_tokens WHERE id = $1`, expired.ID)
+
+	used, err := emailVerificationTokenRepo.Create(ctx, repoUserID.String(), "repo-test-hash-"+uuid.NewString(), time.Now().Add(10*time.Minute))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM email_verification_tokens WHERE id = $1`, used.ID)
+	require.NoError(t, emailVerificationTokenRepo.MarkUsed(ctx, used.ID.String()))
+
+	active, err := emailVerificationTokenRepo.Create(ctx, repoUserID.String(), "repo-test-hash-"+uuid.NewString(), time.Now().Add(10*time.Minute))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM email_verification_tokens WHERE id = $1`, active.ID)
+
+	err = emailVerificationTokenRepo.DeleteAllStale(ctx)
+	require.NoError(t, err)
+
+	var remainingIDs []string
+	rows, err := db.DB.Query(ctx, `SELECT id FROM email_verification_tokens WHERE id = ANY($1)`, []string{expired.ID.String(), used.ID.String(), active.ID.String()})
+	require.NoError(t, err)
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		require.NoError(t, rows.Scan(&id))
+		remainingIDs = append(remainingIDs, id.String())
+	}
+
+	assert.NotContains(t, remainingIDs, expired.ID.String(), "expired token should have been deleted")
+	assert.NotContains(t, remainingIDs, used.ID.String(), "used token should have been deleted")
+	assert.Contains(t, remainingIDs, active.ID.String(), "active token should not have been deleted")
 }
 
 func TestEmailVerificationTokenDeleteActiveForUser_RemovesActiveRow(t *testing.T) {

@@ -71,6 +71,24 @@ func TestWithinTx_RollsBackWritesOnPanic(t *testing.T) {
 	assert.ErrorIs(t, err, models.ErrNoActivePasswordResetToken, "the create inside the panicking transaction should have been rolled back")
 }
 
+func TestWithinTx_RollsBackEmailVerificationTokenWritesOnError(t *testing.T) {
+	ctx := context.Background()
+	hash := "repo-test-hash-" + uuid.NewString()
+	sentinelErr := errors.New("boom")
+	cleanupExec(t, `DELETE FROM email_verification_tokens WHERE token_hash = $1`, hash)
+
+	err := transactor.WithinTx(ctx, func(ctx context.Context) error {
+		if _, err := emailVerificationTokenRepo.Create(ctx, repoUserID.String(), hash, time.Now().Add(time.Hour)); err != nil {
+			return err
+		}
+		return sentinelErr
+	})
+	require.ErrorIs(t, err, sentinelErr)
+
+	_, err = emailVerificationTokenRepo.FindActiveByUserID(ctx, repoUserID.String())
+	assert.ErrorIs(t, err, models.ErrNoActiveEmailVerificationToken, "the create inside the failed transaction should have been rolled back")
+}
+
 func TestAcquireUserLock_SerializesConcurrentTransactionsForSameUser(t *testing.T) {
 	ctx := context.Background()
 	var mu sync.Mutex

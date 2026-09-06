@@ -45,6 +45,16 @@ func (q *Queries) CreateRefreshTokenFamily(ctx context.Context, arg CreateRefres
 	return i, err
 }
 
+const deleteAllStaleRefreshTokenFamilies = `-- name: DeleteAllStaleRefreshTokenFamilies :exec
+DELETE FROM refresh_tokens
+WHERE revoked_at IS NOT NULL OR expires_at < CURRENT_TIMESTAMP
+`
+
+func (q *Queries) DeleteAllStaleRefreshTokenFamilies(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteAllStaleRefreshTokenFamilies)
+	return err
+}
+
 const deleteStaleRefreshTokenFamiliesForUser = `-- name: DeleteStaleRefreshTokenFamiliesForUser :exec
 DELETE FROM refresh_tokens
 WHERE user_id = $1 AND (revoked_at IS NOT NULL OR expires_at < CURRENT_TIMESTAMP)
