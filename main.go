@@ -76,6 +76,7 @@ func main() {
 	itemRepo := repository.NewPostgresItemRepository(db.DB)
 	recipeCategoryRepo := repository.NewPostgresRecipeCategoryRepository(db.DB)
 	recipeRepo := repository.NewPostgresRecipeRepository(db.DB)
+	menuRepo := repository.NewPostgresMenuRepository(db.DB)
 	emailSender := email.NewResendClient(cfg.ResendAPIKey, cfg.EmailFrom)
 	authHandler := handler.NewAuthHandler(userRepo, oauthManager, refreshTokenRepo, emailVerificationTokenRepo, passwordResetTokenRepo, emailSender, transactor, cfg)
 	itemCategoryHandler := handler.NewItemCategoryHandler(itemCategoryRepo)
@@ -83,6 +84,7 @@ func main() {
 	itemHandler := handler.NewItemHandler(itemRepo, transactor)
 	recipeCategoryHandler := handler.NewRecipeCategoryHandler(recipeCategoryRepo)
 	recipeHandler := handler.NewRecipeHandler(recipeRepo, transactor)
+	menuHandler := handler.NewMenuHandler(menuRepo)
 
 	// Initialize Gin server
 	gin.SetMode(configureGinMode(string(cfg.Environment)))
@@ -181,6 +183,15 @@ func main() {
 		recipes.GET("/favourites", recipeHandler.ListFavourites)
 		recipes.POST("/:id/favourite", recipeHandler.AddFavourite)
 		recipes.DELETE("/:id/favourite", recipeHandler.RemoveFavourite)
+	}
+
+	menu := server.Group("/menu")
+	menu.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess))
+	{
+		menu.GET("", menuHandler.Get)
+		menu.POST("/entries", menuHandler.UpsertEntry)
+		menu.PATCH("/entries/:recipeId", menuHandler.UpdateEntryServes)
+		menu.DELETE("/entries/:recipeId", menuHandler.RemoveEntry)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
