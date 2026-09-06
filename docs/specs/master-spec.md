@@ -600,11 +600,11 @@ session.*
 ### Epic 5: Meal Planning
 - **CROC-019** — Menu read/upsert-entry (`GET /menu`, `POST /menu/entries`,
   `PATCH`/`DELETE /menu/entries/:recipeId`) — one menu per user, entries
-  keyed by recipe with a serving count. **Grilled 2026-09-06**, AI-driven,
-  not yet built — see `docs/handoffs/CROC-019.md` for the full decision
-  set (atomic upsert via a new unique constraint + `created_at` on
-  `recipe_menu_entries`, lazy menu creation, full-auth + visibility-gated
-  add, idempotent delete / strict-404 patch) and piece order.
+  keyed by recipe with a serving count. **Done** (2026-09-06,
+  `docs/handoffs/CROC-019.md`). Landed an atomic `ON CONFLICT` upsert on
+  a new `recipe_menu_entries` unique constraint, lazy menu creation, and
+  `created_at`-ordered entries. Unblocks `crockpot-react`'s `CFE-020` and
+  `CFE-005`'s add-to-menu action.
 - **CROC-020** — Menu history tracking (increment/first/last-added,
   last-removed) as entries are added/removed — powers "you've made this
   before" style features later.

@@ -455,3 +455,21 @@ implementation quality until CROC-001 lands.
   about. And: a multi-agent review's cost is unpredictable in advance —
   prefer running one with real usage headroom (well under the limit),
   not saved up for the end of a session.
+
+## 2026-09-06 — CROC-019 — Menu read/upsert-entry shipped; stop-discipline skipped a 4th time, same failure CROC-004/005/043 already named
+
+- No implementation rework in any piece — every red confirmed for the
+  right reason, every green passed first attempt. The one process miss:
+  piece 3 (repository) went red → full implementation as one continuous
+  motion with no stop for review in between, despite `CLAUDE.md`'s
+  explicit AI-driven cadence; only corrected from piece 4 onward, after
+  the founder flagged it. `CROC-043`'s lesson had already said to
+  revisit this wording at the next relevant grill — this was that grill,
+  and it wasn't raised proactively.
+- `/code-review medium main` found a stale master-spec line ("not yet
+  built" on a fully-shipped ticket) and a minor unused-field over-copy —
+  both fixed clean, one pass.
+- **Pattern**: after confirming a piece's tests are red, stop and report
+  before writing any real implementation — a "go ahead" on the prior
+  piece is not standing authorization to skip this checkpoint on the
+  next one.

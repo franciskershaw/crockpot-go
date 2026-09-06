@@ -44,22 +44,17 @@ func (r *PostgresMenuRepository) GetMenu(ctx context.Context, userID string) (*m
 	cards := make([]*models.RecipeCard, len(rows))
 	ids := make([]pgtype.UUID, len(rows))
 	for i, row := range rows {
-		card := toRecipeCard(sqlc.Recipe{
-			ID:            row.ID,
+		card := &models.RecipeCard{
+			ID:            uuidValue(row.ID),
 			Name:          row.Name,
-			Description:   row.Description,
-			TimeInMinutes: row.TimeInMinutes,
-			ImageUrl:      row.ImageUrl,
-			ImageFilename: row.ImageFilename,
-			Instructions:  row.Instructions,
-			Notes:         row.Notes,
+			ImageURL:      textPtr(row.ImageUrl),
+			ImageFilename: textPtr(row.ImageFilename),
+			TimeInMinutes: int(row.TimeInMinutes),
+			Serves:        int(row.Serves),
 			Approved:      row.Approved,
-			Serves:        row.Serves,
-			CreatedByID:   row.CreatedByID,
-			CreatedByName: row.CreatedByName,
-			CreatedAt:     row.CreatedAt,
-			UpdatedAt:     row.UpdatedAt,
-		})
+			Categories:    []models.CategoryRef{},
+			CreatedAt:     row.CreatedAt.Time,
+		}
 		cards[i] = card
 		ids[i] = row.ID
 		entries[i] = models.MenuEntry{
