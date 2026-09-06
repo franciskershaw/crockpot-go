@@ -5,15 +5,15 @@ import (
 	"embed"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	_ "github.com/lib/pq"
 
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 )
 
 //go:embed migrations
@@ -58,12 +58,17 @@ func InitDB(databaseURL string) error {
 }
 
 func runMigrations(databaseURL string) error {
+	migratorURL, err := withPgx5Scheme(databaseURL)
+	if err != nil {
+		return fmt.Errorf("failed to prepare migrator url: %w", err)
+	}
+
 	sourceDriver, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
 		return fmt.Errorf("failed to create migration source: %w", err)
 	}
 
-	m, err := migrate.NewWithSourceInstance("iofs", sourceDriver, databaseURL)
+	m, err := migrate.NewWithSourceInstance("iofs", sourceDriver, migratorURL)
 	if err != nil {
 		return fmt.Errorf("failed to create migrator: %w", err)
 	}
@@ -86,4 +91,15 @@ func CloseDB() {
 	if DB != nil {
 		DB.Close()
 	}
+}
+
+// withPgx5Scheme rewrites databaseURL's scheme to pgx5, the scheme golang-migrate's pgx/v5 driver
+// registers itself under — it dispatches by URL scheme, not by which driver package is imported.
+func withPgx5Scheme(databaseURL string) (string, error) {
+	u, err := url.Parse(databaseURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse database url: %w", err)
+	}
+	u.Scheme = "pgx5"
+	return u.String(), nil
 }

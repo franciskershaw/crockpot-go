@@ -727,15 +727,24 @@ few-line addendum to a `GET /me` ticket.*
   rate-limit error-body codes, and the `auth_handler.go` helper
   retrofit — moved to `CROC-041` at that ticket's grill, same
   error-shape theme.)*
-- **CROC-037** — Drop the `lib/pq` dependency: switch `db.go`'s migrator
-  to `golang-migrate`'s native `database/pgx/v5` driver, reusing the
-  app's existing pgx stack. Finding 9. *(grilled 2026-09-06)*
-  - **AC**: `runMigrations` uses `database/pgx/v5`'s driver against the
-    existing `pgxpool.Pool` (no second connection-string parse);
-    `_ "github.com/lib/pq"` blank import removed; `go mod tidy` at
-    ticket-end drops it from `go.mod`.
-  - **Verify**: service boundary, real DB — `migrate up` /`down 1`/`up`
-    round-trip against the Neon dev DB, same pattern `CROC-032` used.
+- **CROC-037** — **Done** (2026-09-06). `db.go`'s migrator now uses
+  `golang-migrate`'s `database/pgx/v5` driver (registers under scheme
+  `pgx5`, dispatch is by URL scheme not by imported package) instead of
+  `database/postgres` (which needed `lib/pq`'s blank import just to
+  register against). New `withPgx5Scheme` helper rewrites the
+  connection URL's scheme for the migrator only — `pgxpool.ParseConfig`
+  elsewhere in `InitDB` still gets the original `postgresql://` URL
+  unchanged. Note: the pgx/v5 driver still goes through `database/sql`
+  internally (via `pgx/v5/stdlib`), not the app's own `pgxpool.Pool`
+  directly — the finding's actual goal (one Postgres driver library in
+  the tree, not two) is still fully met. `_ "github.com/lib/pq"` removed;
+  `go mod tidy` drops it from `go.mod`'s direct requires (a `go.sum`
+  hash for it persists — normal module-graph bookkeeping for
+  golang-migrate's own other driver packages, not something compiled
+  into this binary). Verified with a real `migrate down 1`/`up`
+  round-trip against the Neon dev DB via the same `pgx5`-driver CLI, and
+  the full `./scripts/test-repo.sh` suite (which boots via `db.InitDB`)
+  green. Finding 9.
 - **CROC-041** — **Done** (2026-08-31, `docs/handoffs/CROC-041.md`).
   API error responses go through shared helpers in `handler/errors.go`
   (`badRequest`/`notFound`/`conflict`/`unauthorized`/`forbidden`/
