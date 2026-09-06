@@ -108,6 +108,9 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 			CreatedAt:              row.CreatedAt.Time,
 			TotalIngredientCount:   int(row.TotalIngredientCount),
 			MatchedIngredientCount: int(row.MatchedIngredientCount),
+			MatchedCategoryCount:   int(row.MatchedCategoryCount),
+			Score:                  row.Score,
+			Tier:                   scoreTier(row.Score),
 		}
 		cards[i] = card
 		ids[i] = row.ID
@@ -157,6 +160,19 @@ func hydrateCardCategories(ctx context.Context, q *sqlc.Queries, cards []*models
 		}
 	}
 	return nil
+}
+
+func scoreTier(score float64) *string {
+	var tier string
+	switch {
+	case score >= 0.8:
+		tier = "best"
+	case score >= 0.5:
+		tier = "good"
+	default:
+		return nil
+	}
+	return &tier
 }
 
 func toRecipeCard(row sqlc.Recipe) *models.RecipeCard {

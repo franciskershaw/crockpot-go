@@ -415,53 +415,79 @@ func (q *Queries) ListRecipeIngredientsHydrated(ctx context.Context, recipeID pg
 }
 
 const listRecipes = `-- name: ListRecipes :many
-SELECT
-    r.id, r.name, r.description, r.time_in_minutes, r.image_url, r.image_filename, r.instructions, r.notes, r.approved, r.serves, r.created_by_id, r.created_by_name, r.created_at, r.updated_at,
-    (SELECT count(*) FROM recipe_ingredients x WHERE x.recipe_id = r.id)::int AS total_ingredient_count,
-    (
-        SELECT count(*) FROM recipe_ingredients x
-        WHERE x.recipe_id = r.id AND x.item_id = ANY($1::uuid[])
-    )::int AS matched_ingredient_count
-FROM recipes r
-WHERE (
-        r.approved
-        OR $2::boolean
-        OR ($3::uuid IS NOT NULL AND r.created_by_id = $3::uuid)
-    )
-    AND (
-        NOT $4::boolean
-        OR ($3::uuid IS NOT NULL AND r.created_by_id = $3::uuid)
-    )
-    AND ($5::text = '' OR r.name ILIKE '%' || $5::text || '%')
-    AND ($6::int = 0 OR r.time_in_minutes >= $6::int)
-    AND ($7::int = 0 OR r.time_in_minutes <= $7::int)
-    AND (
-        cardinality($8::uuid[]) = 0
-        OR NOT EXISTS (
-            SELECT 1 FROM recipe_categories_recipes x
-            WHERE x.recipe_id = r.id AND x.category_id = ANY($8::uuid[])
-        )
-    )
-    AND (
+WITH candidates AS (
+    SELECT
+        r.id, r.name, r.description, r.time_in_minutes, r.image_url, r.image_filename, r.instructions, r.notes, r.approved, r.serves, r.created_by_id, r.created_by_name, r.created_at, r.updated_at,
+        (SELECT count(*) FROM recipe_ingredients x WHERE x.recipe_id = r.id)::int AS total_ingredient_count,
         (
-            cardinality($9::uuid[]) = 0
-            AND cardinality($1::uuid[]) = 0
-        )
-        OR EXISTS (
-            SELECT 1 FROM recipe_categories_recipes x
-            WHERE x.recipe_id = r.id AND x.category_id = ANY($9::uuid[])
-        )
-        OR EXISTS (
-            SELECT 1 FROM recipe_ingredients x
+            SELECT count(*) FROM recipe_ingredients x
             WHERE x.recipe_id = r.id AND x.item_id = ANY($1::uuid[])
+        )::int AS matched_ingredient_count,
+        (
+            SELECT count(*) FROM recipe_categories_recipes x
+            WHERE x.recipe_id = r.id AND x.category_id = ANY($2::uuid[])
+        )::int AS matched_category_count
+    FROM recipes r
+    WHERE (
+            r.approved
+            OR $5::boolean
+            OR ($6::uuid IS NOT NULL AND r.created_by_id = $6::uuid)
         )
-    )
-ORDER BY r.created_at DESC, r.id
-LIMIT $11::int OFFSET $10::int
+        AND (
+            NOT $7::boolean
+            OR ($6::uuid IS NOT NULL AND r.created_by_id = $6::uuid)
+        )
+        AND ($8::text = '' OR r.name ILIKE '%' || $8::text || '%')
+        AND ($9::int = 0 OR r.time_in_minutes >= $9::int)
+        AND ($10::int = 0 OR r.time_in_minutes <= $10::int)
+        AND (
+            cardinality($11::uuid[]) = 0
+            OR NOT EXISTS (
+                SELECT 1 FROM recipe_categories_recipes x
+                WHERE x.recipe_id = r.id AND x.category_id = ANY($11::uuid[])
+            )
+        )
+        AND (
+            (
+                cardinality($2::uuid[]) = 0
+                AND cardinality($1::uuid[]) = 0
+            )
+            OR EXISTS (
+                SELECT 1 FROM recipe_categories_recipes x
+                WHERE x.recipe_id = r.id AND x.category_id = ANY($2::uuid[])
+            )
+            OR EXISTS (
+                SELECT 1 FROM recipe_ingredients x
+                WHERE x.recipe_id = r.id AND x.item_id = ANY($1::uuid[])
+            )
+        )
+)
+SELECT
+    candidates.id, candidates.name, candidates.description, candidates.time_in_minutes, candidates.image_url, candidates.image_filename, candidates.instructions, candidates.notes, candidates.approved, candidates.serves, candidates.created_by_id, candidates.created_by_name, candidates.created_at, candidates.updated_at, candidates.total_ingredient_count, candidates.matched_ingredient_count, candidates.matched_category_count,
+    (CASE
+        WHEN cardinality($1::uuid[]) = 0 AND cardinality($2::uuid[]) = 0
+            THEN 0::float8
+        WHEN cardinality($2::uuid[]) = 0
+            THEN COALESCE(matched_ingredient_count::float8 / NULLIF(total_ingredient_count, 0), 0)
+        WHEN cardinality($1::uuid[]) = 0
+            THEN matched_category_count::float8 / cardinality($2::uuid[])
+        ELSE
+            (
+                COALESCE(matched_ingredient_count::float8 / NULLIF(total_ingredient_count, 0), 0)
+                    * cardinality($1::uuid[])
+                + matched_category_count::float8
+            ) / (cardinality($1::uuid[]) + cardinality($2::uuid[]))
+    END)::float8 AS score
+FROM candidates
+ORDER BY candidates.created_at DESC, candidates.id
+LIMIT $4::int OFFSET $3::int
 `
 
 type ListRecipesParams struct {
 	IngredientIds      []pgtype.UUID
+	IncludeCategoryIds []pgtype.UUID
+	ResultOffset       int32
+	ResultLimit        int32
 	CallerIsAdmin      bool
 	CallerID           pgtype.UUID
 	OnlyMine           bool
@@ -469,9 +495,6 @@ type ListRecipesParams struct {
 	MinTime            int32
 	MaxTime            int32
 	ExcludeCategoryIds []pgtype.UUID
-	IncludeCategoryIds []pgtype.UUID
-	ResultOffset       int32
-	ResultLimit        int32
 }
 
 type ListRecipesRow struct {
@@ -491,11 +514,16 @@ type ListRecipesRow struct {
 	UpdatedAt              pgtype.Timestamptz
 	TotalIngredientCount   int32
 	MatchedIngredientCount int32
+	MatchedCategoryCount   int32
+	Score                  float64
 }
 
 func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]ListRecipesRow, error) {
 	rows, err := q.db.Query(ctx, listRecipes,
 		arg.IngredientIds,
+		arg.IncludeCategoryIds,
+		arg.ResultOffset,
+		arg.ResultLimit,
 		arg.CallerIsAdmin,
 		arg.CallerID,
 		arg.OnlyMine,
@@ -503,9 +531,6 @@ func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]Lis
 		arg.MinTime,
 		arg.MaxTime,
 		arg.ExcludeCategoryIds,
-		arg.IncludeCategoryIds,
-		arg.ResultOffset,
-		arg.ResultLimit,
 	)
 	if err != nil {
 		return nil, err
@@ -531,6 +556,8 @@ func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]Lis
 			&i.UpdatedAt,
 			&i.TotalIngredientCount,
 			&i.MatchedIngredientCount,
+			&i.MatchedCategoryCount,
+			&i.Score,
 		); err != nil {
 			return nil, err
 		}

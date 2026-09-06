@@ -50,48 +50,71 @@ WHERE recipe_id = $1
 ORDER BY position;
 
 -- name: ListRecipes :many
-SELECT
-    r.*,
-    (SELECT count(*) FROM recipe_ingredients x WHERE x.recipe_id = r.id)::int AS total_ingredient_count,
-    (
-        SELECT count(*) FROM recipe_ingredients x
-        WHERE x.recipe_id = r.id AND x.item_id = ANY(sqlc.arg(ingredient_ids)::uuid[])
-    )::int AS matched_ingredient_count
-FROM recipes r
-WHERE (
-        r.approved
-        OR sqlc.arg(caller_is_admin)::boolean
-        OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
-    )
-    AND (
-        NOT sqlc.arg(only_mine)::boolean
-        OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
-    )
-    AND (sqlc.arg(name_query)::text = '' OR r.name ILIKE '%' || sqlc.arg(name_query)::text || '%')
-    AND (sqlc.arg(min_time)::int = 0 OR r.time_in_minutes >= sqlc.arg(min_time)::int)
-    AND (sqlc.arg(max_time)::int = 0 OR r.time_in_minutes <= sqlc.arg(max_time)::int)
-    AND (
-        cardinality(sqlc.arg(exclude_category_ids)::uuid[]) = 0
-        OR NOT EXISTS (
-            SELECT 1 FROM recipe_categories_recipes x
-            WHERE x.recipe_id = r.id AND x.category_id = ANY(sqlc.arg(exclude_category_ids)::uuid[])
-        )
-    )
-    AND (
+WITH candidates AS (
+    SELECT
+        r.*,
+        (SELECT count(*) FROM recipe_ingredients x WHERE x.recipe_id = r.id)::int AS total_ingredient_count,
         (
-            cardinality(sqlc.arg(include_category_ids)::uuid[]) = 0
-            AND cardinality(sqlc.arg(ingredient_ids)::uuid[]) = 0
-        )
-        OR EXISTS (
-            SELECT 1 FROM recipe_categories_recipes x
-            WHERE x.recipe_id = r.id AND x.category_id = ANY(sqlc.arg(include_category_ids)::uuid[])
-        )
-        OR EXISTS (
-            SELECT 1 FROM recipe_ingredients x
+            SELECT count(*) FROM recipe_ingredients x
             WHERE x.recipe_id = r.id AND x.item_id = ANY(sqlc.arg(ingredient_ids)::uuid[])
+        )::int AS matched_ingredient_count,
+        (
+            SELECT count(*) FROM recipe_categories_recipes x
+            WHERE x.recipe_id = r.id AND x.category_id = ANY(sqlc.arg(include_category_ids)::uuid[])
+        )::int AS matched_category_count
+    FROM recipes r
+    WHERE (
+            r.approved
+            OR sqlc.arg(caller_is_admin)::boolean
+            OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
         )
-    )
-ORDER BY r.created_at DESC, r.id
+        AND (
+            NOT sqlc.arg(only_mine)::boolean
+            OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
+        )
+        AND (sqlc.arg(name_query)::text = '' OR r.name ILIKE '%' || sqlc.arg(name_query)::text || '%')
+        AND (sqlc.arg(min_time)::int = 0 OR r.time_in_minutes >= sqlc.arg(min_time)::int)
+        AND (sqlc.arg(max_time)::int = 0 OR r.time_in_minutes <= sqlc.arg(max_time)::int)
+        AND (
+            cardinality(sqlc.arg(exclude_category_ids)::uuid[]) = 0
+            OR NOT EXISTS (
+                SELECT 1 FROM recipe_categories_recipes x
+                WHERE x.recipe_id = r.id AND x.category_id = ANY(sqlc.arg(exclude_category_ids)::uuid[])
+            )
+        )
+        AND (
+            (
+                cardinality(sqlc.arg(include_category_ids)::uuid[]) = 0
+                AND cardinality(sqlc.arg(ingredient_ids)::uuid[]) = 0
+            )
+            OR EXISTS (
+                SELECT 1 FROM recipe_categories_recipes x
+                WHERE x.recipe_id = r.id AND x.category_id = ANY(sqlc.arg(include_category_ids)::uuid[])
+            )
+            OR EXISTS (
+                SELECT 1 FROM recipe_ingredients x
+                WHERE x.recipe_id = r.id AND x.item_id = ANY(sqlc.arg(ingredient_ids)::uuid[])
+            )
+        )
+)
+SELECT
+    candidates.*,
+    (CASE
+        WHEN cardinality(sqlc.arg(ingredient_ids)::uuid[]) = 0 AND cardinality(sqlc.arg(include_category_ids)::uuid[]) = 0
+            THEN 0::float8
+        WHEN cardinality(sqlc.arg(include_category_ids)::uuid[]) = 0
+            THEN COALESCE(matched_ingredient_count::float8 / NULLIF(total_ingredient_count, 0), 0)
+        WHEN cardinality(sqlc.arg(ingredient_ids)::uuid[]) = 0
+            THEN matched_category_count::float8 / cardinality(sqlc.arg(include_category_ids)::uuid[])
+        ELSE
+            (
+                COALESCE(matched_ingredient_count::float8 / NULLIF(total_ingredient_count, 0), 0)
+                    * cardinality(sqlc.arg(ingredient_ids)::uuid[])
+                + matched_category_count::float8
+            ) / (cardinality(sqlc.arg(ingredient_ids)::uuid[]) + cardinality(sqlc.arg(include_category_ids)::uuid[]))
+    END)::float8 AS score
+FROM candidates
+ORDER BY candidates.created_at DESC, candidates.id
 LIMIT sqlc.arg(result_limit)::int OFFSET sqlc.arg(result_offset)::int;
 
 -- name: CountRecipes :one
