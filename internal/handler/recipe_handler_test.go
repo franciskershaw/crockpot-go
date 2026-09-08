@@ -30,25 +30,27 @@ var (
 	recipeCatID  = uuid.MustParse("a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1")
 )
 
-func fakeCreatedRecipe() *models.Recipe {
+func fakeCreatedRecipe() *models.RecipeDetail {
 	fn := "beef_stew_abc"
 	fu := "https://res.cloudinary.com/demo/image/upload/beef_stew_abc.jpg"
 	byName := "Cook Person"
-	return &models.Recipe{
-		ID:            uuid.MustParse("b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2"),
-		Name:          "Slow Cooker Beef Stew",
-		TimeInMinutes: 240,
-		Serves:        4,
+	return &models.RecipeDetail{
+		RecipeCard: models.RecipeCard{
+			ID:            uuid.MustParse("b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2"),
+			Name:          "Slow Cooker Beef Stew",
+			TimeInMinutes: 240,
+			Serves:        4,
+			ImageURL:      &fu,
+			ImageFilename: &fn,
+			Approved:      false,
+			Categories:    []models.CategoryRef{{ID: recipeCatID, Name: "Dinner"}},
+			CreatedAt:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
 		Instructions:  []string{"Brown the beef", "Add everything else"},
 		Notes:         []string{"Freezes well"},
-		ImageURL:      &fu,
-		ImageFilename: &fn,
-		Approved:      false,
-		CategoryIDs:   []uuid.UUID{recipeCatID},
-		Ingredients:   []models.Ingredient{{ItemID: recipeItemID, UnitID: &recipeUnitID, Quantity: 800}},
+		Ingredients:   []models.HydratedIngredient{{ItemID: recipeItemID, ItemName: "Beef", ItemCategoryID: uuid.New(), ItemCategoryName: "Meat", UnitID: &recipeUnitID, Quantity: 800}},
 		CreatedByID:   recipeUserID,
 		CreatedByName: &byName,
-		CreatedAt:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -139,7 +141,7 @@ func TestRecipeCreate_NonAdmin_201_ApprovedFalse(t *testing.T) {
 	m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
 	var captured models.CreateRecipeInput
 	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.Recipe, error) {
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
 			captured = in
 			return fakeCreatedRecipe(), nil
 		})
@@ -155,7 +157,7 @@ func TestRecipeCreate_Admin_201_ApprovedTrue(t *testing.T) {
 	m := newRecipeMocks(t)
 	var captured models.CreateRecipeInput
 	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.Recipe, error) {
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
 			captured = in
 			r := fakeCreatedRecipe()
 			r.Approved = true
@@ -312,7 +314,7 @@ func TestRecipeCreate_NotesEmptyElementsDropped(t *testing.T) {
 	m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
 	var captured models.CreateRecipeInput
 	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.Recipe, error) {
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
 			captured = in
 			return fakeCreatedRecipe(), nil
 		})
@@ -331,7 +333,7 @@ func TestRecipeCreate_ImageAccepted(t *testing.T) {
 	m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
 	var captured models.CreateRecipeInput
 	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.Recipe, error) {
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
 			captured = in
 			return fakeCreatedRecipe(), nil
 		})
@@ -356,7 +358,7 @@ func TestRecipeCreate_NoImage(t *testing.T) {
 	m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
 	var captured models.CreateRecipeInput
 	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.Recipe, error) {
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
 			captured = in
 			return fakeCreatedRecipe(), nil
 		})
@@ -376,7 +378,7 @@ func TestRecipeCreate_PassesParsedInputToRepo(t *testing.T) {
 	m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
 	var captured models.CreateRecipeInput
 	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.Recipe, error) {
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
 			captured = in
 			return fakeCreatedRecipe(), nil
 		})
@@ -401,7 +403,7 @@ func TestRecipeCreate_IngredientWithoutUnit(t *testing.T) {
 	m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
 	var captured models.CreateRecipeInput
 	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.Recipe, error) {
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
 			captured = in
 			return fakeCreatedRecipe(), nil
 		})
@@ -452,12 +454,13 @@ func TestRecipeCreate_ResponseShape(t *testing.T) {
 	w := doRecipeCreate(m.router, validRecipeBody(), recipeAuth(t, "FREE"))
 
 	require.Equal(t, http.StatusCreated, w.Code)
-	var got models.Recipe
+	var got models.RecipeDetail
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	assert.Equal(t, fakeCreatedRecipe().ID, got.ID)
 	assert.Equal(t, "Slow Cooker Beef Stew", got.Name)
 	assert.False(t, got.Approved)
-	assert.Equal(t, []uuid.UUID{recipeCatID}, got.CategoryIDs)
+	require.Len(t, got.Categories, 1)
+	assert.Equal(t, recipeCatID, got.Categories[0].ID)
 	require.Len(t, got.Ingredients, 1)
 	assert.Equal(t, recipeItemID, got.Ingredients[0].ItemID)
 	require.NotNil(t, got.CreatedByName)
@@ -467,7 +470,7 @@ func TestRecipeCreate_ResponseShape(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
 	assert.Contains(t, raw, "createdByName")
 	assert.Contains(t, raw, "imageUrl")
-	assert.NotContains(t, raw, "description")
+	assert.Contains(t, raw, "description")
 }
 
 func doRecipeList(r *gin.Engine, rawQuery, auth string) *httptest.ResponseRecorder {

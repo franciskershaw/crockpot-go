@@ -14,7 +14,7 @@ import (
 var recipeLimits = map[string]int{"FREE": 5}
 
 type RecipeRepository interface {
-	Create(ctx context.Context, input models.CreateRecipeInput) (*models.Recipe, error)
+	Create(ctx context.Context, input models.CreateRecipeInput) (*models.RecipeDetail, error)
 	CountByCreator(ctx context.Context, userID string) (int, error)
 	List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error)
 	GetByID(ctx context.Context, id string, callerID *string, callerIsAdmin bool) (*models.RecipeDetail, error)
@@ -59,7 +59,7 @@ func (h *RecipeHandler) Create(c *gin.Context) {
 		return
 	}
 
-	var recipe *models.Recipe
+	var recipe *models.RecipeDetail
 	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
 		var err error
 		recipe, err = h.repo.Create(ctx, input)

@@ -130,23 +130,23 @@ func (_c *MockRecipeRepository_CountByCreator_Call) RunAndReturn(run func(contex
 }
 
 // Create provides a mock function with given fields: ctx, input
-func (_m *MockRecipeRepository) Create(ctx context.Context, input models.CreateRecipeInput) (*models.Recipe, error) {
+func (_m *MockRecipeRepository) Create(ctx context.Context, input models.CreateRecipeInput) (*models.RecipeDetail, error) {
 	ret := _m.Called(ctx, input)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
 	}
 
-	var r0 *models.Recipe
+	var r0 *models.RecipeDetail
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, models.CreateRecipeInput) (*models.Recipe, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, models.CreateRecipeInput) (*models.RecipeDetail, error)); ok {
 		return rf(ctx, input)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, models.CreateRecipeInput) *models.Recipe); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, models.CreateRecipeInput) *models.RecipeDetail); ok {
 		r0 = rf(ctx, input)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*models.Recipe)
+			r0 = ret.Get(0).(*models.RecipeDetail)
 		}
 	}
 
@@ -178,12 +178,12 @@ func (_c *MockRecipeRepository_Create_Call) Run(run func(ctx context.Context, in
 	return _c
 }
 
-func (_c *MockRecipeRepository_Create_Call) Return(_a0 *models.Recipe, _a1 error) *MockRecipeRepository_Create_Call {
+func (_c *MockRecipeRepository_Create_Call) Return(_a0 *models.RecipeDetail, _a1 error) *MockRecipeRepository_Create_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockRecipeRepository_Create_Call) RunAndReturn(run func(context.Context, models.CreateRecipeInput) (*models.Recipe, error)) *MockRecipeRepository_Create_Call {
+func (_c *MockRecipeRepository_Create_Call) RunAndReturn(run func(context.Context, models.CreateRecipeInput) (*models.RecipeDetail, error)) *MockRecipeRepository_Create_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -112,9 +112,12 @@ func TestGetTimeRange_ReflectsOnlyApprovedRecipes(t *testing.T) {
 func TestCreateRecipe_MinimalPersistsAllParts(t *testing.T) {
 	ctx := context.Background()
 	userID := insertTestUser(t, "Jane Cook")
-	catID := insertTestItemCategory(t, "repo-test-category-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
-	itemID := insertTestItem(t, "repo-test-item-"+uuid.NewString(), catID)
-	recipeCatID := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
+	catName := "repo-test-category-" + uuid.NewString()
+	catID := insertTestItemCategory(t, catName, "repo-test-icon-"+uuid.NewString())
+	itemName := "repo-test-item-" + uuid.NewString()
+	itemID := insertTestItem(t, itemName, catID)
+	recipeCatName := "repo-test-recipe-category-" + uuid.NewString()
+	recipeCatID := insertTestRecipeCategory(t, recipeCatName)
 
 	input := models.CreateRecipeInput{
 		Name:          "repo-test-recipe-" + uuid.NewString(),
@@ -142,12 +145,18 @@ func TestCreateRecipe_MinimalPersistsAllParts(t *testing.T) {
 	assert.False(t, recipe.Approved)
 	assert.Nil(t, recipe.ImageURL)
 	assert.Nil(t, recipe.ImageFilename)
+	assert.Nil(t, recipe.Description)
 	assert.Equal(t, userID, recipe.CreatedByID)
 	require.NotNil(t, recipe.CreatedByName)
 	assert.Equal(t, "Jane Cook", *recipe.CreatedByName)
-	assert.Equal(t, []uuid.UUID{recipeCatID}, recipe.CategoryIDs)
+	require.Len(t, recipe.Categories, 1)
+	assert.Equal(t, recipeCatID, recipe.Categories[0].ID)
+	assert.Equal(t, recipeCatName, recipe.Categories[0].Name)
 	require.Len(t, recipe.Ingredients, 1)
 	assert.Equal(t, itemID, recipe.Ingredients[0].ItemID)
+	assert.Equal(t, itemName, recipe.Ingredients[0].ItemName)
+	assert.Equal(t, catID, recipe.Ingredients[0].ItemCategoryID)
+	assert.Equal(t, catName, recipe.Ingredients[0].ItemCategoryName)
 	assert.Nil(t, recipe.Ingredients[0].UnitID)
 	assert.Equal(t, 3.0, recipe.Ingredients[0].Quantity)
 	assert.False(t, recipe.CreatedAt.IsZero())
@@ -161,14 +170,19 @@ func TestCreateRecipe_FullWithImageUnitNotesAndApproved(t *testing.T) {
 	userID := insertTestUser(t, "Admin Cook")
 	catID := insertTestItemCategory(t, "repo-test-category-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
 	itemID := insertTestItem(t, "repo-test-item-"+uuid.NewString(), catID)
-	unitID := insertTestUnit(t, "repo-test-unit-"+uuid.NewString(), "ru-"+uuid.NewString())
-	recipeCat1 := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
-	recipeCat2 := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
+	unitAbbr := "ru-" + uuid.NewString()
+	unitID := insertTestUnit(t, "repo-test-unit-"+uuid.NewString(), unitAbbr)
+	recipeCat1Name := "repo-test-recipe-category-" + uuid.NewString()
+	recipeCat1 := insertTestRecipeCategory(t, recipeCat1Name)
+	recipeCat2Name := "repo-test-recipe-category-" + uuid.NewString()
+	recipeCat2 := insertTestRecipeCategory(t, recipeCat2Name)
 
 	url := "https://cdn.example.com/pic.jpg"
 	filename := "pic_abc123"
+	description := "a hearty stew"
 	input := models.CreateRecipeInput{
 		Name:          "repo-test-recipe-" + uuid.NewString(),
+		Description:   &description,
 		TimeInMinutes: 360,
 		Serves:        4,
 		Instructions:  []string{"step one"},
@@ -191,11 +205,19 @@ func TestCreateRecipe_FullWithImageUnitNotesAndApproved(t *testing.T) {
 	assert.Equal(t, url, *recipe.ImageURL)
 	require.NotNil(t, recipe.ImageFilename)
 	assert.Equal(t, filename, *recipe.ImageFilename)
+	require.NotNil(t, recipe.Description)
+	assert.Equal(t, description, *recipe.Description)
 	assert.Equal(t, []string{"freezes well", "double the garlic"}, recipe.Notes)
-	assert.Equal(t, []uuid.UUID{recipeCat1, recipeCat2}, recipe.CategoryIDs, "category ids echo back in submit order")
+	require.Len(t, recipe.Categories, 2)
+	assert.ElementsMatch(t,
+		[]models.CategoryRef{{ID: recipeCat1, Name: recipeCat1Name}, {ID: recipeCat2, Name: recipeCat2Name}},
+		recipe.Categories,
+	)
 	require.Len(t, recipe.Ingredients, 1)
 	require.NotNil(t, recipe.Ingredients[0].UnitID)
 	assert.Equal(t, unitID, *recipe.Ingredients[0].UnitID)
+	require.NotNil(t, recipe.Ingredients[0].UnitAbbreviation)
+	assert.Equal(t, unitAbbr, *recipe.Ingredients[0].UnitAbbreviation)
 	assert.Equal(t, 800.0, recipe.Ingredients[0].Quantity)
 }
 
