@@ -68,18 +68,58 @@ func (h *RecipeHandler) Create(c *gin.Context) {
 		return err
 	})
 	if txErr != nil {
-		writeRecipeCreateError(c, txErr)
+		writeRecipeWriteError(c, txErr)
 		return
 	}
 	c.JSON(http.StatusCreated, recipe)
 }
 
 func (h *RecipeHandler) Update(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented"})
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+	id := c.Param("id")
+	if !parseID(c, id) {
+		return
+	}
+	input, ok := parseCreateRecipeInput(c)
+	if !ok {
+		return
+	}
+	isAdmin := c.GetString("role") == "ADMIN"
+
+	var detail *models.RecipeDetail
+	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
+		var err error
+		detail, err = h.repo.Update(ctx, id, input, userID, isAdmin)
+		return err
+	})
+	if txErr != nil {
+		writeRecipeWriteError(c, txErr)
+		return
+	}
+	c.JSON(http.StatusOK, detail)
 }
 
 func (h *RecipeHandler) Delete(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented"})
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+	id := c.Param("id")
+	if !parseID(c, id) {
+		return
+	}
+	isAdmin := c.GetString("role") == "ADMIN"
+
+	if err := h.repo.Delete(c.Request.Context(), id, userID, isAdmin); err != nil {
+		writeRecipeWriteError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 func (h *RecipeHandler) List(c *gin.Context) {
@@ -248,7 +288,7 @@ func (h *RecipeHandler) withinRecipeCap(c *gin.Context, role, userID string) boo
 	return true
 }
 
-func writeRecipeCreateError(c *gin.Context, err error) {
+func writeRecipeWriteError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, models.ErrRecipeInvalidItem):
 		badRequest(c, "invalid_item_id")
@@ -260,7 +300,11 @@ func writeRecipeCreateError(c *gin.Context, err error) {
 		badRequest(c, "unit_not_allowed_for_item")
 	case errors.Is(err, models.ErrRecipeDuplicateIngredient):
 		badRequest(c, "duplicate_ingredient")
+	case errors.Is(err, models.ErrRecipeNotFound):
+		notFound(c, "not_found")
+	case errors.Is(err, models.ErrRecipeForbidden):
+		forbidden(c, "forbidden")
 	default:
-		internalError(c, "failed to create recipe", err)
+		internalError(c, "failed to write recipe", err)
 	}
 }
