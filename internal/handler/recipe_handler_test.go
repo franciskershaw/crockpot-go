@@ -28,27 +28,30 @@ var (
 	recipeItemID = uuid.MustParse("88888888-8888-8888-8888-888888888888")
 	recipeUnitID = uuid.MustParse("99999999-9999-9999-9999-999999999999")
 	recipeCatID  = uuid.MustParse("a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1")
+	recipeID     = uuid.MustParse("c3c3c3c3-c3c3-c3c3-c3c3-c3c3c3c3c3c3")
 )
 
-func fakeCreatedRecipe() *models.Recipe {
+func fakeCreatedRecipe() *models.RecipeDetail {
 	fn := "beef_stew_abc"
 	fu := "https://res.cloudinary.com/demo/image/upload/beef_stew_abc.jpg"
 	byName := "Cook Person"
-	return &models.Recipe{
-		ID:            uuid.MustParse("b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2"),
-		Name:          "Slow Cooker Beef Stew",
-		TimeInMinutes: 240,
-		Serves:        4,
+	return &models.RecipeDetail{
+		RecipeCard: models.RecipeCard{
+			ID:            uuid.MustParse("b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2"),
+			Name:          "Slow Cooker Beef Stew",
+			TimeInMinutes: 240,
+			Serves:        4,
+			ImageURL:      &fu,
+			ImageFilename: &fn,
+			Approved:      false,
+			Categories:    []models.CategoryRef{{ID: recipeCatID, Name: "Dinner"}},
+			CreatedAt:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
 		Instructions:  []string{"Brown the beef", "Add everything else"},
 		Notes:         []string{"Freezes well"},
-		ImageURL:      &fu,
-		ImageFilename: &fn,
-		Approved:      false,
-		CategoryIDs:   []uuid.UUID{recipeCatID},
-		Ingredients:   []models.Ingredient{{ItemID: recipeItemID, UnitID: &recipeUnitID, Quantity: 800}},
+		Ingredients:   []models.HydratedIngredient{{ItemID: recipeItemID, ItemName: "Beef", ItemCategoryID: uuid.New(), ItemCategoryName: "Meat", UnitID: &recipeUnitID, Quantity: 800}},
 		CreatedByID:   recipeUserID,
 		CreatedByName: &byName,
-		CreatedAt:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -71,6 +74,8 @@ func newRecipeMocks(t *testing.T) *recipeMocks {
 	authed := m.router.Group("/")
 	authed.Use(middleware.AuthMiddleware(testutil.TestAccessSecret))
 	authed.POST("/recipes", h.Create)
+	authed.PATCH("/recipes/:id", h.Update)
+	authed.DELETE("/recipes/:id", h.Delete)
 	authed.GET("/recipes/favourites", h.ListFavourites)
 	authed.POST("/recipes/:id/favourite", h.AddFavourite)
 	authed.DELETE("/recipes/:id/favourite", h.RemoveFavourite)
@@ -119,6 +124,34 @@ func doRecipeCreate(r *gin.Engine, body any, auth string) *httptest.ResponseReco
 	return w
 }
 
+func doRecipeUpdate(r *gin.Engine, id string, body any, auth string) *httptest.ResponseRecorder {
+	var reqBody *bytes.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		reqBody = bytes.NewReader(b)
+	} else {
+		reqBody = bytes.NewReader(nil)
+	}
+	req := httptest.NewRequest(http.MethodPatch, "/recipes/"+id, reqBody)
+	req.Header.Set("Content-Type", "application/json")
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func doRecipeDelete(r *gin.Engine, id string, auth string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodDelete, "/recipes/"+id, nil)
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
 func recipeErr(t *testing.T, w *httptest.ResponseRecorder) string {
 	t.Helper()
 	var body map[string]string
@@ -139,7 +172,7 @@ func TestRecipeCreate_NonAdmin_201_ApprovedFalse(t *testing.T) {
 	m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
 	var captured models.CreateRecipeInput
 	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.Recipe, error) {
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
 			captured = in
 			return fakeCreatedRecipe(), nil
 		})
@@ -155,7 +188,7 @@ func TestRecipeCreate_Admin_201_ApprovedTrue(t *testing.T) {
 	m := newRecipeMocks(t)
 	var captured models.CreateRecipeInput
 	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.Recipe, error) {
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
 			captured = in
 			r := fakeCreatedRecipe()
 			r.Approved = true
@@ -312,7 +345,7 @@ func TestRecipeCreate_NotesEmptyElementsDropped(t *testing.T) {
 	m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
 	var captured models.CreateRecipeInput
 	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.Recipe, error) {
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
 			captured = in
 			return fakeCreatedRecipe(), nil
 		})
@@ -331,7 +364,7 @@ func TestRecipeCreate_ImageAccepted(t *testing.T) {
 	m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
 	var captured models.CreateRecipeInput
 	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.Recipe, error) {
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
 			captured = in
 			return fakeCreatedRecipe(), nil
 		})
@@ -356,7 +389,7 @@ func TestRecipeCreate_NoImage(t *testing.T) {
 	m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
 	var captured models.CreateRecipeInput
 	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.Recipe, error) {
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
 			captured = in
 			return fakeCreatedRecipe(), nil
 		})
@@ -376,7 +409,7 @@ func TestRecipeCreate_PassesParsedInputToRepo(t *testing.T) {
 	m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
 	var captured models.CreateRecipeInput
 	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.Recipe, error) {
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
 			captured = in
 			return fakeCreatedRecipe(), nil
 		})
@@ -401,7 +434,7 @@ func TestRecipeCreate_IngredientWithoutUnit(t *testing.T) {
 	m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
 	var captured models.CreateRecipeInput
 	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.Recipe, error) {
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
 			captured = in
 			return fakeCreatedRecipe(), nil
 		})
@@ -452,12 +485,13 @@ func TestRecipeCreate_ResponseShape(t *testing.T) {
 	w := doRecipeCreate(m.router, validRecipeBody(), recipeAuth(t, "FREE"))
 
 	require.Equal(t, http.StatusCreated, w.Code)
-	var got models.Recipe
+	var got models.RecipeDetail
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	assert.Equal(t, fakeCreatedRecipe().ID, got.ID)
 	assert.Equal(t, "Slow Cooker Beef Stew", got.Name)
 	assert.False(t, got.Approved)
-	assert.Equal(t, []uuid.UUID{recipeCatID}, got.CategoryIDs)
+	require.Len(t, got.Categories, 1)
+	assert.Equal(t, recipeCatID, got.Categories[0].ID)
 	require.Len(t, got.Ingredients, 1)
 	assert.Equal(t, recipeItemID, got.Ingredients[0].ItemID)
 	require.NotNil(t, got.CreatedByName)
@@ -467,7 +501,7 @@ func TestRecipeCreate_ResponseShape(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
 	assert.Contains(t, raw, "createdByName")
 	assert.Contains(t, raw, "imageUrl")
-	assert.NotContains(t, raw, "description")
+	assert.Contains(t, raw, "description")
 }
 
 func doRecipeList(r *gin.Engine, rawQuery, auth string) *httptest.ResponseRecorder {
@@ -952,4 +986,182 @@ func TestRecipeListFavourites_RepoError_500(t *testing.T) {
 
 	w := doRecipeListFavourites(m.router, "", recipeAuth(t, "FREE"))
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestRecipeCreate_DescriptionAccepted(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
+	var captured models.CreateRecipeInput
+	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
+			captured = in
+			return fakeCreatedRecipe(), nil
+		})
+
+	body := validRecipeBody()
+	body["description"] = "  a hearty stew  "
+
+	w := doRecipeCreate(m.router, body, recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	require.NotNil(t, captured.Description)
+	assert.Equal(t, "a hearty stew", *captured.Description)
+}
+
+func TestRecipeCreate_DescriptionTooLong_400(t *testing.T) {
+	m := newRecipeMocks(t)
+	body := validRecipeBody()
+	body["description"] = strings.Repeat("a", 501)
+
+	w := doRecipeCreate(m.router, body, recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "description_too_long", recipeErr(t, w))
+}
+
+func TestRecipeCreate_DescriptionOmitted(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
+	var captured models.CreateRecipeInput
+	m.repo.EXPECT().Create(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
+			captured = in
+			return fakeCreatedRecipe(), nil
+		})
+
+	w := doRecipeCreate(m.router, validRecipeBody(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.Nil(t, captured.Description)
+}
+
+func TestRecipeUpdate_Unauthenticated_401(t *testing.T) {
+	m := newRecipeMocks(t)
+	w := doRecipeUpdate(m.router, recipeID.String(), validRecipeBody(), "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestRecipeUpdate_InvalidID_400(t *testing.T) {
+	m := newRecipeMocks(t)
+	w := doRecipeUpdate(m.router, "not-a-uuid", validRecipeBody(), recipeAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestRecipeUpdate_ValidationError_400(t *testing.T) {
+	m := newRecipeMocks(t)
+	body := validRecipeBody()
+	body["name"] = ""
+	w := doRecipeUpdate(m.router, recipeID.String(), body, recipeAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "name_required", recipeErr(t, w))
+}
+
+func TestRecipeUpdate_NotFound_404(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().Update(mock.Anything, recipeID.String(), mock.Anything, recipeUserID.String(), false).
+		Return(nil, models.ErrRecipeNotFound)
+
+	w := doRecipeUpdate(m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, "not_found", recipeErr(t, w))
+}
+
+func TestRecipeUpdate_Forbidden_403(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().Update(mock.Anything, recipeID.String(), mock.Anything, recipeUserID.String(), false).
+		Return(nil, models.ErrRecipeForbidden)
+
+	w := doRecipeUpdate(m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Equal(t, "forbidden", recipeErr(t, w))
+}
+
+func TestRecipeUpdate_InvalidItemID_400(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().Update(mock.Anything, recipeID.String(), mock.Anything, recipeUserID.String(), false).
+		Return(nil, models.ErrRecipeInvalidItem)
+
+	w := doRecipeUpdate(m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_item_id", recipeErr(t, w))
+}
+
+func TestRecipeUpdate_Success_200_ReturnsDetail(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().Update(mock.Anything, recipeID.String(), mock.Anything, recipeUserID.String(), false).
+		Return(fakeCreatedRecipe(), nil)
+
+	w := doRecipeUpdate(m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var got models.RecipeDetail
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, fakeCreatedRecipe().ID, got.ID)
+}
+
+func TestRecipeUpdate_PassesIDAndCallerToRepo(t *testing.T) {
+	m := newRecipeMocks(t)
+	var capturedID, capturedCaller string
+	var capturedAdmin bool
+	m.repo.EXPECT().Update(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, id string, _ models.CreateRecipeInput, callerID string, isAdmin bool) (*models.RecipeDetail, error) {
+			capturedID = id
+			capturedCaller = callerID
+			capturedAdmin = isAdmin
+			return fakeCreatedRecipe(), nil
+		})
+
+	w := doRecipeUpdate(m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "ADMIN"))
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, recipeID.String(), capturedID)
+	assert.Equal(t, recipeUserID.String(), capturedCaller)
+	assert.True(t, capturedAdmin)
+}
+
+func TestRecipeDelete_Unauthenticated_401(t *testing.T) {
+	m := newRecipeMocks(t)
+	w := doRecipeDelete(m.router, recipeID.String(), "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestRecipeDelete_InvalidID_400(t *testing.T) {
+	m := newRecipeMocks(t)
+	w := doRecipeDelete(m.router, "not-a-uuid", recipeAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestRecipeDelete_NotFound_404(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().Delete(mock.Anything, recipeID.String(), recipeUserID.String(), false).
+		Return(models.ErrRecipeNotFound)
+
+	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, "not_found", recipeErr(t, w))
+}
+
+func TestRecipeDelete_Forbidden_403(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().Delete(mock.Anything, recipeID.String(), recipeUserID.String(), false).
+		Return(models.ErrRecipeForbidden)
+
+	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Equal(t, "forbidden", recipeErr(t, w))
+}
+
+func TestRecipeDelete_Success_204(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().Delete(mock.Anything, recipeID.String(), recipeUserID.String(), false).
+		Return(nil)
+
+	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
 }

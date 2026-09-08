@@ -180,6 +180,8 @@ func main() {
 	recipes.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess))
 	{
 		recipes.POST("", recipeHandler.Create)
+		recipes.PATCH("/:id", recipeHandler.Update)
+		recipes.DELETE("/:id", recipeHandler.Delete)
 		recipes.GET("/favourites", recipeHandler.ListFavourites)
 		recipes.POST("/:id/favourite", recipeHandler.AddFavourite)
 		recipes.DELETE("/:id/favourite", recipeHandler.RemoveFavourite)

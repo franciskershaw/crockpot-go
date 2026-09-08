@@ -464,17 +464,15 @@ session.*
   pagination (all in Architecture above). Ordering is `created_at DESC`
   only — **relevance ranking + random order + match explanation are
   CROC-042**.
-- **CROC-016** — Recipe update/delete (owner or admin only). Open for its
-  grill: orphaned Cloudinary images. The old app called
-  `deleteRecipeImage(publicId)` server-side on recipe delete / image
-  replace; the Go API has no Cloudinary SDK. Decide — a minimal signed
-  REST delete call, a periodic sweep, or accept orphans (free-tier
-  quota is generous, personal app). Also covers replacing a recipe's
-  image on update (same `{url, filename}` validation as CROC-014).
-  **Flagged into scope at CROC-015's grill:** (1) a `description` write
-  path — CROC-015 reads `description` (returns `null`) but nothing sets
-  it; (2) harmonise CROC-014's create response (`categoryIds` bare IDs)
-  onto CROC-015's `categories:[{id,name}]` shape.
+- **CROC-016** — Recipe update/delete (owner or admin only). **Done**
+  (2026-09-08, no separate handoff doc). `PATCH /recipes/:id` full-replace
+  + `DELETE /recipes/:id`, both owner-or-admin; editing an approved
+  recipe resets `approved` to `false` unless the editor is an ADMIN;
+  create and update both return the hydrated `RecipeDetail` shape
+  (retiring `CROC-014`'s bare-`CategoryIDs` response); write-authz reuses
+  `CROC-015`'s 403 (visible)/404 (hidden) enumeration-defense split.
+  Cloudinary orphan cleanup deliberately out of scope — revisit once
+  `CROC-040` lands credentials.
 - **CROC-017** — Admin approval (`PATCH /recipes/:id/approve`, admin-only).
   May add a `GET /recipes?approved=false` admin-only pending-queue filter
   (CROC-015 makes admins see all recipes but adds no focused filter).
@@ -816,3 +814,28 @@ reason as `CROC-038` above — a loosely-scoped idea, not sequenced.*
   (consistent with recipe categories) or creator-set per recipe, and
   whether the shopping-list/menu side needs any awareness of it at all
   or this is purely a browse/filter feature.
+
+*Raised 2026-09-08, founder observation while using `crockpot-react`'s
+`CFE-021` against real data — the match badge only became visible for
+the first time once that ticket's frontend shipped. Parked here for the
+same reason as the entries above: a real product observation, not yet a
+decision, needs its own grill/trial-and-error against real usage before
+touching `CROC-042`'s shipped, tested scoring code.*
+- **`CROC-042`'s `"best"` tier threshold (`score >= 0.8`) may be
+  calibrated too high in practice.** `ingredientCoverage =
+  matchedIngredientCount / totalIngredientCount` is normalized against
+  *that recipe's own* ingredient count (Decision 2), not the size of the
+  user's selection — so on a 6-ingredient recipe, clearing 0.8 needs 5
+  of 6 selected (5/6 = 0.83); on a larger recipe the bar is
+  proportionally higher (a 15-ingredient recipe needs 12+). Founder's
+  first hands-on pass could only trigger "Best Match" by selecting 5 of
+  a 6-ingredient recipe's ingredients — not obviously reachable through
+  normal browsing behaviour. The coverage-based approach itself isn't in
+  question (it's still the fix for the old app's real defect, Decision
+  2) — just whether `0.8`/`0.5` are the right cut points for it. Likely
+  needs iterating against real usage/click-through data rather than
+  picked once and left, same spirit as Decision 4's "revisit with real
+  usage data if it feels off in practice" (that decision was about the
+  ingredient/category weighting, not this threshold, but the same
+  philosophy applies). Not a `CFE-021` fix — the frontend has no lever
+  for this by design, it only renders whatever `tier` the API returns.

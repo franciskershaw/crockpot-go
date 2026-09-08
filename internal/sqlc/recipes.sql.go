@@ -93,6 +93,7 @@ func (q *Queries) CountRecipesByCreator(ctx context.Context, createdByID pgtype.
 const createRecipe = `-- name: CreateRecipe :one
 INSERT INTO recipes (
     name,
+    description,
     time_in_minutes,
     serves,
     instructions,
@@ -113,13 +114,15 @@ VALUES (
     $7,
     $8,
     $9,
-    (SELECT name FROM users WHERE id = $9)
+    $10,
+    (SELECT name FROM users WHERE id = $10)
 )
 RETURNING id, name, description, time_in_minutes, image_url, image_filename, instructions, notes, approved, serves, created_by_id, created_by_name, created_at, updated_at
 `
 
 type CreateRecipeParams struct {
 	Name          string
+	Description   pgtype.Text
 	TimeInMinutes int32
 	Serves        int32
 	Instructions  []string
@@ -133,6 +136,7 @@ type CreateRecipeParams struct {
 func (q *Queries) CreateRecipe(ctx context.Context, arg CreateRecipeParams) (Recipe, error) {
 	row := q.db.QueryRow(ctx, createRecipe,
 		arg.Name,
+		arg.Description,
 		arg.TimeInMinutes,
 		arg.Serves,
 		arg.Instructions,
@@ -201,6 +205,33 @@ func (q *Queries) CreateRecipeIngredient(ctx context.Context, arg CreateRecipeIn
 	return err
 }
 
+const deleteRecipe = `-- name: DeleteRecipe :exec
+DELETE FROM recipes WHERE id = $1
+`
+
+func (q *Queries) DeleteRecipe(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteRecipe, id)
+	return err
+}
+
+const deleteRecipeCategoryLinks = `-- name: DeleteRecipeCategoryLinks :exec
+DELETE FROM recipe_categories_recipes WHERE recipe_id = $1
+`
+
+func (q *Queries) DeleteRecipeCategoryLinks(ctx context.Context, recipeID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteRecipeCategoryLinks, recipeID)
+	return err
+}
+
+const deleteRecipeIngredients = `-- name: DeleteRecipeIngredients :exec
+DELETE FROM recipe_ingredients WHERE recipe_id = $1
+`
+
+func (q *Queries) DeleteRecipeIngredients(ctx context.Context, recipeID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteRecipeIngredients, recipeID)
+	return err
+}
+
 const getRecipeForReader = `-- name: GetRecipeForReader :one
 SELECT r.id, r.name, r.description, r.time_in_minutes, r.image_url, r.image_filename, r.instructions, r.notes, r.approved, r.serves, r.created_by_id, r.created_by_name, r.created_at, r.updated_at
 FROM recipes r
@@ -237,6 +268,25 @@ func (q *Queries) GetRecipeForReader(ctx context.Context, arg GetRecipeForReader
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
+	return i, err
+}
+
+const getRecipeForWrite = `-- name: GetRecipeForWrite :one
+SELECT id, created_by_id, approved
+FROM recipes
+WHERE id = $1
+`
+
+type GetRecipeForWriteRow struct {
+	ID          pgtype.UUID
+	CreatedByID pgtype.UUID
+	Approved    bool
+}
+
+func (q *Queries) GetRecipeForWrite(ctx context.Context, id pgtype.UUID) (GetRecipeForWriteRow, error) {
+	row := q.db.QueryRow(ctx, getRecipeForWrite, id)
+	var i GetRecipeForWriteRow
+	err := row.Scan(&i.ID, &i.CreatedByID, &i.Approved)
 	return i, err
 }
 
@@ -579,4 +629,66 @@ func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]Lis
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateRecipe = `-- name: UpdateRecipe :one
+UPDATE recipes SET
+    name = $1,
+    description = $2,
+    time_in_minutes = $3,
+    serves = $4,
+    instructions = $5,
+    notes = $6,
+    image_url = $7,
+    image_filename = $8,
+    approved = $9,
+    updated_at = now()
+WHERE id = $10
+RETURNING id, name, description, time_in_minutes, image_url, image_filename, instructions, notes, approved, serves, created_by_id, created_by_name, created_at, updated_at
+`
+
+type UpdateRecipeParams struct {
+	Name          string
+	Description   pgtype.Text
+	TimeInMinutes int32
+	Serves        int32
+	Instructions  []string
+	Notes         []string
+	ImageUrl      pgtype.Text
+	ImageFilename pgtype.Text
+	Approved      bool
+	ID            pgtype.UUID
+}
+
+func (q *Queries) UpdateRecipe(ctx context.Context, arg UpdateRecipeParams) (Recipe, error) {
+	row := q.db.QueryRow(ctx, updateRecipe,
+		arg.Name,
+		arg.Description,
+		arg.TimeInMinutes,
+		arg.Serves,
+		arg.Instructions,
+		arg.Notes,
+		arg.ImageUrl,
+		arg.ImageFilename,
+		arg.Approved,
+		arg.ID,
+	)
+	var i Recipe
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.TimeInMinutes,
+		&i.ImageUrl,
+		&i.ImageFilename,
+		&i.Instructions,
+		&i.Notes,
+		&i.Approved,
+		&i.Serves,
+		&i.CreatedByID,
+		&i.CreatedByName,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

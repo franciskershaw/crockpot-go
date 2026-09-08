@@ -14,7 +14,9 @@ import (
 var recipeLimits = map[string]int{"FREE": 5}
 
 type RecipeRepository interface {
-	Create(ctx context.Context, input models.CreateRecipeInput) (*models.Recipe, error)
+	Create(ctx context.Context, input models.CreateRecipeInput) (*models.RecipeDetail, error)
+	Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (*models.RecipeDetail, error)
+	Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) error
 	CountByCreator(ctx context.Context, userID string) (int, error)
 	List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error)
 	GetByID(ctx context.Context, id string, callerID *string, callerIsAdmin bool) (*models.RecipeDetail, error)
@@ -59,17 +61,68 @@ func (h *RecipeHandler) Create(c *gin.Context) {
 		return
 	}
 
-	var recipe *models.Recipe
+	var recipe *models.RecipeDetail
 	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
 		var err error
 		recipe, err = h.repo.Create(ctx, input)
 		return err
 	})
 	if txErr != nil {
-		writeRecipeCreateError(c, txErr)
+		writeRecipeWriteError(c, txErr)
 		return
 	}
 	c.JSON(http.StatusCreated, recipe)
+}
+
+func (h *RecipeHandler) Update(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+	id := c.Param("id")
+	if !parseID(c, id) {
+		return
+	}
+	input, ok := parseCreateRecipeInput(c)
+	if !ok {
+		return
+	}
+	isAdmin := c.GetString("role") == "ADMIN"
+
+	var detail *models.RecipeDetail
+	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
+		var err error
+		detail, err = h.repo.Update(ctx, id, input, userID, isAdmin)
+		return err
+	})
+	if txErr != nil {
+		writeRecipeWriteError(c, txErr)
+		return
+	}
+	c.JSON(http.StatusOK, detail)
+}
+
+func (h *RecipeHandler) Delete(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+	id := c.Param("id")
+	if !parseID(c, id) {
+		return
+	}
+	isAdmin := c.GetString("role") == "ADMIN"
+
+	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
+		return h.repo.Delete(ctx, id, userID, isAdmin)
+	})
+	if txErr != nil {
+		writeRecipeWriteError(c, txErr)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 func (h *RecipeHandler) List(c *gin.Context) {
@@ -238,7 +291,7 @@ func (h *RecipeHandler) withinRecipeCap(c *gin.Context, role, userID string) boo
 	return true
 }
 
-func writeRecipeCreateError(c *gin.Context, err error) {
+func writeRecipeWriteError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, models.ErrRecipeInvalidItem):
 		badRequest(c, "invalid_item_id")
@@ -250,7 +303,11 @@ func writeRecipeCreateError(c *gin.Context, err error) {
 		badRequest(c, "unit_not_allowed_for_item")
 	case errors.Is(err, models.ErrRecipeDuplicateIngredient):
 		badRequest(c, "duplicate_ingredient")
+	case errors.Is(err, models.ErrRecipeNotFound):
+		notFound(c, "not_found")
+	case errors.Is(err, models.ErrRecipeForbidden):
+		forbidden(c, "forbidden")
 	default:
-		internalError(c, "failed to create recipe", err)
+		internalError(c, "failed to write recipe", err)
 	}
 }

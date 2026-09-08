@@ -130,23 +130,23 @@ func (_c *MockRecipeRepository_CountByCreator_Call) RunAndReturn(run func(contex
 }
 
 // Create provides a mock function with given fields: ctx, input
-func (_m *MockRecipeRepository) Create(ctx context.Context, input models.CreateRecipeInput) (*models.Recipe, error) {
+func (_m *MockRecipeRepository) Create(ctx context.Context, input models.CreateRecipeInput) (*models.RecipeDetail, error) {
 	ret := _m.Called(ctx, input)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
 	}
 
-	var r0 *models.Recipe
+	var r0 *models.RecipeDetail
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, models.CreateRecipeInput) (*models.Recipe, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, models.CreateRecipeInput) (*models.RecipeDetail, error)); ok {
 		return rf(ctx, input)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, models.CreateRecipeInput) *models.Recipe); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, models.CreateRecipeInput) *models.RecipeDetail); ok {
 		r0 = rf(ctx, input)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*models.Recipe)
+			r0 = ret.Get(0).(*models.RecipeDetail)
 		}
 	}
 
@@ -178,12 +178,61 @@ func (_c *MockRecipeRepository_Create_Call) Run(run func(ctx context.Context, in
 	return _c
 }
 
-func (_c *MockRecipeRepository_Create_Call) Return(_a0 *models.Recipe, _a1 error) *MockRecipeRepository_Create_Call {
+func (_c *MockRecipeRepository_Create_Call) Return(_a0 *models.RecipeDetail, _a1 error) *MockRecipeRepository_Create_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockRecipeRepository_Create_Call) RunAndReturn(run func(context.Context, models.CreateRecipeInput) (*models.Recipe, error)) *MockRecipeRepository_Create_Call {
+func (_c *MockRecipeRepository_Create_Call) RunAndReturn(run func(context.Context, models.CreateRecipeInput) (*models.RecipeDetail, error)) *MockRecipeRepository_Create_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Delete provides a mock function with given fields: ctx, id, callerID, callerIsAdmin
+func (_m *MockRecipeRepository) Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) error {
+	ret := _m.Called(ctx, id, callerID, callerIsAdmin)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Delete")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, bool) error); ok {
+		r0 = rf(ctx, id, callerID, callerIsAdmin)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockRecipeRepository_Delete_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Delete'
+type MockRecipeRepository_Delete_Call struct {
+	*mock.Call
+}
+
+// Delete is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - callerID string
+//   - callerIsAdmin bool
+func (_e *MockRecipeRepository_Expecter) Delete(ctx interface{}, id interface{}, callerID interface{}, callerIsAdmin interface{}) *MockRecipeRepository_Delete_Call {
+	return &MockRecipeRepository_Delete_Call{Call: _e.mock.On("Delete", ctx, id, callerID, callerIsAdmin)}
+}
+
+func (_c *MockRecipeRepository_Delete_Call) Run(run func(ctx context.Context, id string, callerID string, callerIsAdmin bool)) *MockRecipeRepository_Delete_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(bool))
+	})
+	return _c
+}
+
+func (_c *MockRecipeRepository_Delete_Call) Return(_a0 error) *MockRecipeRepository_Delete_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockRecipeRepository_Delete_Call) RunAndReturn(run func(context.Context, string, string, bool) error) *MockRecipeRepository_Delete_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -485,6 +534,68 @@ func (_c *MockRecipeRepository_RemoveFavourite_Call) Return(_a0 error) *MockReci
 }
 
 func (_c *MockRecipeRepository_RemoveFavourite_Call) RunAndReturn(run func(context.Context, string, string) error) *MockRecipeRepository_RemoveFavourite_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Update provides a mock function with given fields: ctx, id, input, callerID, callerIsAdmin
+func (_m *MockRecipeRepository) Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (*models.RecipeDetail, error) {
+	ret := _m.Called(ctx, id, input, callerID, callerIsAdmin)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Update")
+	}
+
+	var r0 *models.RecipeDetail
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, models.CreateRecipeInput, string, bool) (*models.RecipeDetail, error)); ok {
+		return rf(ctx, id, input, callerID, callerIsAdmin)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, models.CreateRecipeInput, string, bool) *models.RecipeDetail); ok {
+		r0 = rf(ctx, id, input, callerID, callerIsAdmin)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.RecipeDetail)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, models.CreateRecipeInput, string, bool) error); ok {
+		r1 = rf(ctx, id, input, callerID, callerIsAdmin)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockRecipeRepository_Update_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Update'
+type MockRecipeRepository_Update_Call struct {
+	*mock.Call
+}
+
+// Update is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - input models.CreateRecipeInput
+//   - callerID string
+//   - callerIsAdmin bool
+func (_e *MockRecipeRepository_Expecter) Update(ctx interface{}, id interface{}, input interface{}, callerID interface{}, callerIsAdmin interface{}) *MockRecipeRepository_Update_Call {
+	return &MockRecipeRepository_Update_Call{Call: _e.mock.On("Update", ctx, id, input, callerID, callerIsAdmin)}
+}
+
+func (_c *MockRecipeRepository_Update_Call) Run(run func(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool)) *MockRecipeRepository_Update_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(models.CreateRecipeInput), args[3].(string), args[4].(bool))
+	})
+	return _c
+}
+
+func (_c *MockRecipeRepository_Update_Call) Return(_a0 *models.RecipeDetail, _a1 error) *MockRecipeRepository_Update_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockRecipeRepository_Update_Call) RunAndReturn(run func(context.Context, string, models.CreateRecipeInput, string, bool) (*models.RecipeDetail, error)) *MockRecipeRepository_Update_Call {
 	_c.Call.Return(run)
 	return _c
 }

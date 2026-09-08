@@ -1,6 +1,7 @@
 -- name: CreateRecipe :one
 INSERT INTO recipes (
     name,
+    description,
     time_in_minutes,
     serves,
     instructions,
@@ -13,6 +14,7 @@ INSERT INTO recipes (
 )
 VALUES (
     sqlc.arg(name),
+    sqlc.narg(description),
     sqlc.arg(time_in_minutes),
     sqlc.arg(serves),
     sqlc.arg(instructions),
@@ -24,6 +26,35 @@ VALUES (
     (SELECT name FROM users WHERE id = sqlc.arg(created_by_id))
 )
 RETURNING *;
+
+-- name: GetRecipeForWrite :one
+SELECT id, created_by_id, approved
+FROM recipes
+WHERE id = sqlc.arg(id);
+
+-- name: UpdateRecipe :one
+UPDATE recipes SET
+    name = sqlc.arg(name),
+    description = sqlc.narg(description),
+    time_in_minutes = sqlc.arg(time_in_minutes),
+    serves = sqlc.arg(serves),
+    instructions = sqlc.arg(instructions),
+    notes = sqlc.arg(notes),
+    image_url = sqlc.narg(image_url),
+    image_filename = sqlc.narg(image_filename),
+    approved = sqlc.arg(approved),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: DeleteRecipeIngredients :exec
+DELETE FROM recipe_ingredients WHERE recipe_id = sqlc.arg(recipe_id);
+
+-- name: DeleteRecipeCategoryLinks :exec
+DELETE FROM recipe_categories_recipes WHERE recipe_id = sqlc.arg(recipe_id);
+
+-- name: DeleteRecipe :exec
+DELETE FROM recipes WHERE id = sqlc.arg(id);
 
 -- name: CreateRecipeIngredient :exec
 INSERT INTO recipe_ingredients (recipe_id, item_id, unit_id, quantity, position)

@@ -99,6 +99,7 @@ type RecipeListFilter struct {
 // CreateRecipeInput is the validated payload the handler hands the repository, kept in models so neither package imports the other.
 type CreateRecipeInput struct {
 	Name          string
+	Description   *string
 	TimeInMinutes int
 	Serves        int
 	Instructions  []string

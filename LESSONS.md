@@ -488,3 +488,23 @@ implementation quality until CROC-001 lands.
   likely.
 - **Pattern**: after any review/analysis step returns findings, present
   them in plain language and wait for go-ahead before fixing anything.
+
+## 2026-09-08 — CROC-016 — Recipe update/delete shipped; `.http` file editing stalled badly mid-ticket
+
+- Piece 2 briefly went past the red-stage stop into a real refactor
+  before review — caught immediately, piece restarted, remaining pieces
+  held the stop-at-red discipline correctly.
+- Piece 5's `.http` file edit took far longer than warranted: repeated
+  re-reads, and one large insert got silently reverted on disk between
+  tool calls (likely an editor autosave from an open buffer), which took
+  another read-and-redo cycle to catch and fix — founder flagged the
+  wasted time and tokens directly.
+- Branch-review (2-agent bugs/security + a manual quality pass, run
+  instead of a full `/code-review medium main`) caught one real,
+  low-severity bug: `Delete` skipped the transaction wrapper `Update`
+  uses for the same check-then-act pattern. Fixed and verified.
+- **Pattern**: before a large edit to a file that might be open
+  elsewhere (`.http` regression files especially — these live in an
+  editor with the REST Client extension open more often than most repo
+  files), re-read it immediately beforehand rather than trusting an
+  earlier read from several tool calls ago.

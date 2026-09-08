@@ -223,7 +223,12 @@ func (r *PostgresRecipeRepository) GetByID(ctx context.Context, id string, calle
 		return nil, fmt.Errorf("failed to get recipe: %w", err)
 	}
 
-	catRows, err := q.ListRecipeDetailCategories(ctx, recipeID)
+	return buildRecipeDetail(ctx, q, row, cid)
+}
+
+// buildRecipeDetail hydrates a recipe row (categories, ingredients, favourite status) into the response shape shared by GetByID, Create, and Update.
+func buildRecipeDetail(ctx context.Context, q *sqlc.Queries, row sqlc.Recipe, cid pgtype.UUID) (*models.RecipeDetail, error) {
+	catRows, err := q.ListRecipeDetailCategories(ctx, row.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load recipe categories: %w", err)
 	}
@@ -232,7 +237,7 @@ func (r *PostgresRecipeRepository) GetByID(ctx context.Context, id string, calle
 		categories[i] = models.CategoryRef{ID: uuidValue(cr.ID), Name: cr.Name}
 	}
 
-	ingRows, err := q.ListRecipeIngredientsHydrated(ctx, recipeID)
+	ingRows, err := q.ListRecipeIngredientsHydrated(ctx, row.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load recipe ingredients: %w", err)
 	}
@@ -273,7 +278,7 @@ func (r *PostgresRecipeRepository) GetByID(ctx context.Context, id string, calle
 	if cid.Valid {
 		isFavourite, err = q.IsRecipeFavourited(ctx, sqlc.IsRecipeFavouritedParams{
 			UserID:   cid,
-			RecipeID: recipeID,
+			RecipeID: row.ID,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to check favourite status: %w", err)
@@ -304,7 +309,7 @@ func (r *PostgresRecipeRepository) GetByID(ctx context.Context, id string, calle
 	}, nil
 }
 
-func (r *PostgresRecipeRepository) Create(ctx context.Context, input models.CreateRecipeInput) (*models.Recipe, error) {
+func (r *PostgresRecipeRepository) Create(ctx context.Context, input models.CreateRecipeInput) (*models.RecipeDetail, error) {
 	q := queriesFor(ctx, r.db)
 
 	if err := checkAllowedUnits(ctx, q, input.Ingredients); err != nil {
@@ -313,6 +318,7 @@ func (r *PostgresRecipeRepository) Create(ctx context.Context, input models.Crea
 
 	created, err := q.CreateRecipe(ctx, sqlc.CreateRecipeParams{
 		Name:          input.Name,
+		Description:   textPtrParam(input.Description),
 		TimeInMinutes: int32(input.TimeInMinutes),
 		Serves:        int32(input.Serves),
 		Instructions:  input.Instructions,
@@ -360,7 +366,139 @@ func (r *PostgresRecipeRepository) Create(ctx context.Context, input models.Crea
 		}
 	}
 
-	return hydrateRecipe(ctx, q, created, input.CategoryIDs)
+	return buildRecipeDetail(ctx, q, created, pgUUID(input.CreatedByID))
+}
+
+func (r *PostgresRecipeRepository) Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (*models.RecipeDetail, error) {
+	q := queriesFor(ctx, r.db)
+
+	recipeID, err := uuidParam(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid recipe id: %w", err)
+	}
+	cid, err := uuidParam(callerID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid caller id: %w", err)
+	}
+
+	existing, err := q.GetRecipeForWrite(ctx, recipeID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, models.ErrRecipeNotFound
+		}
+		return nil, fmt.Errorf("failed to get recipe: %w", err)
+	}
+	if !canWriteRecipe(existing, cid, callerIsAdmin) {
+		if !existing.Approved {
+			return nil, models.ErrRecipeNotFound
+		}
+		return nil, models.ErrRecipeForbidden
+	}
+
+	if err := checkAllowedUnits(ctx, q, input.Ingredients); err != nil {
+		return nil, err
+	}
+
+	approved := existing.Approved
+	if !callerIsAdmin {
+		approved = false
+	}
+
+	updated, err := q.UpdateRecipe(ctx, sqlc.UpdateRecipeParams{
+		ID:            recipeID,
+		Name:          input.Name,
+		Description:   textPtrParam(input.Description),
+		TimeInMinutes: int32(input.TimeInMinutes),
+		Serves:        int32(input.Serves),
+		Instructions:  input.Instructions,
+		Notes:         input.Notes,
+		ImageUrl:      textPtrParam(input.ImageURL),
+		ImageFilename: textPtrParam(input.ImageFilename),
+		Approved:      approved,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to update recipe: %w", err)
+	}
+
+	if err := q.DeleteRecipeIngredients(ctx, recipeID); err != nil {
+		return nil, fmt.Errorf("failed to clear recipe ingredients: %w", err)
+	}
+	if err := q.DeleteRecipeCategoryLinks(ctx, recipeID); err != nil {
+		return nil, fmt.Errorf("failed to clear recipe categories: %w", err)
+	}
+
+	for i, ing := range input.Ingredients {
+		qty, err := numericParam(ing.Quantity)
+		if err != nil {
+			return nil, fmt.Errorf("invalid quantity: %w", err)
+		}
+		params := sqlc.CreateRecipeIngredientParams{
+			RecipeID: recipeID,
+			ItemID:   pgUUID(ing.ItemID),
+			Quantity: qty,
+			Position: int16(i),
+		}
+		if ing.UnitID != nil {
+			params.UnitID = pgUUID(*ing.UnitID)
+		}
+		if err := q.CreateRecipeIngredient(ctx, params); err != nil {
+			if mapped := pgConstraintError(err, recipeConstraintErrors); mapped != nil {
+				return nil, mapped
+			}
+			return nil, fmt.Errorf("failed to add recipe ingredient: %w", err)
+		}
+	}
+
+	for _, catID := range input.CategoryIDs {
+		if err := q.CreateRecipeCategoryLink(ctx, sqlc.CreateRecipeCategoryLinkParams{
+			RecipeID:   recipeID,
+			CategoryID: pgUUID(catID),
+		}); err != nil {
+			if mapped := pgConstraintError(err, recipeConstraintErrors); mapped != nil {
+				return nil, mapped
+			}
+			return nil, fmt.Errorf("failed to link recipe category: %w", err)
+		}
+	}
+
+	return buildRecipeDetail(ctx, q, updated, cid)
+}
+
+func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) error {
+	q := queriesFor(ctx, r.db)
+
+	recipeID, err := uuidParam(id)
+	if err != nil {
+		return fmt.Errorf("invalid recipe id: %w", err)
+	}
+	cid, err := uuidParam(callerID)
+	if err != nil {
+		return fmt.Errorf("invalid caller id: %w", err)
+	}
+
+	existing, err := q.GetRecipeForWrite(ctx, recipeID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.ErrRecipeNotFound
+		}
+		return fmt.Errorf("failed to get recipe: %w", err)
+	}
+	if !canWriteRecipe(existing, cid, callerIsAdmin) {
+		if !existing.Approved {
+			return models.ErrRecipeNotFound
+		}
+		return models.ErrRecipeForbidden
+	}
+
+	if err := q.DeleteRecipe(ctx, recipeID); err != nil {
+		return fmt.Errorf("failed to delete recipe: %w", err)
+	}
+	return nil
+}
+
+// canWriteRecipe reports whether callerID may update/delete a recipe: its owner, or any admin.
+func canWriteRecipe(existing sqlc.GetRecipeForWriteRow, callerID pgtype.UUID, callerIsAdmin bool) bool {
+	return callerIsAdmin || existing.CreatedByID == callerID
 }
 
 // checkAllowedUnits rejects an ingredient unit absent from its item's allowed set; an empty set means unconstrained, a nil unit always passes.
@@ -396,55 +534,4 @@ func checkAllowedUnits(ctx context.Context, q *sqlc.Queries, ingredients []model
 		}
 	}
 	return nil
-}
-
-// hydrateRecipe re-reads ingredients for their DB-rounded quantities; categoryIDs are passed through as inserted.
-func hydrateRecipe(ctx context.Context, q *sqlc.Queries, row sqlc.Recipe, categoryIDs []uuid.UUID) (*models.Recipe, error) {
-	ingRows, err := q.ListRecipeIngredients(ctx, row.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list recipe ingredients: %w", err)
-	}
-	ingredients := make([]models.Ingredient, len(ingRows))
-	for i, ir := range ingRows {
-		qty, err := numericValue(ir.Quantity)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read ingredient quantity: %w", err)
-		}
-		ing := models.Ingredient{ItemID: uuidValue(ir.ItemID), Quantity: qty}
-		if ir.UnitID.Valid {
-			u := uuidValue(ir.UnitID)
-			ing.UnitID = &u
-		}
-		ingredients[i] = ing
-	}
-
-	return toModelRecipe(row, categoryIDs, ingredients), nil
-}
-
-func toModelRecipe(row sqlc.Recipe, categoryIDs []uuid.UUID, ingredients []models.Ingredient) *models.Recipe {
-	instructions := row.Instructions
-	if instructions == nil {
-		instructions = []string{}
-	}
-	notes := row.Notes
-	if notes == nil {
-		notes = []string{}
-	}
-	return &models.Recipe{
-		ID:            uuidValue(row.ID),
-		Name:          row.Name,
-		TimeInMinutes: int(row.TimeInMinutes),
-		Serves:        int(row.Serves),
-		Instructions:  instructions,
-		Notes:         notes,
-		ImageURL:      textPtr(row.ImageUrl),
-		ImageFilename: textPtr(row.ImageFilename),
-		Approved:      row.Approved,
-		CategoryIDs:   categoryIDs,
-		Ingredients:   ingredients,
-		CreatedByID:   uuidValue(row.CreatedByID),
-		CreatedByName: textPtr(row.CreatedByName),
-		CreatedAt:     row.CreatedAt.Time,
-		UpdatedAt:     row.UpdatedAt.Time,
-	}
 }
