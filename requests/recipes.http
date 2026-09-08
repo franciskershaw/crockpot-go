@@ -36,8 +36,16 @@
 # Fixtures below create two throwaway `items` rows (the catalog is empty
 # until CROC-024): one unconstrained, one constrained to a single unit,
 # so both the invalid_unit_id and unit_not_allowed_for_item paths can be
-# exercised. Cleanup is a SQL note at the bottom — there is no
-# DELETE /recipes endpoint until CROC-016.
+# exercised.
+#
+# PATCH/DELETE /recipes/:id — CROC-016. Full-replace update (same
+# validators as POST) and hard delete, owner-or-admin only. This file's
+# single ADMIN token can only exercise the "admin editing/deleting stays
+# approved / succeeds" paths; the creator-edit-resets-to-pending rule and
+# the 403 forbidden (non-owner, non-admin, on an approved recipe) both
+# need a second non-admin user, so they're covered at the repository/
+# handler layers instead (internal/repository/recipe_test.go,
+# internal/handler/recipe_handler_test.go).
 #
 # GET /recipes — relevance ranking (CROC-042). Scored ordering (ingredients
 # and/or categories selected) vs. seeded-random (no filters at all) vs. the
@@ -162,6 +170,7 @@ Content-Type: application/json
 @recipeId = {{create.response.body.id}}
 
 ### ✅ 201 — minimal recipe (no notes, no image, one unitless ingredient).
+# @name createMinimal
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
 Content-Type: application/json
@@ -178,6 +187,8 @@ Content-Type: application/json
 }
 
 ###
+
+@minimalRecipeId = {{createMinimal.response.body.id}}
 
 
 # ══════════════════════════════════════════
@@ -650,6 +661,152 @@ Authorization: Bearer {{authToken}}
 
 
 # ══════════════════════════════════════════
+#  PATCH /recipes/:id — update (CROC-016)
+# ══════════════════════════════════════════
+
+### ✅ 200 — full replace on the seeded stew (ADMIN, own recipe): name,
+### description, and the ingredient/category set all change wholesale;
+### admin editing stays approved (does not reset to pending — that only
+### happens when the recipe's own creator edits it, not reachable from
+### this single-ADMIN-token file; covered at
+### internal/repository/recipe_test.go's
+### TestUpdateRecipe_OwnerEditingApprovedResetsToPending).
+PATCH http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test Slow Cooker Beef Stew (updated)",
+  "description": "A comforting winter stew, updated via PATCH.",
+  "timeInMinutes": 300,
+  "serves": 6,
+  "instructions": ["Brown the beef", "Add stock", "Cook low for 5 hours"],
+  "notes": ["Freezes well"],
+  "categoryIds": ["{{recipeCategoryId2}}"],
+  "ingredients": [
+    { "itemId": "{{itemIdConstrained}}", "unitId": "{{unitId1}}", "quantity": 500 }
+  ]
+}
+
+###
+
+### ✅ 200 — GET confirms the wholesale replace: old category/ingredient
+### gone, new ones present, description now set, still approved: true.
+GET http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
+
+###
+
+### 🚫 401 — no token.
+PATCH http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
+Content-Type: application/json
+
+{
+  "name": "http-test no token update",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+
+###
+
+### 🚫 400 invalid_request — malformed id.
+PATCH http://localhost:{{$dotenv PORT}}/recipes/not-a-uuid
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test bad id",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+
+###
+
+### 🚫 400 name_required — same validators as POST /recipes; reused
+### wholesale, not re-tested exhaustively here (see the POST section above).
+PATCH http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+
+###
+
+### 🚫 404 not_found — well-formed but nonexistent id.
+PATCH http://localhost:{{$dotenv PORT}}/recipes/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test nonexistent",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+
+###
+
+### Note: the 403 forbidden (non-owner, non-admin, on an approved recipe)
+### and the creator-edit-resets-to-pending path both need a second,
+### non-admin user — not reachable with this file's single ADMIN token.
+### Covered at internal/repository/recipe_test.go
+### (TestUpdateRecipe_NonOwnerNonAdminOnApproved_Forbidden,
+### TestUpdateRecipe_OwnerEditingApprovedResetsToPending) and
+### internal/handler/recipe_handler_test.go (mocked claims).
+
+
+# ══════════════════════════════════════════
+#  DELETE /recipes/:id — delete (CROC-016)
+# ══════════════════════════════════════════
+
+### ✅ 204 — delete the minimal recipe (ADMIN, own recipe). No body.
+DELETE http://localhost:{{$dotenv PORT}}/recipes/{{minimalRecipeId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 404 not_found — deleting it again returns 404, not another 204
+### (unlike DELETE .../favourite, delete is not idempotent — the row is
+### genuinely gone the second time).
+DELETE http://localhost:{{$dotenv PORT}}/recipes/{{minimalRecipeId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 401 — no token.
+DELETE http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
+
+###
+
+### 🚫 400 invalid_request — malformed id.
+DELETE http://localhost:{{$dotenv PORT}}/recipes/not-a-uuid
+Authorization: Bearer {{authToken}}
+
+###
+
+### Note: the 403 forbidden path (non-owner, non-admin, on an approved
+### recipe) needs a second, non-admin user — not reachable with this
+### file's single ADMIN token. Covered at
+### internal/repository/recipe_test.go
+### (TestDeleteRecipe_NonOwnerNonAdminOnApproved_Forbidden) and
+### internal/handler/recipe_handler_test.go (mocked claims).
+
+
+# ══════════════════════════════════════════
 #  Favourites — CROC-018 (auth + validation)
 # ══════════════════════════════════════════
 
@@ -698,17 +855,29 @@ Authorization: Bearer {{authToken}}
 #  Cleanup
 # ══════════════════════════════════════════
 
-### No DELETE /recipes endpoint until CROC-016, and the throwaway items
-### can't be deleted through the API while recipe_ingredients rows point
-### at them (RESTRICT). Run this SQL against the dev DB to reset:
+### ✅ 204 — delete the seeded stew via the real endpoint (the minimal
+### recipe was already deleted in the DELETE section above).
+DELETE http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
+Authorization: Bearer {{authToken}}
+
 ###
-###   DELETE FROM recipes WHERE name LIKE 'http-test%';
-###   DELETE FROM items   WHERE name LIKE 'http-test-recipe-item%';
+
+### ✅ 204 — delete the throwaway items via the real endpoint. Both
+### recipes are gone by this point, so the RESTRICT FK from
+### recipe_ingredients no longer blocks this.
+DELETE http://localhost:{{$dotenv PORT}}/items/{{itemId}}
+Authorization: Bearer {{authToken}}
+
 ###
-### (recipe_ingredients + recipe_categories_recipes cascade with the
-### recipe rows.) A re-run from a clean DB then behaves identically.
+
+### ✅ 204 — the unit-constrained item.
+DELETE http://localhost:{{$dotenv PORT}}/items/{{itemIdConstrained}}
+Authorization: Bearer {{authToken}}
+
 ###
-### The favourites section above needs no cleanup of its own: the seeded
-### recipe is unfavourited again before the run ends, leaving no residue
-### (CROC-018's own roadmap note) — the 404-recipe DELETE just above never
-### inserted a row to begin with.
+
+### A re-run from a clean DB then behaves identically. The favourites
+### section above needs no cleanup of its own: the seeded recipe is
+### unfavourited again before the run ends, leaving no residue (CROC-018's
+### own roadmap note) — the 404-recipe DELETE just above never inserted a
+### row to begin with.

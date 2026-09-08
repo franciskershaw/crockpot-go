@@ -464,88 +464,15 @@ session.*
   pagination (all in Architecture above). Ordering is `created_at DESC`
   only — **relevance ranking + random order + match explanation are
   CROC-042**.
-- **CROC-016** — Recipe update/delete (owner or admin only).
-  **Grilled 2026-09-08 (AI-driven, cheap-to-undo — no separate handoff
-  doc):**
-  - **`PATCH /recipes/:id`, full-replace semantics** — same shape and
-    validators as `POST /recipes` (`createRecipeRequest`), not a partial
-    merge: ingredients/categories are deleted-and-reinserted wholesale.
-    `PATCH` (not `PUT`) to match every other update route in this
-    codebase (`item-categories`, `units`, `items`, `recipe-categories`,
-    `menu/entries/:recipeId`) despite the full-replace semantics —
-    established local convention, not a REST-purity argument.
-  - **`description` write path lands on both create and update** — adding
-    it only to update would fork `createRecipeRequest`'s validator set
-    from update's for one field; create gains the ability to set a
-    description it never had.
-  - **Editing an approved recipe resets `approved` to `false`, except
-    when the editor is an ADMIN** — mirrors the create-time rule exactly
-    (an ADMIN's own writes are always auto-approved, whether creating or
-    editing). A creator editing their own approved recipe requeues it for
-    re-approval; an ADMIN editing anyone's recipe (their own or someone
-    else's) stays approved — there's no one left to re-review an admin's
-    own edit.
-  - **Both create and update return the hydrated detail shape**
-    (`models.RecipeDetail` — `categories:[{id,name}]`, hydrated
-    ingredients, `description`, etc.), retiring `CROC-014`'s old bare-
-    `CategoryIDs` response. Nothing in `crockpot-react` consumes create's
-    response shape yet (`CFE-010` hasn't shipped) — cheapest point to fix
-    the divergence this line already flagged.
-  - **Orphaned Cloudinary images: accepted, no cleanup built.** No
-    Cloudinary SDK/client exists anywhere in `crockpot-go` today (checked
-    `go.mod` + `internal/`) — free-tier quota is generous against this
-    app's current scale. Revisit once `CROC-040` lands Cloudinary API
-    credentials in config; a delete call could piggyback on those with
-    one HTTP call, no SDK needed.
-  - **Write-authz error codes reuse `CROC-015`'s enumeration-defense
-    split**: a non-owner/non-admin caller gets `403` on an approved
-    recipe (already visible via `GET`, no point hiding the write
-    attempt) and `404` on an unapproved one belonging to someone else
-    (invisible via `GET` too — a write attempt can't be used to probe
-    for recipes the caller can't see at all).
-  - **`DELETE /recipes/:id` → `204 No Content`**, matching
-    `recipe_category_handler.go`'s Delete, not the `200 {"message":...}`
-    shape `CROC-019`'s menu-entry delete uses — no resource left to
-    describe. Deletion needs no explicit child-row cleanup:
-    `db/migrations/000001_init.up.sql:127-172` already has every
-    recipe-child table (`recipe_ingredients`,
-    `recipe_categories_recipes`, `recipe_favourites`,
-    `recipe_menu_entries`, `menu_history_entries`) as `ON DELETE CASCADE`
-    off `recipes.id`.
-
-  **Acceptance criteria**:
-  - [ ] `PATCH /recipes/:id` (owner or admin) replaces the recipe's
-        fields, ingredients, and categories wholesale using the same
-        validators as create; same `{url, filename}` Cloudinary-host
-        image validation, image may be cleared by omitting it.
-  - [ ] Creator editing their own approved recipe → `approved` flips to
-        `false`. Admin editing (own or another's) approved recipe →
-        stays `true`.
-  - [ ] Update and create both respond `200`/`201` with the hydrated
-        `RecipeDetail` shape.
-  - [ ] Non-owner/non-admin `PATCH`/`DELETE` on an approved recipe →
-        `403`. On an unapproved recipe belonging to someone else →
-        `404`, identical to a nonexistent id.
-  - [ ] `DELETE /recipes/:id` (owner or admin) → `204`, and cascades
-        remove the recipe's ingredients, category links, favourites, and
-        menu/history entries (proved against the real DB, not assumed).
-  - [ ] `requests/recipes.http` gets `Update`/`Delete` sections.
-  - [ ] `go test ./internal/handler/...`, `./scripts/test-repo.sh`,
-        `golangci-lint run --max-same-issues=0
-        --max-issues-per-linter=0 ./...`, `gofmt`, `go vet` all clean.
-
-  **Non-goals**: Cloudinary orphan cleanup (accepted, see above);
-  partial/merge-style updates; recipe edit history/versioning; changes
-  to the FREE recipe cap (unaffected by update/delete, still
-  creation-only).
-
-  **Verification**: handler tests (mocked repo) assert the approval-reset
-  branching, the 403/404 split, and the hydrated response shape on both
-  create and update; repository tests against the real Neon dev DB
-  (`./scripts/test-repo.sh`) prove the cascade delete and the wholesale
-  ingredient/category replace; `requests/recipes.http`'s new sections run
-  for real against the local server; `/code-review medium main` once
-  green, before close-out.
+- **CROC-016** — Recipe update/delete (owner or admin only). **Done**
+  (2026-09-08, no separate handoff doc). `PATCH /recipes/:id` full-replace
+  + `DELETE /recipes/:id`, both owner-or-admin; editing an approved
+  recipe resets `approved` to `false` unless the editor is an ADMIN;
+  create and update both return the hydrated `RecipeDetail` shape
+  (retiring `CROC-014`'s bare-`CategoryIDs` response); write-authz reuses
+  `CROC-015`'s 403 (visible)/404 (hidden) enumeration-defense split.
+  Cloudinary orphan cleanup deliberately out of scope — revisit once
+  `CROC-040` lands credentials.
 - **CROC-017** — Admin approval (`PATCH /recipes/:id/approve`, admin-only).
   May add a `GET /recipes?approved=false` admin-only pending-queue filter
   (CROC-015 makes admins see all recipes but adds no focused filter).

@@ -115,8 +115,11 @@ func (h *RecipeHandler) Delete(c *gin.Context) {
 	}
 	isAdmin := c.GetString("role") == "ADMIN"
 
-	if err := h.repo.Delete(c.Request.Context(), id, userID, isAdmin); err != nil {
-		writeRecipeWriteError(c, err)
+	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
+		return h.repo.Delete(ctx, id, userID, isAdmin)
+	})
+	if txErr != nil {
+		writeRecipeWriteError(c, txErr)
 		return
 	}
 	c.Status(http.StatusNoContent)
