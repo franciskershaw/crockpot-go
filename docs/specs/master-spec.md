@@ -464,17 +464,88 @@ session.*
   pagination (all in Architecture above). Ordering is `created_at DESC`
   only — **relevance ranking + random order + match explanation are
   CROC-042**.
-- **CROC-016** — Recipe update/delete (owner or admin only). Open for its
-  grill: orphaned Cloudinary images. The old app called
-  `deleteRecipeImage(publicId)` server-side on recipe delete / image
-  replace; the Go API has no Cloudinary SDK. Decide — a minimal signed
-  REST delete call, a periodic sweep, or accept orphans (free-tier
-  quota is generous, personal app). Also covers replacing a recipe's
-  image on update (same `{url, filename}` validation as CROC-014).
-  **Flagged into scope at CROC-015's grill:** (1) a `description` write
-  path — CROC-015 reads `description` (returns `null`) but nothing sets
-  it; (2) harmonise CROC-014's create response (`categoryIds` bare IDs)
-  onto CROC-015's `categories:[{id,name}]` shape.
+- **CROC-016** — Recipe update/delete (owner or admin only).
+  **Grilled 2026-09-08 (AI-driven, cheap-to-undo — no separate handoff
+  doc):**
+  - **`PATCH /recipes/:id`, full-replace semantics** — same shape and
+    validators as `POST /recipes` (`createRecipeRequest`), not a partial
+    merge: ingredients/categories are deleted-and-reinserted wholesale.
+    `PATCH` (not `PUT`) to match every other update route in this
+    codebase (`item-categories`, `units`, `items`, `recipe-categories`,
+    `menu/entries/:recipeId`) despite the full-replace semantics —
+    established local convention, not a REST-purity argument.
+  - **`description` write path lands on both create and update** — adding
+    it only to update would fork `createRecipeRequest`'s validator set
+    from update's for one field; create gains the ability to set a
+    description it never had.
+  - **Editing an approved recipe resets `approved` to `false`, except
+    when the editor is an ADMIN** — mirrors the create-time rule exactly
+    (an ADMIN's own writes are always auto-approved, whether creating or
+    editing). A creator editing their own approved recipe requeues it for
+    re-approval; an ADMIN editing anyone's recipe (their own or someone
+    else's) stays approved — there's no one left to re-review an admin's
+    own edit.
+  - **Both create and update return the hydrated detail shape**
+    (`models.RecipeDetail` — `categories:[{id,name}]`, hydrated
+    ingredients, `description`, etc.), retiring `CROC-014`'s old bare-
+    `CategoryIDs` response. Nothing in `crockpot-react` consumes create's
+    response shape yet (`CFE-010` hasn't shipped) — cheapest point to fix
+    the divergence this line already flagged.
+  - **Orphaned Cloudinary images: accepted, no cleanup built.** No
+    Cloudinary SDK/client exists anywhere in `crockpot-go` today (checked
+    `go.mod` + `internal/`) — free-tier quota is generous against this
+    app's current scale. Revisit once `CROC-040` lands Cloudinary API
+    credentials in config; a delete call could piggyback on those with
+    one HTTP call, no SDK needed.
+  - **Write-authz error codes reuse `CROC-015`'s enumeration-defense
+    split**: a non-owner/non-admin caller gets `403` on an approved
+    recipe (already visible via `GET`, no point hiding the write
+    attempt) and `404` on an unapproved one belonging to someone else
+    (invisible via `GET` too — a write attempt can't be used to probe
+    for recipes the caller can't see at all).
+  - **`DELETE /recipes/:id` → `204 No Content`**, matching
+    `recipe_category_handler.go`'s Delete, not the `200 {"message":...}`
+    shape `CROC-019`'s menu-entry delete uses — no resource left to
+    describe. Deletion needs no explicit child-row cleanup:
+    `db/migrations/000001_init.up.sql:127-172` already has every
+    recipe-child table (`recipe_ingredients`,
+    `recipe_categories_recipes`, `recipe_favourites`,
+    `recipe_menu_entries`, `menu_history_entries`) as `ON DELETE CASCADE`
+    off `recipes.id`.
+
+  **Acceptance criteria**:
+  - [ ] `PATCH /recipes/:id` (owner or admin) replaces the recipe's
+        fields, ingredients, and categories wholesale using the same
+        validators as create; same `{url, filename}` Cloudinary-host
+        image validation, image may be cleared by omitting it.
+  - [ ] Creator editing their own approved recipe → `approved` flips to
+        `false`. Admin editing (own or another's) approved recipe →
+        stays `true`.
+  - [ ] Update and create both respond `200`/`201` with the hydrated
+        `RecipeDetail` shape.
+  - [ ] Non-owner/non-admin `PATCH`/`DELETE` on an approved recipe →
+        `403`. On an unapproved recipe belonging to someone else →
+        `404`, identical to a nonexistent id.
+  - [ ] `DELETE /recipes/:id` (owner or admin) → `204`, and cascades
+        remove the recipe's ingredients, category links, favourites, and
+        menu/history entries (proved against the real DB, not assumed).
+  - [ ] `requests/recipes.http` gets `Update`/`Delete` sections.
+  - [ ] `go test ./internal/handler/...`, `./scripts/test-repo.sh`,
+        `golangci-lint run --max-same-issues=0
+        --max-issues-per-linter=0 ./...`, `gofmt`, `go vet` all clean.
+
+  **Non-goals**: Cloudinary orphan cleanup (accepted, see above);
+  partial/merge-style updates; recipe edit history/versioning; changes
+  to the FREE recipe cap (unaffected by update/delete, still
+  creation-only).
+
+  **Verification**: handler tests (mocked repo) assert the approval-reset
+  branching, the 403/404 split, and the hydrated response shape on both
+  create and update; repository tests against the real Neon dev DB
+  (`./scripts/test-repo.sh`) prove the cascade delete and the wholesale
+  ingredient/category replace; `requests/recipes.http`'s new sections run
+  for real against the local server; `/code-review medium main` once
+  green, before close-out.
 - **CROC-017** — Admin approval (`PATCH /recipes/:id/approve`, admin-only).
   May add a `GET /recipes?approved=false` admin-only pending-queue filter
   (CROC-015 makes admins see all recipes but adds no focused filter).
@@ -816,3 +887,28 @@ reason as `CROC-038` above — a loosely-scoped idea, not sequenced.*
   (consistent with recipe categories) or creator-set per recipe, and
   whether the shopping-list/menu side needs any awareness of it at all
   or this is purely a browse/filter feature.
+
+*Raised 2026-09-08, founder observation while using `crockpot-react`'s
+`CFE-021` against real data — the match badge only became visible for
+the first time once that ticket's frontend shipped. Parked here for the
+same reason as the entries above: a real product observation, not yet a
+decision, needs its own grill/trial-and-error against real usage before
+touching `CROC-042`'s shipped, tested scoring code.*
+- **`CROC-042`'s `"best"` tier threshold (`score >= 0.8`) may be
+  calibrated too high in practice.** `ingredientCoverage =
+  matchedIngredientCount / totalIngredientCount` is normalized against
+  *that recipe's own* ingredient count (Decision 2), not the size of the
+  user's selection — so on a 6-ingredient recipe, clearing 0.8 needs 5
+  of 6 selected (5/6 = 0.83); on a larger recipe the bar is
+  proportionally higher (a 15-ingredient recipe needs 12+). Founder's
+  first hands-on pass could only trigger "Best Match" by selecting 5 of
+  a 6-ingredient recipe's ingredients — not obviously reachable through
+  normal browsing behaviour. The coverage-based approach itself isn't in
+  question (it's still the fix for the old app's real defect, Decision
+  2) — just whether `0.8`/`0.5` are the right cut points for it. Likely
+  needs iterating against real usage/click-through data rather than
+  picked once and left, same spirit as Decision 4's "revisit with real
+  usage data if it feels off in practice" (that decision was about the
+  ingredient/category weighting, not this threshold, but the same
+  philosophy applies). Not a `CFE-021` fix — the frontend has no lever
+  for this by design, it only renders whatever `tier` the API returns.
