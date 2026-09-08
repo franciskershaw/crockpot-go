@@ -15,6 +15,8 @@ var recipeLimits = map[string]int{"FREE": 5}
 
 type RecipeRepository interface {
 	Create(ctx context.Context, input models.CreateRecipeInput) (*models.RecipeDetail, error)
+	Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (*models.RecipeDetail, error)
+	Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) error
 	CountByCreator(ctx context.Context, userID string) (int, error)
 	List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error)
 	GetByID(ctx context.Context, id string, callerID *string, callerIsAdmin bool) (*models.RecipeDetail, error)
@@ -70,6 +72,14 @@ func (h *RecipeHandler) Create(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, recipe)
+}
+
+func (h *RecipeHandler) Update(c *gin.Context) {
+	c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented"})
+}
+
+func (h *RecipeHandler) Delete(c *gin.Context) {
+	c.JSON(http.StatusNotImplemented, gin.H{"error": "not_implemented"})
 }
 
 func (h *RecipeHandler) List(c *gin.Context) {

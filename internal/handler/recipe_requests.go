@@ -12,6 +12,7 @@ import (
 
 type createRecipeRequest struct {
 	Name          string                    `json:"name"`
+	Description   *string                   `json:"description"`
 	TimeInMinutes int                       `json:"timeInMinutes"`
 	Serves        int                       `json:"serves"`
 	Instructions  []string                  `json:"instructions"`
@@ -40,6 +41,10 @@ func parseCreateRecipeInput(c *gin.Context) (models.CreateRecipeInput, bool) {
 	}
 
 	name, ok := validateRecipeName(c, req.Name)
+	if !ok {
+		return models.CreateRecipeInput{}, false
+	}
+	description, ok := validateRecipeDescription(c, req.Description)
 	if !ok {
 		return models.CreateRecipeInput{}, false
 	}
@@ -74,6 +79,7 @@ func parseCreateRecipeInput(c *gin.Context) (models.CreateRecipeInput, bool) {
 
 	return models.CreateRecipeInput{
 		Name:          name,
+		Description:   description,
 		TimeInMinutes: req.TimeInMinutes,
 		Serves:        req.Serves,
 		Instructions:  instructions,
@@ -99,6 +105,21 @@ func validateRecipeName(c *gin.Context, raw string) (string, bool) {
 		return "", false
 	}
 	return trimmed, true
+}
+
+func validateRecipeDescription(c *gin.Context, raw *string) (*string, bool) {
+	if raw == nil {
+		return nil, true
+	}
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return nil, true
+	}
+	if len(trimmed) > 500 {
+		badRequest(c, "description_too_long")
+		return nil, false
+	}
+	return &trimmed, true
 }
 
 func validateInstructions(c *gin.Context, raw []string) ([]string, bool) {
