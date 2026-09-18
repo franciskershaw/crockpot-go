@@ -56,3 +56,5 @@ only shipped per-entry `POST`/`PATCH`/`DELETE`.
   clear + regen interaction; `go test ./internal/handler/...` for
   handler-layer wiring.
 - **Manual regression**: extend `requests/menu.http`.
+
+Completed 2026-09-18.

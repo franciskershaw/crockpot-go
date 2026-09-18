@@ -566,3 +566,20 @@ implementation quality until CROC-001 lands.
   recipe/favourite/menu suites) green unmodified — pure refactors.
 - Close-out itself scaled down to just marking Done + this entry, at the
   founder's request — no retro Q&A for a batch this small and clean.
+
+## 2026-09-18 — CROC-022, CROC-049 — Shopping-list manual edits + clear-menu gap shipped; two grill corrections, one real concurrency bug caught by branch-review
+
+- Old-app precedent got used as justification twice during CROC-022's
+  grill (manual-add shape, then quantity-editing scope) before being
+  re-derived from this project's own schema and constraints — corrected
+  each time, but reasoning from source first would've been faster.
+- Branch-review (bugs + security agents, independently, plus the
+  session's own read) caught a real bug: `AddManualItem`'s
+  find-then-write wasn't wrapped in `WithinTx`, unlike sibling
+  `DeleteItem` — fixed and verified with a real concurrent-goroutines
+  test under `-race`, not just reasoned about.
+- **Pattern**: before asserting what a reference app does or doesn't do,
+  re-check files already read earlier in the same session — a
+  data-layer function seen once and forgotten led to a wrong claim
+  ("this sounds like a new capability") the founder had to correct
+  directly.

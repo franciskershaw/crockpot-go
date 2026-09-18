@@ -254,3 +254,5 @@ with not confirming another user's row exists at all (same posture as
   the next regenerate), remove (manual vs. generated, confirming the
   dismissal survives an unrelated regen), and clear list. Run
   end-to-end against a running server.
+
+Completed 2026-09-18.
