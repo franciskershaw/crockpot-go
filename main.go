@@ -196,6 +196,7 @@ func main() {
 		menu.POST("/entries", menuHandler.UpsertEntry)
 		menu.PATCH("/entries/:recipeId", menuHandler.UpdateEntryServes)
 		menu.DELETE("/entries/:recipeId", menuHandler.RemoveEntry)
+		menu.DELETE("", menuHandler.ClearMenu)
 	}
 
 	shoppingList := server.Group("/shopping-list")

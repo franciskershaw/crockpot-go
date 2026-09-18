@@ -623,6 +623,16 @@ session.*
 - **CROC-020** — Menu history tracking (increment/first/last-added,
   last-removed) as entries are added/removed — powers "you've made this
   before" style features later.
+- **CROC-049** — `DELETE /menu`: clear the whole menu in one call,
+  mirroring `CROC-022`'s shopping-list clear. **Done** (2026-09-18,
+  `docs/handoffs/CROC-049.md`). Surfaced the same way that one was — the
+  design's "Clear menu" button and the old app both have it, but
+  `CROC-019` never named a bulk-clear endpoint, only the four per-entry
+  ones. Regenerates the shopping list in the same transaction, matching
+  every other menu-write endpoint. Deliberately ships without a
+  `CROC-020` history-tracking hook — founder's explicit call to unblock
+  the frontend now; `CROC-020` will need to retrofit bulk-clear once it
+  lands.
 
 ### Epic 6: Shopping Lists
 - **CROC-021** — Generate/regenerate shopping list from current menu,

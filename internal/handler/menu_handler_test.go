@@ -48,6 +48,7 @@ func newMenuMocks(t *testing.T) *menuMocks {
 		authed.POST("/entries", h.UpsertEntry)
 		authed.PATCH("/entries/:recipeId", h.UpdateEntryServes)
 		authed.DELETE("/entries/:recipeId", h.RemoveEntry)
+		authed.DELETE("", h.ClearMenu)
 	}
 	return m
 }
@@ -99,6 +100,16 @@ func doMenuPatch(r *gin.Engine, recipeID string, body any, auth string) *httptes
 
 func doMenuDelete(r *gin.Engine, recipeID, auth string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodDelete, "/menu/entries/"+recipeID, nil)
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func doMenuClear(r *gin.Engine, auth string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodDelete, "/menu", nil)
 	if auth != "" {
 		req.Header.Set("Authorization", auth)
 	}
@@ -365,5 +376,39 @@ func TestMenuRemoveEntry_RepoError_500(t *testing.T) {
 		Return(errors.New("db down"))
 
 	w := doMenuDelete(m.router, id, menuAuth(t, "FREE"))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestMenuClear_NoToken_401(t *testing.T) {
+	m := newMenuMocks(t)
+	w := doMenuClear(m.router, "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestMenuClear_Success_200MessageBody(t *testing.T) {
+	m := newMenuMocks(t)
+	m.repo.EXPECT().ClearMenu(mock.Anything, menuUserID.String()).Return(nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(nil).Once()
+
+	w := doMenuClear(m.router, menuAuth(t, "FREE"))
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "menu cleared", menuMsg(t, w))
+}
+
+func TestMenuClear_RegenerateFails_500(t *testing.T) {
+	m := newMenuMocks(t)
+	m.repo.EXPECT().ClearMenu(mock.Anything, menuUserID.String()).Return(nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(errors.New("db down"))
+
+	w := doMenuClear(m.router, menuAuth(t, "FREE"))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestMenuClear_RepoError_500(t *testing.T) {
+	m := newMenuMocks(t)
+	m.repo.EXPECT().ClearMenu(mock.Anything, menuUserID.String()).
+		Return(errors.New("db down"))
+
+	w := doMenuClear(m.router, menuAuth(t, "FREE"))
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

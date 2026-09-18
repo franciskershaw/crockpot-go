@@ -218,6 +218,55 @@ func TestGetMenu_OrderedByCreatedAtDescending(t *testing.T) {
 	assert.Equal(t, []uuid.UUID{a, c, b}, menuEntryIDs(menu), "most recently added first")
 }
 
+func TestClearMenu_RemovesAllEntries(t *testing.T) {
+	owner := insertTestUser(t, "Owner")
+	caller := insertTestUser(t, "Caller")
+	a := insertTestRecipeRow(t, owner, true)
+	b := insertTestRecipeRow(t, owner, true)
+
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), a.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), b.String(), 2, false))
+
+	err := menuRepo.ClearMenu(context.Background(), caller.String())
+	require.NoError(t, err)
+
+	menu, err := menuRepo.GetMenu(context.Background(), caller.String())
+	require.NoError(t, err)
+	assert.Empty(t, menu.Entries)
+}
+
+func TestClearMenu_NoExistingMenu_NoOp(t *testing.T) {
+	caller := insertTestUser(t, "Caller")
+
+	err := menuRepo.ClearMenu(context.Background(), caller.String())
+	require.NoError(t, err)
+
+	var count int
+	require.NoError(t, db.DB.QueryRow(context.Background(),
+		`SELECT count(*) FROM recipe_menus WHERE user_id = $1`, caller).Scan(&count))
+	assert.Equal(t, 0, count, "clearing a menu that never existed must not create one")
+}
+
+func TestClearMenu_OnlyClearsCallingUsersMenu(t *testing.T) {
+	owner := insertTestUser(t, "Owner")
+	clearedCaller := insertTestUser(t, "Cleared Caller")
+	otherCaller := insertTestUser(t, "Other Caller")
+	recipeID := insertTestRecipeRow(t, owner, true)
+
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), clearedCaller.String(), recipeID.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), otherCaller.String(), recipeID.String(), 2, false))
+
+	require.NoError(t, menuRepo.ClearMenu(context.Background(), clearedCaller.String()))
+
+	clearedMenu, err := menuRepo.GetMenu(context.Background(), clearedCaller.String())
+	require.NoError(t, err)
+	assert.Empty(t, clearedMenu.Entries)
+
+	otherMenu, err := menuRepo.GetMenu(context.Background(), otherCaller.String())
+	require.NoError(t, err)
+	assert.Len(t, otherMenu.Entries, 1, "another user's menu must be untouched")
+}
+
 func TestGetMenu_EntriesHydratedWithRecipeCardAndCategories(t *testing.T) {
 	owner := insertTestUser(t, "Owner")
 	caller := insertTestUser(t, "Caller")
