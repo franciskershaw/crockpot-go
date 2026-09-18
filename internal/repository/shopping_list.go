@@ -7,9 +7,15 @@ import (
 
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/sqlc"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+var shoppingListConstraintErrors = map[string]error{
+	"shopping_list_items_item_id_fkey": models.ErrShoppingListInvalidItem,
+	"shopping_list_items_unit_id_fkey": models.ErrShoppingListInvalidUnit,
+}
 
 type PostgresShoppingListRepository struct {
 	db sqlc.DBTX
@@ -17,6 +23,80 @@ type PostgresShoppingListRepository struct {
 
 func NewPostgresShoppingListRepository(db sqlc.DBTX) *PostgresShoppingListRepository {
 	return &PostgresShoppingListRepository{db: db}
+}
+
+// AddManualItem merges into an existing manual row for the same (itemID, unitID) by summing
+// quantity; never merges into a generated row, since Regenerate would just overwrite it.
+func (r *PostgresShoppingListRepository) AddManualItem(ctx context.Context, userID, itemID string, unitID *string, quantity float64) error {
+	q := queriesFor(ctx, r.db)
+
+	uid, err := uuidParam(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+	iid, err := uuid.Parse(itemID)
+	if err != nil {
+		return fmt.Errorf("invalid item id: %w", err)
+	}
+	var parsedUnitID *uuid.UUID
+	if unitID != nil {
+		parsed, err := uuid.Parse(*unitID)
+		if err != nil {
+			return fmt.Errorf("invalid unit id: %w", err)
+		}
+		parsedUnitID = &parsed
+	}
+
+	if err := checkAllowedUnits(ctx, q, []models.Ingredient{{ItemID: iid, UnitID: parsedUnitID}}); err != nil {
+		return err
+	}
+
+	qty, err := numericParam(quantity)
+	if err != nil {
+		return fmt.Errorf("invalid quantity: %w", err)
+	}
+
+	listID, err := q.GetOrCreateShoppingList(ctx, uid)
+	if err != nil {
+		return fmt.Errorf("failed to get or create shopping list: %w", err)
+	}
+
+	pgItemID := pgUUID(iid)
+	var pgUnitID pgtype.UUID
+	if parsedUnitID != nil {
+		pgUnitID = pgUUID(*parsedUnitID)
+	}
+
+	existing, err := q.FindManualShoppingListItem(ctx, sqlc.FindManualShoppingListItemParams{
+		ShoppingListID: listID,
+		ItemID:         pgItemID,
+		UnitID:         pgUnitID,
+	})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		if err := q.InsertManualShoppingListItem(ctx, sqlc.InsertManualShoppingListItemParams{
+			ShoppingListID: listID,
+			ItemID:         pgItemID,
+			UnitID:         pgUnitID,
+			Quantity:       qty,
+		}); err != nil {
+			if mapped := pgConstraintError(err, shoppingListConstraintErrors); mapped != nil {
+				return mapped
+			}
+			return fmt.Errorf("failed to insert manual shopping list item: %w", err)
+		}
+		return nil
+	case err != nil:
+		return fmt.Errorf("failed to find existing manual shopping list item: %w", err)
+	default:
+		if err := q.IncrementShoppingListItemQuantity(ctx, sqlc.IncrementShoppingListItemQuantityParams{
+			Delta: qty,
+			ID:    existing.ID,
+		}); err != nil {
+			return fmt.Errorf("failed to increment manual shopping list item: %w", err)
+		}
+		return nil
+	}
 }
 
 func (r *PostgresShoppingListRepository) Get(ctx context.Context, userID string) (*models.ShoppingList, error) {

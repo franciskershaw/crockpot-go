@@ -125,6 +125,33 @@ func (q *Queries) DeleteStaleDismissals(ctx context.Context, arg DeleteStaleDism
 	return err
 }
 
+const findManualShoppingListItem = `-- name: FindManualShoppingListItem :one
+SELECT id, quantity FROM shopping_list_items
+WHERE shopping_list_id = $1
+    AND item_id = $2
+    AND unit_id IS NOT DISTINCT FROM $3::uuid
+    AND is_manual
+LIMIT 1
+`
+
+type FindManualShoppingListItemParams struct {
+	ShoppingListID pgtype.UUID
+	ItemID         pgtype.UUID
+	UnitID         pgtype.UUID
+}
+
+type FindManualShoppingListItemRow struct {
+	ID       pgtype.UUID
+	Quantity pgtype.Numeric
+}
+
+func (q *Queries) FindManualShoppingListItem(ctx context.Context, arg FindManualShoppingListItemParams) (FindManualShoppingListItemRow, error) {
+	row := q.db.QueryRow(ctx, findManualShoppingListItem, arg.ShoppingListID, arg.ItemID, arg.UnitID)
+	var i FindManualShoppingListItemRow
+	err := row.Scan(&i.ID, &i.Quantity)
+	return i, err
+}
+
 const getOrCreateShoppingList = `-- name: GetOrCreateShoppingList :one
 INSERT INTO shopping_lists (user_id) VALUES ($1)
 ON CONFLICT (user_id) DO UPDATE SET user_id = excluded.user_id
@@ -147,6 +174,44 @@ func (q *Queries) GetShoppingListByUserID(ctx context.Context, userID pgtype.UUI
 	var id pgtype.UUID
 	err := row.Scan(&id)
 	return id, err
+}
+
+const incrementShoppingListItemQuantity = `-- name: IncrementShoppingListItemQuantity :exec
+UPDATE shopping_list_items
+SET quantity = quantity + $1
+WHERE id = $2
+`
+
+type IncrementShoppingListItemQuantityParams struct {
+	Delta pgtype.Numeric
+	ID    pgtype.UUID
+}
+
+func (q *Queries) IncrementShoppingListItemQuantity(ctx context.Context, arg IncrementShoppingListItemQuantityParams) error {
+	_, err := q.db.Exec(ctx, incrementShoppingListItemQuantity, arg.Delta, arg.ID)
+	return err
+}
+
+const insertManualShoppingListItem = `-- name: InsertManualShoppingListItem :exec
+INSERT INTO shopping_list_items (shopping_list_id, item_id, unit_id, quantity, obtained, is_manual)
+VALUES ($1, $2, $3, $4, false, true)
+`
+
+type InsertManualShoppingListItemParams struct {
+	ShoppingListID pgtype.UUID
+	ItemID         pgtype.UUID
+	UnitID         pgtype.UUID
+	Quantity       pgtype.Numeric
+}
+
+func (q *Queries) InsertManualShoppingListItem(ctx context.Context, arg InsertManualShoppingListItemParams) error {
+	_, err := q.db.Exec(ctx, insertManualShoppingListItem,
+		arg.ShoppingListID,
+		arg.ItemID,
+		arg.UnitID,
+		arg.Quantity,
+	)
+	return err
 }
 
 const insertNewShoppingListItems = `-- name: InsertNewShoppingListItems :exec

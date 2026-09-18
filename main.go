@@ -202,6 +202,7 @@ func main() {
 	shoppingList.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess))
 	{
 		shoppingList.GET("", shoppingListHandler.Get)
+		shoppingList.POST("/items", shoppingListHandler.AddItem)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

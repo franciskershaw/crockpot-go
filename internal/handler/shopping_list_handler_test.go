@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -34,8 +35,45 @@ func newShoppingListMocks(t *testing.T) *shoppingListMocks {
 	authed.Use(middleware.AuthMiddleware(testutil.TestAccessSecret))
 	{
 		authed.GET("", h.Get)
+		authed.POST("/items", h.AddItem)
 	}
 	return m
+}
+
+func shoppingListErr(t *testing.T, w *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body struct {
+		Error string `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	return body.Error
+}
+
+func shoppingListMsg(t *testing.T, w *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body struct {
+		Message string `json:"message"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	return body.Message
+}
+
+func doShoppingListAddItem(r *gin.Engine, body any, auth string) *httptest.ResponseRecorder {
+	var reqBody *bytes.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		reqBody = bytes.NewReader(b)
+	} else {
+		reqBody = bytes.NewReader(nil)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/shopping-list/items", reqBody)
+	req.Header.Set("Content-Type", "application/json")
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
 }
 
 func shoppingListAuth(t *testing.T, role string) string {
@@ -102,6 +140,93 @@ func TestShoppingListGet_EmptyItemsSerializesAsArray(t *testing.T) {
 	w := doShoppingListGet(m.router, shoppingListAuth(t, "FREE"))
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.JSONEq(t, `{"items":[]}`, w.Body.String())
+}
+
+func TestShoppingListAddItem_NoToken_401(t *testing.T) {
+	m := newShoppingListMocks(t)
+	w := doShoppingListAddItem(m.router, map[string]any{"itemId": uuid.NewString(), "quantity": 2}, "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestShoppingListAddItem_MalformedItemID_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	w := doShoppingListAddItem(m.router, map[string]any{"itemId": "not-a-uuid", "quantity": 2}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_request", shoppingListErr(t, w))
+}
+
+func TestShoppingListAddItem_MissingQuantity_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	w := doShoppingListAddItem(m.router, map[string]any{"itemId": uuid.NewString()}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_quantity", shoppingListErr(t, w))
+}
+
+func TestShoppingListAddItem_ZeroQuantity_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	w := doShoppingListAddItem(m.router, map[string]any{"itemId": uuid.NewString(), "quantity": 0}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_quantity", shoppingListErr(t, w))
+}
+
+func TestShoppingListAddItem_MalformedUnitID_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	w := doShoppingListAddItem(m.router, map[string]any{"itemId": uuid.NewString(), "unitId": "not-a-uuid", "quantity": 2}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_request", shoppingListErr(t, w))
+}
+
+func TestShoppingListAddItem_Success_200MessageBody(t *testing.T) {
+	m := newShoppingListMocks(t)
+	itemID := uuid.NewString()
+	unitID := uuid.NewString()
+	m.repo.EXPECT().AddManualItem(mock.Anything, shoppingListUserID.String(), itemID, &unitID, 2.0).Return(nil)
+
+	w := doShoppingListAddItem(m.router, map[string]any{"itemId": itemID, "unitId": unitID, "quantity": 2}, shoppingListAuth(t, "FREE"))
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "item added to shopping list", shoppingListMsg(t, w))
+}
+
+func TestShoppingListAddItem_NoUnit_PassesNilUnitID(t *testing.T) {
+	m := newShoppingListMocks(t)
+	itemID := uuid.NewString()
+	m.repo.EXPECT().AddManualItem(mock.Anything, shoppingListUserID.String(), itemID, (*string)(nil), 2.0).Return(nil)
+
+	w := doShoppingListAddItem(m.router, map[string]any{"itemId": itemID, "quantity": 2}, shoppingListAuth(t, "FREE"))
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestShoppingListAddItem_UnknownItem_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	itemID := uuid.NewString()
+	m.repo.EXPECT().AddManualItem(mock.Anything, shoppingListUserID.String(), itemID, (*string)(nil), 2.0).
+		Return(models.ErrShoppingListInvalidItem)
+
+	w := doShoppingListAddItem(m.router, map[string]any{"itemId": itemID, "quantity": 2}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_item", shoppingListErr(t, w))
+}
+
+func TestShoppingListAddItem_UnitNotAllowed_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	itemID := uuid.NewString()
+	unitID := uuid.NewString()
+	m.repo.EXPECT().AddManualItem(mock.Anything, shoppingListUserID.String(), itemID, &unitID, 2.0).
+		Return(models.ErrIngredientUnitNotAllowed)
+
+	w := doShoppingListAddItem(m.router, map[string]any{"itemId": itemID, "unitId": unitID, "quantity": 2}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "unit_not_allowed", shoppingListErr(t, w))
+}
+
+func TestShoppingListAddItem_RepoError_500(t *testing.T) {
+	m := newShoppingListMocks(t)
+	itemID := uuid.NewString()
+	m.repo.EXPECT().AddManualItem(mock.Anything, shoppingListUserID.String(), itemID, (*string)(nil), 2.0).
+		Return(errors.New("db down"))
+
+	w := doShoppingListAddItem(m.router, map[string]any{"itemId": itemID, "quantity": 2}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestShoppingListGet_RepoError_500(t *testing.T) {

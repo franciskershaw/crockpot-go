@@ -63,3 +63,9 @@ var ErrRecipeNotFound = errors.New("recipe not found")
 var ErrRecipeForbidden = errors.New("recipe not owned by caller")
 
 var ErrMenuEntryNotFound = errors.New("menu entry not found")
+
+var ErrShoppingListInvalidItem = errors.New("shopping list item does not exist")
+
+var ErrShoppingListInvalidUnit = errors.New("shopping list unit does not exist")
+
+var ErrShoppingListItemNotFound = errors.New("shopping list item not found")
