@@ -142,6 +142,52 @@ func (r *PostgresShoppingListRepository) UpdateItem(ctx context.Context, userID,
 	return nil
 }
 
+func (r *PostgresShoppingListRepository) DeleteItem(ctx context.Context, userID, itemRowID string) error {
+	q := queriesFor(ctx, r.db)
+
+	uid, err := uuidParam(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+	rid, err := uuidParam(itemRowID)
+	if err != nil {
+		return fmt.Errorf("invalid item row id: %w", err)
+	}
+
+	listID, err := q.GetShoppingListByUserID(ctx, uid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.ErrShoppingListItemNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("failed to get shopping list: %w", err)
+	}
+
+	deleted, err := q.DeleteShoppingListItem(ctx, sqlc.DeleteShoppingListItemParams{
+		ID:             rid,
+		ShoppingListID: listID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.ErrShoppingListItemNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("failed to delete shopping list item: %w", err)
+	}
+
+	if deleted.IsManual {
+		return nil
+	}
+
+	if err := q.InsertDismissedItem(ctx, sqlc.InsertDismissedItemParams{
+		ShoppingListID:      listID,
+		ItemID:              deleted.ItemID,
+		UnitID:              deleted.UnitID,
+		QuantityAtDismissal: deleted.Quantity,
+	}); err != nil {
+		return fmt.Errorf("failed to insert dismissed item: %w", err)
+	}
+	return nil
+}
+
 func (r *PostgresShoppingListRepository) Get(ctx context.Context, userID string) (*models.ShoppingList, error) {
 	q := queriesFor(ctx, r.db)
 

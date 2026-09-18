@@ -129,6 +129,15 @@ SET obtained = COALESCE(sqlc.narg(obtained), obtained),
     quantity = COALESCE(sqlc.narg(quantity), quantity)
 WHERE id = sqlc.arg(id) AND shopping_list_id = sqlc.arg(shopping_list_id);
 
+-- name: DeleteShoppingListItem :one
+DELETE FROM shopping_list_items
+WHERE id = sqlc.arg(id) AND shopping_list_id = sqlc.arg(shopping_list_id)
+RETURNING item_id, unit_id, quantity, is_manual;
+
+-- name: InsertDismissedItem :exec
+INSERT INTO shopping_list_dismissed_items (shopping_list_id, item_id, unit_id, quantity_at_dismissal)
+VALUES (sqlc.arg(shopping_list_id), sqlc.arg(item_id), sqlc.arg(unit_id), sqlc.arg(quantity_at_dismissal));
+
 -- name: DeleteObsoleteShoppingListItems :exec
 DELETE FROM shopping_list_items sli
 WHERE sli.shopping_list_id = sqlc.arg(shopping_list_id)

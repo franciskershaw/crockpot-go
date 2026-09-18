@@ -73,6 +73,54 @@ func (_c *MockShoppingListRepository_AddManualItem_Call) RunAndReturn(run func(c
 	return _c
 }
 
+// DeleteItem provides a mock function with given fields: ctx, userID, itemRowID
+func (_m *MockShoppingListRepository) DeleteItem(ctx context.Context, userID string, itemRowID string) error {
+	ret := _m.Called(ctx, userID, itemRowID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteItem")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, userID, itemRowID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShoppingListRepository_DeleteItem_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteItem'
+type MockShoppingListRepository_DeleteItem_Call struct {
+	*mock.Call
+}
+
+// DeleteItem is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - itemRowID string
+func (_e *MockShoppingListRepository_Expecter) DeleteItem(ctx interface{}, userID interface{}, itemRowID interface{}) *MockShoppingListRepository_DeleteItem_Call {
+	return &MockShoppingListRepository_DeleteItem_Call{Call: _e.mock.On("DeleteItem", ctx, userID, itemRowID)}
+}
+
+func (_c *MockShoppingListRepository_DeleteItem_Call) Run(run func(ctx context.Context, userID string, itemRowID string)) *MockShoppingListRepository_DeleteItem_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockShoppingListRepository_DeleteItem_Call) Return(_a0 error) *MockShoppingListRepository_DeleteItem_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShoppingListRepository_DeleteItem_Call) RunAndReturn(run func(context.Context, string, string) error) *MockShoppingListRepository_DeleteItem_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Get provides a mock function with given fields: ctx, userID
 func (_m *MockShoppingListRepository) Get(ctx context.Context, userID string) (*models.ShoppingList, error) {
 	ret := _m.Called(ctx, userID)

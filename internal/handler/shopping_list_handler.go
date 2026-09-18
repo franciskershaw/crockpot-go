@@ -13,14 +13,16 @@ type ShoppingListRepository interface {
 	Get(ctx context.Context, userID string) (*models.ShoppingList, error)
 	AddManualItem(ctx context.Context, userID, itemID string, unitID *string, quantity float64) error
 	UpdateItem(ctx context.Context, userID, itemRowID string, obtained *bool, quantity *float64) error
+	DeleteItem(ctx context.Context, userID, itemRowID string) error
 }
 
 type ShoppingListHandler struct {
-	repo ShoppingListRepository
+	repo       ShoppingListRepository
+	transactor Transactor
 }
 
-func NewShoppingListHandler(repo ShoppingListRepository) *ShoppingListHandler {
-	return &ShoppingListHandler{repo: repo}
+func NewShoppingListHandler(repo ShoppingListRepository, transactor Transactor) *ShoppingListHandler {
+	return &ShoppingListHandler{repo: repo, transactor: transactor}
 }
 
 func (h *ShoppingListHandler) Get(c *gin.Context) {
@@ -87,5 +89,29 @@ func (h *ShoppingListHandler) UpdateItem(c *gin.Context) {
 		notFound(c, "shopping_list_item_not_found")
 	default:
 		internalError(c, "failed to update shopping list item", err)
+	}
+}
+
+func (h *ShoppingListHandler) DeleteItem(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+	itemRowID := c.Param("id")
+	if !parseID(c, itemRowID) {
+		return
+	}
+
+	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
+		return h.repo.DeleteItem(ctx, userID, itemRowID)
+	})
+	switch {
+	case txErr == nil:
+		c.JSON(http.StatusOK, gin.H{"message": "item removed from shopping list"})
+	case errors.Is(txErr, models.ErrShoppingListItemNotFound):
+		notFound(c, "shopping_list_item_not_found")
+	default:
+		internalError(c, "failed to delete shopping list item", txErr)
 	}
 }

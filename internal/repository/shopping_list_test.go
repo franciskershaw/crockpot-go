@@ -666,6 +666,82 @@ func TestUpdateItem_AnotherUsersRow_ReturnsNotFound(t *testing.T) {
 	assert.False(t, row.obtained, "another user's failed update must not have touched the row")
 }
 
+func TestDeleteItem_ManualRow_PlainDeleteNoDismissal(t *testing.T) {
+	userID := insertTestUser(t, "Delete Item Manual Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	rowID := insertManualShoppingListItem(t, userID, itemID, &grams, 2, false)
+
+	err := shoppingListRepo.DeleteItem(context.Background(), userID.String(), rowID.String())
+	require.NoError(t, err)
+
+	items := getShoppingListItemsByUser(t, userID)
+	assert.Empty(t, items)
+	assert.Equal(t, 0, countDismissedItems(t, userID, itemID), "deleting a manual item must not write a dismissal record")
+}
+
+func TestDeleteItem_GeneratedRow_DeletesAndWritesDismissal(t *testing.T) {
+	userID := insertTestUser(t, "Delete Item Generated Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	recipeID := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{itemID, &grams, 100}})
+	addToMenu(t, userID, recipeID, 4)
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+
+	items := getShoppingListItemsByUser(t, userID)
+	row, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+
+	err := shoppingListRepo.DeleteItem(context.Background(), userID.String(), row.id.String())
+	require.NoError(t, err)
+
+	items = getShoppingListItemsByUser(t, userID)
+	_, ok = findShoppingListItem(items, itemID, &grams)
+	assert.False(t, ok, "row must be deleted")
+	assert.Equal(t, 1, countDismissedItems(t, userID, itemID), "deleting a generated item must write a dismissal record")
+
+	// An unrelated regen must not bring it back while the required quantity is unchanged.
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+	items = getShoppingListItemsByUser(t, userID)
+	_, ok = findShoppingListItem(items, itemID, &grams)
+	assert.False(t, ok, "dismissed item must not reappear while its required quantity is unchanged")
+}
+
+func TestDeleteItem_UnknownID_ReturnsNotFound(t *testing.T) {
+	userID := insertTestUser(t, "Delete Item Unknown ID Cook")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	err := shoppingListRepo.DeleteItem(context.Background(), userID.String(), uuid.NewString())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, models.ErrShoppingListItemNotFound)
+}
+
+func TestDeleteItem_AnotherUsersRow_ReturnsNotFoundAndLeavesRowIntact(t *testing.T) {
+	ownerID := insertTestUser(t, "Delete Item Owner Cook")
+	otherID := insertTestUser(t, "Delete Item Other Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, ownerID)
+	registerShoppingListCascadeCleanup(t, otherID)
+
+	rowID := insertManualShoppingListItem(t, ownerID, itemID, &grams, 2, false)
+
+	err := shoppingListRepo.DeleteItem(context.Background(), otherID.String(), rowID.String())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, models.ErrShoppingListItemNotFound)
+
+	items := getShoppingListItemsByUser(t, ownerID)
+	_, ok := findShoppingListItem(items, itemID, &grams)
+	assert.True(t, ok, "another user's failed delete must not have removed the row")
+}
+
 func TestGet_NoShoppingListRow_ReturnsEmptyWithoutCreatingOne(t *testing.T) {
 	userID := insertTestUser(t, "Get No List Cook")
 

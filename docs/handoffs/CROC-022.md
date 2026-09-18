@@ -196,10 +196,10 @@ with not confirming another user's row exists at all (same posture as
 - [x] `PATCH /shopping-list/items/:id` with neither field present
       returns `400`.
 - [x] `PATCH`/`DELETE` on an id belonging to another user's list returns
-      `404`. (`DELETE` still pending piece 3.)
-- [ ] `DELETE /shopping-list/items/:id` on a manual row deletes it
+      `404`.
+- [x] `DELETE /shopping-list/items/:id` on a manual row deletes it
       outright; no dismissal row is written.
-- [ ] `DELETE /shopping-list/items/:id` on a generated row deletes it
+- [x] `DELETE /shopping-list/items/:id` on a generated row deletes it
       and writes a `shopping_list_dismissed_items` row with the correct
       `quantity_at_dismissal`; a subsequent regenerate from an unrelated
       menu change does not bring it back while the required quantity is

@@ -86,7 +86,7 @@ func main() {
 	recipeCategoryHandler := handler.NewRecipeCategoryHandler(recipeCategoryRepo)
 	recipeHandler := handler.NewRecipeHandler(recipeRepo, transactor)
 	menuHandler := handler.NewMenuHandler(menuRepo, shoppingListRepo, transactor)
-	shoppingListHandler := handler.NewShoppingListHandler(shoppingListRepo)
+	shoppingListHandler := handler.NewShoppingListHandler(shoppingListRepo, transactor)
 
 	// Initialize Gin server
 	gin.SetMode(configureGinMode(string(cfg.Environment)))
@@ -204,6 +204,7 @@ func main() {
 		shoppingList.GET("", shoppingListHandler.Get)
 		shoppingList.POST("/items", shoppingListHandler.AddItem)
 		shoppingList.PATCH("/items/:id", shoppingListHandler.UpdateItem)
+		shoppingList.DELETE("/items/:id", shoppingListHandler.DeleteItem)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

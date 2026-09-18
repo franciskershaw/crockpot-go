@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -23,13 +24,20 @@ import (
 var shoppingListUserID = uuid.MustParse("e5e5e5e5-e5e5-e5e5-e5e5-e5e5e5e5e5e5")
 
 type shoppingListMocks struct {
-	repo   *genmocks.MockShoppingListRepository
-	router *gin.Engine
+	repo       *genmocks.MockShoppingListRepository
+	transactor *genmocks.MockTransactor
+	router     *gin.Engine
 }
 
 func newShoppingListMocks(t *testing.T) *shoppingListMocks {
-	m := &shoppingListMocks{repo: genmocks.NewMockShoppingListRepository(t)}
-	h := handler.NewShoppingListHandler(m.repo)
+	m := &shoppingListMocks{
+		repo:       genmocks.NewMockShoppingListRepository(t),
+		transactor: genmocks.NewMockTransactor(t),
+	}
+	m.transactor.EXPECT().WithinTx(mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) }).
+		Maybe()
+	h := handler.NewShoppingListHandler(m.repo, m.transactor)
 	m.router = gin.New()
 	authed := m.router.Group("/shopping-list")
 	authed.Use(middleware.AuthMiddleware(testutil.TestAccessSecret))
@@ -37,6 +45,7 @@ func newShoppingListMocks(t *testing.T) *shoppingListMocks {
 		authed.GET("", h.Get)
 		authed.POST("/items", h.AddItem)
 		authed.PATCH("/items/:id", h.UpdateItem)
+		authed.DELETE("/items/:id", h.DeleteItem)
 	}
 	return m
 }
@@ -81,6 +90,16 @@ func doShoppingListUpdateItem(r *gin.Engine, id string, body any, auth string) *
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPatch, "/shopping-list/items/"+id, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func doShoppingListDeleteItem(r *gin.Engine, id string, auth string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodDelete, "/shopping-list/items/"+id, nil)
 	if auth != "" {
 		req.Header.Set("Authorization", auth)
 	}
@@ -321,6 +340,50 @@ func TestShoppingListUpdateItem_RepoError_500(t *testing.T) {
 		Return(errors.New("db down"))
 
 	w := doShoppingListUpdateItem(m.router, id, map[string]any{"obtained": true}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestShoppingListDeleteItem_NoToken_401(t *testing.T) {
+	m := newShoppingListMocks(t)
+	w := doShoppingListDeleteItem(m.router, uuid.NewString(), "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestShoppingListDeleteItem_MalformedID_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	w := doShoppingListDeleteItem(m.router, "not-a-uuid", shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_request", shoppingListErr(t, w))
+}
+
+func TestShoppingListDeleteItem_Success_200MessageBody(t *testing.T) {
+	m := newShoppingListMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().DeleteItem(mock.Anything, shoppingListUserID.String(), id).Return(nil)
+
+	w := doShoppingListDeleteItem(m.router, id, shoppingListAuth(t, "FREE"))
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "item removed from shopping list", shoppingListMsg(t, w))
+}
+
+func TestShoppingListDeleteItem_NotFound_404(t *testing.T) {
+	m := newShoppingListMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().DeleteItem(mock.Anything, shoppingListUserID.String(), id).
+		Return(models.ErrShoppingListItemNotFound)
+
+	w := doShoppingListDeleteItem(m.router, id, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, "shopping_list_item_not_found", shoppingListErr(t, w))
+}
+
+func TestShoppingListDeleteItem_RepoError_500(t *testing.T) {
+	m := newShoppingListMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().DeleteItem(mock.Anything, shoppingListUserID.String(), id).
+		Return(errors.New("db down"))
+
+	w := doShoppingListDeleteItem(m.router, id, shoppingListAuth(t, "FREE"))
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 

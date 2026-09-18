@@ -95,6 +95,36 @@ func (q *Queries) DeleteObsoleteShoppingListItems(ctx context.Context, arg Delet
 	return err
 }
 
+const deleteShoppingListItem = `-- name: DeleteShoppingListItem :one
+DELETE FROM shopping_list_items
+WHERE id = $1 AND shopping_list_id = $2
+RETURNING item_id, unit_id, quantity, is_manual
+`
+
+type DeleteShoppingListItemParams struct {
+	ID             pgtype.UUID
+	ShoppingListID pgtype.UUID
+}
+
+type DeleteShoppingListItemRow struct {
+	ItemID   pgtype.UUID
+	UnitID   pgtype.UUID
+	Quantity pgtype.Numeric
+	IsManual bool
+}
+
+func (q *Queries) DeleteShoppingListItem(ctx context.Context, arg DeleteShoppingListItemParams) (DeleteShoppingListItemRow, error) {
+	row := q.db.QueryRow(ctx, deleteShoppingListItem, arg.ID, arg.ShoppingListID)
+	var i DeleteShoppingListItemRow
+	err := row.Scan(
+		&i.ItemID,
+		&i.UnitID,
+		&i.Quantity,
+		&i.IsManual,
+	)
+	return i, err
+}
+
 const deleteStaleDismissals = `-- name: DeleteStaleDismissals :exec
 DELETE FROM shopping_list_dismissed_items d USING (
     SELECT
@@ -189,6 +219,28 @@ type IncrementShoppingListItemQuantityParams struct {
 
 func (q *Queries) IncrementShoppingListItemQuantity(ctx context.Context, arg IncrementShoppingListItemQuantityParams) error {
 	_, err := q.db.Exec(ctx, incrementShoppingListItemQuantity, arg.Delta, arg.ID)
+	return err
+}
+
+const insertDismissedItem = `-- name: InsertDismissedItem :exec
+INSERT INTO shopping_list_dismissed_items (shopping_list_id, item_id, unit_id, quantity_at_dismissal)
+VALUES ($1, $2, $3, $4)
+`
+
+type InsertDismissedItemParams struct {
+	ShoppingListID      pgtype.UUID
+	ItemID              pgtype.UUID
+	UnitID              pgtype.UUID
+	QuantityAtDismissal pgtype.Numeric
+}
+
+func (q *Queries) InsertDismissedItem(ctx context.Context, arg InsertDismissedItemParams) error {
+	_, err := q.db.Exec(ctx, insertDismissedItem,
+		arg.ShoppingListID,
+		arg.ItemID,
+		arg.UnitID,
+		arg.QuantityAtDismissal,
+	)
 	return err
 }
 
