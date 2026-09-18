@@ -626,18 +626,12 @@ session.*
 
 ### Epic 6: Shopping Lists
 - **CROC-021** — Generate/regenerate shopping list from current menu,
-  aggregating quantities per ingredient. Grilled 2026-09-14, see
-  `docs/handoffs/CROC-021.md` for the full decision set — notably:
-  regeneration is a transactional side effect of `CROC-019`'s menu-write
-  endpoints, not a separate endpoint (decision 1); `obtained` state
-  survives a regen via a NULL-safe three-statement sync instead of
-  `ON CONFLICT` (decision 3); same-item ingredients in different but
-  compatible metric units (verified against live data — `Honey` alone
-  spans 4 units) merge into one line via new `dimension`/`base_factor`
-  columns on `units` (decision 7); and removing a generated item is
-  sticky only until its required quantity actually changes, via a new
-  `shopping_list_dismissed_items` table (decision 8). Also owns
-  `GET /shopping-list` (decision 4).
+  aggregating quantities per ingredient, merging compatible-unit
+  duplicates, and preserving `obtained`/dismissal state across
+  regenerations. **Done** (2026-09-18, `docs/handoffs/CROC-021.md`).
+  Regeneration is a transactional side effect of `CROC-019`'s three
+  menu-write endpoints, not a separate endpoint; also owns
+  `GET /shopping-list`. Unblocks `crockpot-react`'s `CFE-006`/`CFE-009`.
 - **CROC-022** — Manual item add/remove, obtained toggle
   (`PATCH /shopping-list/items/:id`), bulk mark-obtained.
 

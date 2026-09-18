@@ -274,3 +274,5 @@ menu and reappearing at the same quantity.
   recipe's serves; confirm the ticked item is still obtained and its
   quantity updated; remove the recipe from the menu; confirm the item is
   gone. Run end-to-end against a running server.
+
+Completed 2026-09-18.

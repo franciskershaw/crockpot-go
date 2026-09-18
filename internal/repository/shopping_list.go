@@ -75,6 +75,8 @@ func (r *PostgresShoppingListRepository) Regenerate(ctx context.Context, userID 
 		return fmt.Errorf("invalid user id: %w", err)
 	}
 
+	// This upsert's row lock also serializes concurrent Regenerate calls for the same user —
+	// the second blocks here until the first commits, so no separate lock is needed below.
 	listID, err := q.GetOrCreateShoppingList(ctx, uid)
 	if err != nil {
 		return fmt.Errorf("failed to get or create shopping list: %w", err)

@@ -508,3 +508,17 @@ implementation quality until CROC-001 lands.
   editor with the REST Client extension open more often than most repo
   files), re-read it immediately beforehand rather than trusting an
   earlier read from several tool calls ago.
+
+## 2026-09-18 — CROC-021 — Shopping list generate/regenerate shipped; one review finding was a false positive, caught by checking outside the diff
+
+- No rework from a locked test or a skipped stop-and-review checkpoint.
+  One self-caught near-miss: a red-stage test would have passed against
+  its own stub by coincidence, tightened before reporting.
+- `branch-review`'s bugs agent flagged a medium-confidence concurrency
+  race in `Regenerate`'s insert; checking `tx.go` (outside the diff it
+  saw) showed `GetOrCreateShoppingList`'s upsert already serializes
+  same-user regenerations via Postgres's `ON CONFLICT DO UPDATE` row
+  lock — documented with a comment instead of a redundant fix.
+- **Pattern**: a diff-scoped review agent can't see transaction-scoping
+  code that lives outside the diff — verify a concurrency finding
+  against the actual transaction boundary before accepting it as real.

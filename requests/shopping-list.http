@@ -1,0 +1,283 @@
+# Crockpot API — /shopping-list
+#
+# GET /shopping-list — CROC-021. Behind full AuthMiddleware, same shape
+# as /menu. Never writes: a user with no shopping_lists row yet gets 200
+# + empty items, no row created. The list itself is a side effect of the
+# three /menu/entries write endpoints (CROC-019) — there is no separate
+# "regenerate" endpoint to call here, POST/PATCH/DELETE on /menu/entries
+# below do that automatically, in the same transaction as the menu write.
+#
+# CROC-022 (manual items, obtain-toggle, delete-a-generated-item) hasn't
+# landed yet, so there's no PATCH /shopping-list/items/:id to tick an
+# item obtained — the "tick obtained" step below is a direct SQL UPDATE
+# against the dev DB instead. Swap it for the real endpoint once
+# CROC-022 ships.
+#
+# This file creates its own throwaway item + two throwaway recipes
+# (both using that item, no unit — "2 eggs"-style) with the ADMIN
+# account, so the shopping list actually has something to aggregate.
+# Run top-to-bottom: by the end, both recipes are off the menu again and
+# the list is back to empty before Cleanup deletes the fixtures.
+
+
+# ══════════════════════════════════════════
+#  Login (ADMIN account)
+# ══════════════════════════════════════════
+
+### Login, to get a token for the checks below.
+# @name login
+POST http://localhost:{{$dotenv PORT}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "password": "correcthorsebattery"
+}
+
+###
+
+@authToken = {{login.response.body.accessToken}}
+
+
+# ══════════════════════════════════════════
+#  Fixtures — one item, two throwaway recipes that both use it
+# ══════════════════════════════════════════
+
+### Real item category to hang a throwaway item off.
+# @name itemCategory
+GET http://localhost:{{$dotenv PORT}}/item-categories
+
+###
+
+@itemCategoryId = {{itemCategory.response.body.$[0].id}}
+
+### Real seeded recipe category.
+# @name recipeCategories
+GET http://localhost:{{$dotenv PORT}}/recipe-categories
+
+###
+
+@recipeCategoryId = {{recipeCategories.response.body.$[0].id}}
+
+### Throwaway item — no unit involved, keeps this file independent of
+### seeded unit ids/order (unit-merging itself is covered by
+### internal/repository/shopping_list_test.go's TestRegenerate_* suite).
+# @name item
+POST http://localhost:{{$dotenv PORT}}/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-shopping-list-item",
+  "categoryId": "{{itemCategoryId}}"
+}
+
+###
+
+@itemId = {{item.response.body.id}}
+
+### recipeA — serves 4, needs 2x the item.
+# @name recipeA
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-shopping-list Recipe A",
+  "timeInMinutes": 30,
+  "serves": 4,
+  "instructions": ["Cook it"],
+  "categoryIds": ["{{recipeCategoryId}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 2 }]
+}
+
+###
+
+@recipeAId = {{recipeA.response.body.id}}
+
+### recipeB — serves 4, needs 3x the same item. Combining with recipeA's
+### need for the same item into one summed row is the point of this fixture.
+# @name recipeB
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-shopping-list Recipe B",
+  "timeInMinutes": 30,
+  "serves": 4,
+  "instructions": ["Cook it too"],
+  "categoryIds": ["{{recipeCategoryId}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 3 }]
+}
+
+###
+
+@recipeBId = {{recipeB.response.body.id}}
+
+
+# ══════════════════════════════════════════
+#  GET /shopping-list — before anything's added
+# ══════════════════════════════════════════
+
+### ✅ 200 — empty items. No error even if this account has never had a
+### shopping list, and no row is created by this GET.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  Add recipeA to the menu — shopping list regenerates automatically
+# ══════════════════════════════════════════
+
+### ✅ 200 — add recipeA at serves 4 (its own serves — scale 1). Lazily
+### creates both the menu row and the shopping list row.
+POST http://localhost:{{$dotenv PORT}}/menu/entries
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "recipeId": "{{recipeAId}}",
+  "serves": 4
+}
+
+###
+
+### ✅ 200 — one item, quantity 2 (recipeA's need, no scaling at serves 4/4).
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  Add recipeB to the menu — combines into the same row
+# ══════════════════════════════════════════
+
+### ✅ 200 — add recipeB at serves 4 too.
+POST http://localhost:{{$dotenv PORT}}/menu/entries
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "recipeId": "{{recipeBId}}",
+  "serves": 4
+}
+
+###
+
+### ✅ 200 — still one item (same item, no unit — same combine key),
+### quantity now 5 (recipeA's 2 + recipeB's 3).
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  Tick it obtained (direct SQL — no PATCH endpoint until CROC-022)
+# ══════════════════════════════════════════
+
+### Run this against the dev DB (psql, or your DB GUI of choice),
+### substituting the same email used in Login above:
+###
+###   UPDATE shopping_list_items sli
+###   SET obtained = true
+###   FROM shopping_lists sl
+###   WHERE sli.shopping_list_id = sl.id
+###     AND sl.user_id = (SELECT id FROM users WHERE email = 'REPLACE_WITH_YOUR_REAL_EMAIL')
+###     AND sli.item_id = (SELECT id FROM items WHERE name = 'http-test-shopping-list-item');
+
+
+# ══════════════════════════════════════════
+#  Bump recipeA's serves — obtained survives, quantity updates
+# ══════════════════════════════════════════
+
+### ✅ 200 — double recipeA's serves to 8 (scale becomes 8/4 = 2).
+PATCH http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeAId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "serves": 8
+}
+
+###
+
+### ✅ 200 — quantity is now 7 (recipeA's 2×2=4 + recipeB's 3), and
+### obtained is still true — the SQL UPDATE above must have survived
+### this regenerate, not been reset to false.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  Remove recipeA from the menu — item shrinks, doesn't disappear
+# ══════════════════════════════════════════
+
+### ✅ 200 — remove recipeA.
+DELETE http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeAId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — quantity back down to 3 (recipeB's need alone) — same row,
+### same id, still obtained true (row updated in place, not
+### deleted-and-reinserted).
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  Remove recipeB too — item disappears entirely
+# ══════════════════════════════════════════
+
+### ✅ 200 — remove recipeB. No recipe on the menu needs the item anymore.
+DELETE http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeBId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — back to empty items.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  Auth
+# ══════════════════════════════════════════
+
+### 🚫 401 — no token.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+
+###
+
+
+# ══════════════════════════════════════════
+#  Cleanup
+# ══════════════════════════════════════════
+
+### Both recipes are already off the menu (and the shopping list already
+### empty) from the walkthrough above, so these are safe to delete directly.
+DELETE http://localhost:{{$dotenv PORT}}/recipes/{{recipeAId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+DELETE http://localhost:{{$dotenv PORT}}/recipes/{{recipeBId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+DELETE http://localhost:{{$dotenv PORT}}/items/{{itemId}}
+Authorization: Bearer {{authToken}}
+
+###
