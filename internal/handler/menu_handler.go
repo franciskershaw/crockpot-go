@@ -16,12 +16,20 @@ type MenuRepository interface {
 	RemoveEntry(ctx context.Context, userID, recipeID string) error
 }
 
-type MenuHandler struct {
-	repo MenuRepository
+// ShoppingListRegenerator is the shopping-list side effect every menu write triggers,
+// in the same transaction — MenuHandler only needs Regenerate.
+type ShoppingListRegenerator interface {
+	Regenerate(ctx context.Context, userID string) error
 }
 
-func NewMenuHandler(repo MenuRepository) *MenuHandler {
-	return &MenuHandler{repo: repo}
+type MenuHandler struct {
+	repo          MenuRepository
+	shoppingLists ShoppingListRegenerator
+	transactor    Transactor
+}
+
+func NewMenuHandler(repo MenuRepository, shoppingLists ShoppingListRegenerator, transactor Transactor) *MenuHandler {
+	return &MenuHandler{repo: repo, shoppingLists: shoppingLists, transactor: transactor}
 }
 
 func (h *MenuHandler) Get(c *gin.Context) {
@@ -51,12 +59,18 @@ func (h *MenuHandler) UpsertEntry(c *gin.Context) {
 	}
 	isAdmin := c.GetString("role") == "ADMIN"
 
-	if err := h.repo.UpsertEntry(c.Request.Context(), userID, recipeID, serves, isAdmin); err != nil {
-		if errors.Is(err, models.ErrRecipeNotFound) {
+	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
+		if err := h.repo.UpsertEntry(ctx, userID, recipeID, serves, isAdmin); err != nil {
+			return err
+		}
+		return h.shoppingLists.Regenerate(ctx, userID)
+	})
+	if txErr != nil {
+		if errors.Is(txErr, models.ErrRecipeNotFound) {
 			notFound(c, "not_found")
 			return
 		}
-		internalError(c, "failed to upsert menu entry", err)
+		internalError(c, "failed to upsert menu entry", txErr)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "recipe added to menu"})
@@ -77,12 +91,18 @@ func (h *MenuHandler) UpdateEntryServes(c *gin.Context) {
 		return
 	}
 
-	if err := h.repo.UpdateEntryServes(c.Request.Context(), userID, recipeID, serves); err != nil {
-		if errors.Is(err, models.ErrMenuEntryNotFound) {
+	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
+		if err := h.repo.UpdateEntryServes(ctx, userID, recipeID, serves); err != nil {
+			return err
+		}
+		return h.shoppingLists.Regenerate(ctx, userID)
+	})
+	if txErr != nil {
+		if errors.Is(txErr, models.ErrMenuEntryNotFound) {
 			notFound(c, "menu_entry_not_found")
 			return
 		}
-		internalError(c, "failed to update menu entry", err)
+		internalError(c, "failed to update menu entry", txErr)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "menu entry updated"})
@@ -99,8 +119,14 @@ func (h *MenuHandler) RemoveEntry(c *gin.Context) {
 		return
 	}
 
-	if err := h.repo.RemoveEntry(c.Request.Context(), userID, recipeID); err != nil {
-		internalError(c, "failed to remove menu entry", err)
+	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
+		if err := h.repo.RemoveEntry(ctx, userID, recipeID); err != nil {
+			return err
+		}
+		return h.shoppingLists.Regenerate(ctx, userID)
+	})
+	if txErr != nil {
+		internalError(c, "failed to remove menu entry", txErr)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "recipe removed from menu"})

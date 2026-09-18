@@ -14,7 +14,7 @@ import (
 const createUnit = `-- name: CreateUnit :one
 INSERT INTO units (name, abbreviation)
 VALUES ($1, $2)
-RETURNING id, name, abbreviation, created_at, updated_at
+RETURNING id, name, abbreviation, created_at, updated_at, dimension, base_factor
 `
 
 type CreateUnitParams struct {
@@ -31,6 +31,8 @@ func (q *Queries) CreateUnit(ctx context.Context, arg CreateUnitParams) (Unit, e
 		&i.Abbreviation,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Dimension,
+		&i.BaseFactor,
 	)
 	return i, err
 }
@@ -49,7 +51,7 @@ func (q *Queries) DeleteUnit(ctx context.Context, id pgtype.UUID) (pgtype.UUID, 
 }
 
 const listUnits = `-- name: ListUnits :many
-SELECT id, name, abbreviation, created_at, updated_at FROM units
+SELECT id, name, abbreviation, created_at, updated_at, dimension, base_factor FROM units
 ORDER BY name
 `
 
@@ -68,6 +70,8 @@ func (q *Queries) ListUnits(ctx context.Context) ([]Unit, error) {
 			&i.Abbreviation,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Dimension,
+			&i.BaseFactor,
 		); err != nil {
 			return nil, err
 		}
@@ -85,7 +89,7 @@ SET name = COALESCE(NULLIF($1::text, ''), name),
     abbreviation = COALESCE(NULLIF($2::text, ''), abbreviation),
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $3
-RETURNING id, name, abbreviation, created_at, updated_at
+RETURNING id, name, abbreviation, created_at, updated_at, dimension, base_factor
 `
 
 type UpdateUnitParams struct {
@@ -103,6 +107,8 @@ func (q *Queries) UpdateUnit(ctx context.Context, arg UpdateUnitParams) (Unit, e
 		&i.Abbreviation,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Dimension,
+		&i.BaseFactor,
 	)
 	return i, err
 }

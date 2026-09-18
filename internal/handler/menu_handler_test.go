@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -23,13 +24,22 @@ import (
 var menuUserID = uuid.MustParse("d4d4d4d4-d4d4-d4d4-d4d4-d4d4d4d4d4d4")
 
 type menuMocks struct {
-	repo   *genmocks.MockMenuRepository
-	router *gin.Engine
+	repo          *genmocks.MockMenuRepository
+	shoppingLists *genmocks.MockShoppingListRegenerator
+	transactor    *genmocks.MockTransactor
+	router        *gin.Engine
 }
 
 func newMenuMocks(t *testing.T) *menuMocks {
-	m := &menuMocks{repo: genmocks.NewMockMenuRepository(t)}
-	h := handler.NewMenuHandler(m.repo)
+	m := &menuMocks{
+		repo:          genmocks.NewMockMenuRepository(t),
+		shoppingLists: genmocks.NewMockShoppingListRegenerator(t),
+		transactor:    genmocks.NewMockTransactor(t),
+	}
+	m.transactor.EXPECT().WithinTx(mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) }).
+		Maybe()
+	h := handler.NewMenuHandler(m.repo, m.shoppingLists, m.transactor)
 	m.router = gin.New()
 	authed := m.router.Group("/menu")
 	authed.Use(middleware.AuthMiddleware(testutil.TestAccessSecret))
@@ -200,10 +210,21 @@ func TestMenuUpsertEntry_Success_200MessageBody(t *testing.T) {
 	m := newMenuMocks(t)
 	id := uuid.NewString()
 	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false).Return(nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(nil).Once()
 
 	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "FREE"))
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "recipe added to menu", menuMsg(t, w))
+}
+
+func TestMenuUpsertEntry_RegenerateFails_500(t *testing.T) {
+	m := newMenuMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false).Return(nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(errors.New("db down"))
+
+	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "FREE"))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestMenuUpsertEntry_HiddenRecipe_404(t *testing.T) {
@@ -221,6 +242,7 @@ func TestMenuUpsertEntry_ThreadsCallerIsAdmin(t *testing.T) {
 	m := newMenuMocks(t)
 	id := uuid.NewString()
 	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, true).Return(nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(nil).Once()
 
 	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "ADMIN"))
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -262,10 +284,21 @@ func TestMenuUpdateEntryServes_Success_200MessageBody(t *testing.T) {
 	m := newMenuMocks(t)
 	id := uuid.NewString()
 	m.repo.EXPECT().UpdateEntryServes(mock.Anything, menuUserID.String(), id, 10).Return(nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(nil).Once()
 
 	w := doMenuPatch(m.router, id, map[string]any{"serves": 10}, menuAuth(t, "FREE"))
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "menu entry updated", menuMsg(t, w))
+}
+
+func TestMenuUpdateEntryServes_RegenerateFails_500(t *testing.T) {
+	m := newMenuMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().UpdateEntryServes(mock.Anything, menuUserID.String(), id, 10).Return(nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(errors.New("db down"))
+
+	w := doMenuPatch(m.router, id, map[string]any{"serves": 10}, menuAuth(t, "FREE"))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestMenuUpdateEntryServes_NotOnMenu_404(t *testing.T) {
@@ -308,10 +341,21 @@ func TestMenuRemoveEntry_Success_200MessageBody(t *testing.T) {
 	m := newMenuMocks(t)
 	id := uuid.NewString()
 	m.repo.EXPECT().RemoveEntry(mock.Anything, menuUserID.String(), id).Return(nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(nil).Once()
 
 	w := doMenuDelete(m.router, id, menuAuth(t, "FREE"))
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "recipe removed from menu", menuMsg(t, w))
+}
+
+func TestMenuRemoveEntry_RegenerateFails_500(t *testing.T) {
+	m := newMenuMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().RemoveEntry(mock.Anything, menuUserID.String(), id).Return(nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(errors.New("db down"))
+
+	w := doMenuDelete(m.router, id, menuAuth(t, "FREE"))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestMenuRemoveEntry_RepoError_500(t *testing.T) {

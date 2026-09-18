@@ -77,6 +77,7 @@ func main() {
 	recipeCategoryRepo := repository.NewPostgresRecipeCategoryRepository(db.DB)
 	recipeRepo := repository.NewPostgresRecipeRepository(db.DB)
 	menuRepo := repository.NewPostgresMenuRepository(db.DB)
+	shoppingListRepo := repository.NewPostgresShoppingListRepository(db.DB)
 	emailSender := email.NewResendClient(cfg.ResendAPIKey, cfg.EmailFrom)
 	authHandler := handler.NewAuthHandler(userRepo, oauthManager, refreshTokenRepo, emailVerificationTokenRepo, passwordResetTokenRepo, emailSender, transactor, cfg)
 	itemCategoryHandler := handler.NewItemCategoryHandler(itemCategoryRepo)
@@ -84,7 +85,8 @@ func main() {
 	itemHandler := handler.NewItemHandler(itemRepo, transactor)
 	recipeCategoryHandler := handler.NewRecipeCategoryHandler(recipeCategoryRepo)
 	recipeHandler := handler.NewRecipeHandler(recipeRepo, transactor)
-	menuHandler := handler.NewMenuHandler(menuRepo)
+	menuHandler := handler.NewMenuHandler(menuRepo, shoppingListRepo, transactor)
+	shoppingListHandler := handler.NewShoppingListHandler(shoppingListRepo)
 
 	// Initialize Gin server
 	gin.SetMode(configureGinMode(string(cfg.Environment)))
@@ -194,6 +196,12 @@ func main() {
 		menu.POST("/entries", menuHandler.UpsertEntry)
 		menu.PATCH("/entries/:recipeId", menuHandler.UpdateEntryServes)
 		menu.DELETE("/entries/:recipeId", menuHandler.RemoveEntry)
+	}
+
+	shoppingList := server.Group("/shopping-list")
+	shoppingList.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess))
+	{
+		shoppingList.GET("", shoppingListHandler.Get)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

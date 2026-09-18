@@ -324,6 +324,27 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   field failed. `GoogleCallback`'s browser-redirect error shape
   (`?error=code`) stays the deliberate exception — it's a top-level
   navigation target, not a JSON API consumer.
+- **Derived-table regeneration pattern** (`CROC-021`,
+  `docs/handoffs/CROC-021.md`): established for shopping-list generation
+  from the menu, reusable for any future "keep table B in sync with
+  table A whenever A changes" problem. Regeneration is a transactional
+  side effect of the write that changes the source data
+  (`Transactor.WithinTx`, same tool as `recipe_handler.go`/
+  `item_handler.go`'s multi-write commits), not a separate endpoint the
+  caller must remember to call. Where the target table's natural key
+  includes a nullable column, sync via three explicit `UPDATE`/`INSERT`/
+  `DELETE` statements matched with `IS NOT DISTINCT FROM`, not a single
+  `INSERT ... ON CONFLICT` — Postgres's conflict-matching treats two
+  `NULL`s as unequal, so an `ON CONFLICT` arbiter silently stops
+  deduplicating for any row where that column is null. Rejected
+  alternative: a `COALESCE(col, <sentinel>)` expression unique index to
+  keep a single-statement `ON CONFLICT` — works, but trades one query for
+  a schema-level workaround needing its own explanatory comment; the
+  three-statement form was already necessary here regardless (to
+  preserve state on rows that survive a regen — see the handoff), so it
+  added no real extra cost. Revisit if a future case needs this pattern
+  *without* also needing per-row state preservation, where the
+  single-statement sentinel-index form might be the better trade.
 
 ## Non-functional expectations
 
@@ -605,7 +626,12 @@ session.*
 
 ### Epic 6: Shopping Lists
 - **CROC-021** — Generate/regenerate shopping list from current menu,
-  aggregating quantities per ingredient.
+  aggregating quantities per ingredient, merging compatible-unit
+  duplicates, and preserving `obtained`/dismissal state across
+  regenerations. **Done** (2026-09-18, `docs/handoffs/CROC-021.md`).
+  Regeneration is a transactional side effect of `CROC-019`'s three
+  menu-write endpoints, not a separate endpoint; also owns
+  `GET /shopping-list`. Unblocks `crockpot-react`'s `CFE-006`/`CFE-009`.
 - **CROC-022** — Manual item add/remove, obtained toggle
   (`PATCH /shopping-list/items/:id`), bulk mark-obtained.
 
@@ -772,6 +798,27 @@ few-line addendum to a `GET /me` ticket.*
   `bindJSON`). `middleware/rate_limit.go`'s two bodies snake_cased to
   `rate_limit_exceeded` / `server_error`. Absorbed tech-debt findings
   6 + 8 (`CROC-036` is now finding 7 only).
+- **CROC-045** — `GET /items` (`internal/handler/item_handler.go:40-46`)
+  returns the entire items table in one unbounded `c.JSON` write, unlike
+  `/recipes`'s existing page/limit pattern. Raised 2026-09-11 while
+  diagnosing a live 500 the founder hit browsing recipes on a poor
+  connection: server logs showed `/items` taking 26.18s followed by
+  `write tcp ...: i/o timeout` — the query itself likely returned fine,
+  but writing the full payload back to a slow client blew past
+  `newHTTPServer`'s 15s `WriteTimeout` (`lifecycle.go:40`). Will only get
+  worse as the item catalog grows, independent of connection quality.
+  Founder's instinct going in: paginate 10 at a time, with the frontend's
+  "show more" becoming infinite-scroll-on-scroll rather than a discrete
+  next-page click, and a loading-spinner state so a slow fetch reads as
+  "still loading" instead of a stall — needs a grill before building
+  (page/limit query shape matching `/recipes`'s existing convention vs.
+  cursor-based; whether categorised item pickers elsewhere in the
+  frontend can tolerate paginated results or need an unpaginated
+  variant; whether the 500 on `/recipes?page=3` immediately following in
+  the same log capture was this same DB-pool contention or an unrelated
+  cause — unconfirmed, the wrapped error text wasn't in the captured
+  log). Paired with a `crockpot-react` companion ticket for the
+  show-more/infinite-scroll UI once numbered there.
 
 *Parked 2026-08-31 — a loosely-scoped idea, not sequenced into a
 priority epic yet. Numbered out of physical order deliberately: this

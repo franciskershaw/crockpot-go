@@ -135,6 +135,14 @@ type ShoppingList struct {
 	UpdatedAt pgtype.Timestamptz
 }
 
+type ShoppingListDismissedItem struct {
+	ID                  pgtype.UUID
+	ShoppingListID      pgtype.UUID
+	ItemID              pgtype.UUID
+	UnitID              pgtype.UUID
+	QuantityAtDismissal pgtype.Numeric
+}
+
 type ShoppingListItem struct {
 	ID             pgtype.UUID
 	ShoppingListID pgtype.UUID
@@ -151,6 +159,8 @@ type Unit struct {
 	Abbreviation string
 	CreatedAt    pgtype.Timestamptz
 	UpdatedAt    pgtype.Timestamptz
+	Dimension    string
+	BaseFactor   pgtype.Numeric
 }
 
 type User struct {
