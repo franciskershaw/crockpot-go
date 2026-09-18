@@ -6,6 +6,25 @@ RETURNING id;
 -- name: GetShoppingListByUserID :one
 SELECT id FROM shopping_lists WHERE user_id = $1;
 
+-- name: ListShoppingListItemsHydrated :many
+SELECT
+    sli.id,
+    sli.item_id,
+    i.name AS item_name,
+    i.category_id AS item_category_id,
+    ic.name AS item_category_name,
+    sli.unit_id,
+    u.abbreviation AS unit_abbreviation,
+    sli.quantity,
+    sli.obtained,
+    sli.is_manual
+FROM shopping_list_items sli
+JOIN items i ON i.id = sli.item_id
+JOIN item_categories ic ON ic.id = i.category_id
+LEFT JOIN units u ON u.id = sli.unit_id
+WHERE sli.shopping_list_id = sqlc.arg(shopping_list_id)
+ORDER BY ic.name, i.name;
+
 -- name: AggregateMenuIngredients :many
 WITH base_units AS (
     SELECT

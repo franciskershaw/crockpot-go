@@ -191,6 +191,70 @@ func (q *Queries) InsertNewShoppingListItems(ctx context.Context, arg InsertNewS
 	return err
 }
 
+const listShoppingListItemsHydrated = `-- name: ListShoppingListItemsHydrated :many
+SELECT
+    sli.id,
+    sli.item_id,
+    i.name AS item_name,
+    i.category_id AS item_category_id,
+    ic.name AS item_category_name,
+    sli.unit_id,
+    u.abbreviation AS unit_abbreviation,
+    sli.quantity,
+    sli.obtained,
+    sli.is_manual
+FROM shopping_list_items sli
+JOIN items i ON i.id = sli.item_id
+JOIN item_categories ic ON ic.id = i.category_id
+LEFT JOIN units u ON u.id = sli.unit_id
+WHERE sli.shopping_list_id = $1
+ORDER BY ic.name, i.name
+`
+
+type ListShoppingListItemsHydratedRow struct {
+	ID               pgtype.UUID
+	ItemID           pgtype.UUID
+	ItemName         string
+	ItemCategoryID   pgtype.UUID
+	ItemCategoryName string
+	UnitID           pgtype.UUID
+	UnitAbbreviation pgtype.Text
+	Quantity         pgtype.Numeric
+	Obtained         bool
+	IsManual         bool
+}
+
+func (q *Queries) ListShoppingListItemsHydrated(ctx context.Context, shoppingListID pgtype.UUID) ([]ListShoppingListItemsHydratedRow, error) {
+	rows, err := q.db.Query(ctx, listShoppingListItemsHydrated, shoppingListID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListShoppingListItemsHydratedRow
+	for rows.Next() {
+		var i ListShoppingListItemsHydratedRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ItemID,
+			&i.ItemName,
+			&i.ItemCategoryID,
+			&i.ItemCategoryName,
+			&i.UnitID,
+			&i.UnitAbbreviation,
+			&i.Quantity,
+			&i.Obtained,
+			&i.IsManual,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const syncShoppingListItemQuantities = `-- name: SyncShoppingListItemQuantities :exec
 UPDATE shopping_list_items sli
 SET quantity = agg.quantity

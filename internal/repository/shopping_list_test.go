@@ -18,6 +18,14 @@ func unitIDByName(t *testing.T, name string) uuid.UUID {
 	return id
 }
 
+func unitAbbreviationByName(t *testing.T, name string) string {
+	t.Helper()
+	var abbreviation string
+	require.NoError(t, db.DB.QueryRow(context.Background(),
+		`SELECT abbreviation FROM units WHERE name = $1`, name).Scan(&abbreviation))
+	return abbreviation
+}
+
 type testIngredient struct {
 	itemID   uuid.UUID
 	unitID   *uuid.UUID
@@ -430,4 +438,83 @@ func TestRegenerate_DismissedItemReappearsWhenQuantityChanges(t *testing.T) {
 	assert.Equal(t, 200.0, reappeared.quantity)
 	assert.False(t, reappeared.obtained, "a reappearing item is a fresh requirement, not previously obtained")
 	assert.Equal(t, 0, countDismissedItems(t, userID, itemID), "stale dismissal record must be cleaned up")
+}
+
+func TestGet_NoShoppingListRow_ReturnsEmptyWithoutCreatingOne(t *testing.T) {
+	userID := insertTestUser(t, "Get No List Cook")
+
+	list, err := shoppingListRepo.Get(context.Background(), userID.String())
+	require.NoError(t, err)
+	assert.Empty(t, list.Items)
+
+	var count int
+	require.NoError(t, db.DB.QueryRow(context.Background(),
+		`SELECT count(*) FROM shopping_lists WHERE user_id = $1`, userID).Scan(&count))
+	assert.Equal(t, 0, count, "GET must never create a shopping_lists row")
+}
+
+func TestGet_ReturnsHydratedManualItem(t *testing.T) {
+	userID := insertTestUser(t, "Get Hydrated Cook")
+	catName := "repo-test-sl-cat-" + uuid.NewString()
+	cat := insertTestItemCategory(t, catName, "repo-test-sl-icon-"+uuid.NewString())
+	itemName := "repo-test-sl-item-" + uuid.NewString()
+	itemID := insertTestItem(t, itemName, cat)
+	grams := unitIDByName(t, "grams")
+	gramsAbbreviation := unitAbbreviationByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	rowID := insertManualShoppingListItem(t, userID, itemID, &grams, 250, true)
+
+	list, err := shoppingListRepo.Get(context.Background(), userID.String())
+	require.NoError(t, err)
+	require.Len(t, list.Items, 1)
+
+	got := list.Items[0]
+	assert.Equal(t, rowID, got.ID)
+	assert.Equal(t, itemID, got.ItemID)
+	assert.Equal(t, itemName, got.ItemName)
+	assert.Equal(t, cat, got.ItemCategoryID)
+	assert.Equal(t, catName, got.ItemCategoryName)
+	require.NotNil(t, got.UnitID)
+	assert.Equal(t, grams, *got.UnitID)
+	require.NotNil(t, got.UnitAbbreviation)
+	assert.Equal(t, gramsAbbreviation, *got.UnitAbbreviation)
+	assert.Equal(t, 250.0, got.Quantity)
+	assert.True(t, got.Obtained)
+	assert.True(t, got.IsManual)
+}
+
+func TestGet_NullUnitItem_UnitFieldsAreNil(t *testing.T) {
+	userID := insertTestUser(t, "Get Null Unit Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	registerShoppingListCascadeCleanup(t, userID)
+
+	insertManualShoppingListItem(t, userID, itemID, nil, 2, false)
+
+	list, err := shoppingListRepo.Get(context.Background(), userID.String())
+	require.NoError(t, err)
+	require.Len(t, list.Items, 1)
+	assert.Equal(t, itemID, list.Items[0].ItemID)
+	assert.Nil(t, list.Items[0].UnitID)
+	assert.Nil(t, list.Items[0].UnitAbbreviation)
+}
+
+func TestGet_ReflectsRegenerate(t *testing.T) {
+	userID := insertTestUser(t, "Get Reflects Regen Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	recipeID := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{itemID, &grams, 120}})
+	addToMenu(t, userID, recipeID, 4)
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+
+	list, err := shoppingListRepo.Get(context.Background(), userID.String())
+	require.NoError(t, err)
+	require.Len(t, list.Items, 1)
+	assert.Equal(t, itemID, list.Items[0].ItemID)
+	assert.Equal(t, 120.0, list.Items[0].Quantity)
+	assert.False(t, list.Items[0].IsManual)
 }
