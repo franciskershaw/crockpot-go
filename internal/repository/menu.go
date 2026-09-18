@@ -19,6 +19,20 @@ func NewPostgresMenuRepository(db sqlc.DBTX) *PostgresMenuRepository {
 	return &PostgresMenuRepository{db: db}
 }
 
+func (r *PostgresMenuRepository) ClearMenu(ctx context.Context, userID string) error {
+	q := queriesFor(ctx, r.db)
+
+	uid, err := uuidParam(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+
+	if err := q.ClearMenuEntries(ctx, uid); err != nil {
+		return fmt.Errorf("failed to clear menu: %w", err)
+	}
+	return nil
+}
+
 func (r *PostgresMenuRepository) GetMenu(ctx context.Context, userID string) (*models.Menu, error) {
 	q := queriesFor(ctx, r.db)
 

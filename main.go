@@ -86,7 +86,7 @@ func main() {
 	recipeCategoryHandler := handler.NewRecipeCategoryHandler(recipeCategoryRepo)
 	recipeHandler := handler.NewRecipeHandler(recipeRepo, transactor)
 	menuHandler := handler.NewMenuHandler(menuRepo, shoppingListRepo, transactor)
-	shoppingListHandler := handler.NewShoppingListHandler(shoppingListRepo)
+	shoppingListHandler := handler.NewShoppingListHandler(shoppingListRepo, transactor)
 
 	// Initialize Gin server
 	gin.SetMode(configureGinMode(string(cfg.Environment)))
@@ -196,12 +196,17 @@ func main() {
 		menu.POST("/entries", menuHandler.UpsertEntry)
 		menu.PATCH("/entries/:recipeId", menuHandler.UpdateEntryServes)
 		menu.DELETE("/entries/:recipeId", menuHandler.RemoveEntry)
+		menu.DELETE("", menuHandler.ClearMenu)
 	}
 
 	shoppingList := server.Group("/shopping-list")
 	shoppingList.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess))
 	{
 		shoppingList.GET("", shoppingListHandler.Get)
+		shoppingList.POST("/items", shoppingListHandler.AddItem)
+		shoppingList.PATCH("/items/:id", shoppingListHandler.UpdateItem)
+		shoppingList.DELETE("/items/:id", shoppingListHandler.DeleteItem)
+		shoppingList.DELETE("", shoppingListHandler.ClearList)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

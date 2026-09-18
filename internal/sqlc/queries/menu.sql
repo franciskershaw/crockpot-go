@@ -19,6 +19,10 @@ WHERE recipe_menu_id = $1 AND recipe_id = $2;
 -- name: RemoveMenuEntry :exec
 DELETE FROM recipe_menu_entries WHERE recipe_menu_id = $1 AND recipe_id = $2;
 
+-- name: ClearMenuEntries :exec
+DELETE FROM recipe_menu_entries
+WHERE recipe_menu_id IN (SELECT id FROM recipe_menus WHERE user_id = sqlc.arg(user_id));
+
 -- name: ListMenuEntries :many
 SELECT rme.serves AS menu_serves, r.*
 FROM recipe_menu_entries rme

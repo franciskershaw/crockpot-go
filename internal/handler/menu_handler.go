@@ -14,6 +14,7 @@ type MenuRepository interface {
 	UpsertEntry(ctx context.Context, userID, recipeID string, serves int, callerIsAdmin bool) error
 	UpdateEntryServes(ctx context.Context, userID, recipeID string, serves int) error
 	RemoveEntry(ctx context.Context, userID, recipeID string) error
+	ClearMenu(ctx context.Context, userID string) error
 }
 
 // ShoppingListRegenerator is the shopping-list side effect every menu write triggers,
@@ -130,4 +131,24 @@ func (h *MenuHandler) RemoveEntry(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "recipe removed from menu"})
+}
+
+func (h *MenuHandler) ClearMenu(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+
+	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
+		if err := h.repo.ClearMenu(ctx, userID); err != nil {
+			return err
+		}
+		return h.shoppingLists.Regenerate(ctx, userID)
+	})
+	if txErr != nil {
+		internalError(c, "failed to clear menu", txErr)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "menu cleared"})
 }

@@ -1,9 +1,10 @@
 # Crockpot API — /menu
 #
 # GET /menu, POST /menu/entries, PATCH/DELETE /menu/entries/:recipeId —
-# CROC-019. All four behind full AuthMiddleware (no anonymous path, same
-# as favourites). One menu per user, created lazily on the first POST —
-# there is no separate "create menu" step.
+# CROC-019. DELETE /menu (clear menu) — CROC-049. All behind full
+# AuthMiddleware (no anonymous path, same as favourites). One menu per
+# user, created lazily on the first POST — there is no separate "create
+# menu" step.
 #
 # This file creates its own throwaway recipes with the ADMIN account
 # (auto-approved), so the hidden-recipe 404 case on POST /menu/entries
@@ -228,6 +229,63 @@ Authorization: Bearer {{authToken}}
 
 
 # ══════════════════════════════════════════
+#  DELETE /menu — clear menu (CROC-049)
+# ══════════════════════════════════════════
+
+### ✅ 200 — put both recipes back on the menu.
+POST http://localhost:{{$dotenv PORT}}/menu/entries
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "recipeId": "{{recipeAId}}",
+  "serves": 4
+}
+
+###
+
+POST http://localhost:{{$dotenv PORT}}/menu/entries
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "recipeId": "{{recipeBId}}",
+  "serves": 4
+}
+
+###
+
+### ✅ 200 — two entries present before clearing.
+GET http://localhost:{{$dotenv PORT}}/menu
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — clear the whole menu in one call.
+DELETE http://localhost:{{$dotenv PORT}}/menu
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — back to empty entries.
+GET http://localhost:{{$dotenv PORT}}/menu
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — clearing an already-empty menu is a no-op success, not an error.
+DELETE http://localhost:{{$dotenv PORT}}/menu
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 401 — no token.
+DELETE http://localhost:{{$dotenv PORT}}/menu
+
+###
+
+
+# ══════════════════════════════════════════
 #  Auth + validation
 # ══════════════════════════════════════════
 
@@ -344,14 +402,22 @@ Authorization: Bearer {{authToken}}
 #  Cleanup
 # ══════════════════════════════════════════
 
-### No DELETE /recipes endpoint until CROC-016. Run this SQL against the
-### dev DB to reset:
+### recipe_menu_entries already cascades with the recipe rows below via
+### ON DELETE CASCADE, and the menu section above already leaves the
+### ADMIN account's menu empty by the end of the run — the leftover
+### empty recipe_menus row is harmless, same shape any real user's menu
+### takes after removing everything.
+DELETE http://localhost:{{$dotenv PORT}}/recipes/{{recipeAId}}
+Authorization: Bearer {{authToken}}
+
 ###
-###   DELETE FROM recipes WHERE name LIKE 'http-test-menu%';
-###   DELETE FROM items   WHERE name LIKE 'http-test-menu-item%';
+
+DELETE http://localhost:{{$dotenv PORT}}/recipes/{{recipeBId}}
+Authorization: Bearer {{authToken}}
+
 ###
-### (recipe_menu_entries cascades with the recipe rows via ON DELETE
-### CASCADE — nothing to clean up there directly.) The menu section above
-### already leaves the ADMIN account's menu empty by the end of the run,
-### so the leftover empty recipe_menus row is harmless — same shape any
-### real user's menu takes after removing everything.
+
+DELETE http://localhost:{{$dotenv PORT}}/items/{{itemId}}
+Authorization: Bearer {{authToken}}
+
+###

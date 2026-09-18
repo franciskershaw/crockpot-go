@@ -7,16 +7,13 @@
 # "regenerate" endpoint to call here, POST/PATCH/DELETE on /menu/entries
 # below do that automatically, in the same transaction as the menu write.
 #
-# CROC-022 (manual items, obtain-toggle, delete-a-generated-item) hasn't
-# landed yet, so there's no PATCH /shopping-list/items/:id to tick an
-# item obtained — the "tick obtained" step below is a direct SQL UPDATE
-# against the dev DB instead. Swap it for the real endpoint once
-# CROC-022 ships.
+# POST/PATCH/DELETE /shopping-list/items and DELETE /shopping-list —
+# CROC-022 (manual items, obtain-toggle, quantity edit, clear list).
 #
-# This file creates its own throwaway item + two throwaway recipes
-# (both using that item, no unit — "2 eggs"-style) with the ADMIN
-# account, so the shopping list actually has something to aggregate.
-# Run top-to-bottom: by the end, both recipes are off the menu again and
+# This file creates its own throwaway items + two throwaway recipes
+# (both using itemId, no unit — "2 eggs"-style) with the ADMIN account,
+# so the shopping list actually has something to aggregate. Run
+# top-to-bottom: by the end, both recipes are off the menu again and
 # the list is back to empty before Cleanup deletes the fixtures.
 
 
@@ -40,10 +37,10 @@ Content-Type: application/json
 
 
 # ══════════════════════════════════════════
-#  Fixtures — one item, two throwaway recipes that both use it
+#  Fixtures — two items, two throwaway recipes using the first
 # ══════════════════════════════════════════
 
-### Real item category to hang a throwaway item off.
+### Real item category to hang the throwaway items off.
 # @name itemCategory
 GET http://localhost:{{$dotenv PORT}}/item-categories
 
@@ -75,6 +72,23 @@ Content-Type: application/json
 ###
 
 @itemId = {{item.response.body.id}}
+
+### A second throwaway item, never referenced by any recipe — used below
+### for the CROC-022 manual-add walkthrough, kept separate from itemId so
+### a GET response never has to disambiguate two same-named rows.
+# @name manualItem
+POST http://localhost:{{$dotenv PORT}}/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-shopping-list-manual-item",
+  "categoryId": "{{itemCategoryId}}"
+}
+
+###
+
+@manualItemId = {{manualItem.response.body.id}}
 
 ### recipeA — serves 4, needs 2x the item.
 # @name recipeA
@@ -169,26 +183,37 @@ Content-Type: application/json
 ###
 
 ### ✅ 200 — still one item (same item, no unit — same combine key),
-### quantity now 5 (recipeA's 2 + recipeB's 3).
+### quantity now 5 (recipeA's 2 + recipeB's 3). Exactly one row on the
+### list at this point, so $[0] below is unambiguous.
+# @name listAfterCombine
 GET http://localhost:{{$dotenv PORT}}/shopping-list
 Authorization: Bearer {{authToken}}
 
 ###
 
+@generatedRowId = {{listAfterCombine.response.body.items[0].id}}
+
 
 # ══════════════════════════════════════════
-#  Tick it obtained (direct SQL — no PATCH endpoint until CROC-022)
+#  PATCH /shopping-list/items/:id — obtain-toggle (CROC-022)
 # ══════════════════════════════════════════
 
-### Run this against the dev DB (psql, or your DB GUI of choice),
-### substituting the same email used in Login above:
+### ✅ 200 — tick the combined row obtained.
+PATCH http://localhost:{{$dotenv PORT}}/shopping-list/items/{{generatedRowId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "obtained": true
+}
+
 ###
-###   UPDATE shopping_list_items sli
-###   SET obtained = true
-###   FROM shopping_lists sl
-###   WHERE sli.shopping_list_id = sl.id
-###     AND sl.user_id = (SELECT id FROM users WHERE email = 'REPLACE_WITH_YOUR_REAL_EMAIL')
-###     AND sli.item_id = (SELECT id FROM items WHERE name = 'http-test-shopping-list-item');
+
+### ✅ 200 — obtained is true, quantity unchanged at 5.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
 
 
 # ══════════════════════════════════════════
@@ -207,8 +232,8 @@ Content-Type: application/json
 ###
 
 ### ✅ 200 — quantity is now 7 (recipeA's 2×2=4 + recipeB's 3), and
-### obtained is still true — the SQL UPDATE above must have survived
-### this regenerate, not been reset to false.
+### obtained is still true — the earlier PATCH must have survived this
+### regenerate, not been reset to false.
 GET http://localhost:{{$dotenv PORT}}/shopping-list
 Authorization: Bearer {{authToken}}
 
@@ -252,6 +277,278 @@ Authorization: Bearer {{authToken}}
 
 
 # ══════════════════════════════════════════
+#  POST /shopping-list/items — manual add, and merging (CROC-022)
+# ══════════════════════════════════════════
+
+### ✅ 200 — add 2 of manualItemId. Not tied to any recipe, so nothing
+### to scale/combine yet.
+POST http://localhost:{{$dotenv PORT}}/shopping-list/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "itemId": "{{manualItemId}}",
+  "quantity": 2
+}
+
+###
+
+### ✅ 200 — exactly one row, quantity 2, isManual true, obtained false.
+# @name listAfterManualAdd
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+@manualRowId = {{listAfterManualAdd.response.body.items[0].id}}
+
+### ✅ 200 — add 3 more of the same manual item.
+POST http://localhost:{{$dotenv PORT}}/shopping-list/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "itemId": "{{manualItemId}}",
+  "quantity": 3
+}
+
+###
+
+### ✅ 200 — still exactly one row (same id as manualRowId above), now
+### quantity 5 — a repeat manual add merges by summing, not a new row.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 400 invalid_item — itemId doesn't exist.
+POST http://localhost:{{$dotenv PORT}}/shopping-list/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "itemId": "00000000-0000-0000-0000-000000000000",
+  "quantity": 1
+}
+
+###
+
+### 🚫 400 invalid_quantity — zero is rejected.
+POST http://localhost:{{$dotenv PORT}}/shopping-list/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "itemId": "{{manualItemId}}",
+  "quantity": 0
+}
+
+###
+
+
+# ══════════════════════════════════════════
+#  PATCH /shopping-list/items/:id — quantity edit on a manual row
+# ══════════════════════════════════════════
+
+### ✅ 200 — edit the manual row's quantity directly (no remove/re-add
+### needed).
+PATCH http://localhost:{{$dotenv PORT}}/shopping-list/items/{{manualRowId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "quantity": 9
+}
+
+###
+
+### ✅ 200 — quantity is now 9, obtained is still false (untouched).
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 400 invalid_request — neither field present.
+PATCH http://localhost:{{$dotenv PORT}}/shopping-list/items/{{manualRowId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{}
+
+###
+
+
+# ══════════════════════════════════════════
+#  DELETE /shopping-list/items/:id — manual row: plain delete
+# ══════════════════════════════════════════
+
+### ✅ 200 — remove the manual row outright.
+DELETE http://localhost:{{$dotenv PORT}}/shopping-list/items/{{manualRowId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — back to empty.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  Manual add never merges with a generated row for the same item
+# ══════════════════════════════════════════
+
+### ✅ 200 — put recipeA back on the menu: one generated row for itemId,
+### quantity 2.
+POST http://localhost:{{$dotenv PORT}}/menu/entries
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "recipeId": "{{recipeAId}}",
+  "serves": 4
+}
+
+###
+
+### ✅ 200 — exactly one row for itemId at this point (the manual
+### duplicate below doesn't exist yet) — capture its id now, while it's
+### still unambiguous, rather than after two same-named rows exist.
+# @name listRecipeAOnly
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+@generatedItemRowId = {{listRecipeAOnly.response.body.items[0].id}}
+
+### ✅ 200 — manually add itemId too, the exact same item the generated
+### row already covers.
+POST http://localhost:{{$dotenv PORT}}/shopping-list/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "itemId": "{{itemId}}",
+  "quantity": 1
+}
+
+###
+
+### ✅ 200 — two separate rows for itemId now: the generated one
+### (quantity 2, id = generatedItemRowId above) and a new manual one
+### (quantity 1) — confirm both are present in the response, not
+### combined into one.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  DELETE /shopping-list/items/:id — generated row: sticky dismissal
+# ══════════════════════════════════════════
+
+### ✅ 200 — delete the generated row (id captured above, before the
+### manual duplicate existed).
+DELETE http://localhost:{{$dotenv PORT}}/shopping-list/items/{{generatedItemRowId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — only the manual row (quantity 1) remains.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — an unrelated menu change (recipeB, a different item) triggers
+### a regenerate. itemId's required quantity is still 2, matching the
+### dismissal recorded above, so it must NOT reappear.
+POST http://localhost:{{$dotenv PORT}}/menu/entries
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "recipeId": "{{recipeBId}}",
+  "serves": 4
+}
+
+###
+
+### ✅ 200 — still only the manual itemId row (quantity 1) plus recipeB's
+### own item — the dismissed generated row for itemId must not be back.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — remove recipeB again, back to just recipeA on the menu.
+DELETE http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeBId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — bump recipeA's serves to 8: itemId's required quantity
+### changes from 2 to 4, which no longer matches the stale dismissal
+### (quantity 2) — the item must reappear as a fresh, unobtained row.
+PATCH http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeAId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "serves": 8
+}
+
+###
+
+### ✅ 200 — itemId's generated row is back at quantity 4, obtained
+### false, alongside the still-present manual row (quantity 1).
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  DELETE /shopping-list — clear list (no dismissal memory)
+# ══════════════════════════════════════════
+
+### ✅ 200 — wipe everything in one call.
+DELETE http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — empty.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — re-save recipeA at the same serves (8) to trigger another
+### regenerate. Unlike the single-item delete above, clear list wrote no
+### dismissal, so itemId's generated row must come straight back.
+PATCH http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeAId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "serves": 8
+}
+
+###
+
+### ✅ 200 — itemId's row is back at quantity 4 — clear list has no
+### memory, unlike a single-item removal.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
 #  Auth
 # ══════════════════════════════════════════
 
@@ -260,13 +557,33 @@ GET http://localhost:{{$dotenv PORT}}/shopping-list
 
 ###
 
+### 🚫 401 — no token, on a write endpoint too.
+POST http://localhost:{{$dotenv PORT}}/shopping-list/items
+Content-Type: application/json
+
+{
+  "itemId": "{{itemId}}",
+  "quantity": 1
+}
+
+###
+
 
 # ══════════════════════════════════════════
 #  Cleanup
 # ══════════════════════════════════════════
 
-### Both recipes are already off the menu (and the shopping list already
-### empty) from the walkthrough above, so these are safe to delete directly.
+### Reset back to empty before deleting the fixtures underneath it.
+DELETE http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+DELETE http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeAId}}
+Authorization: Bearer {{authToken}}
+
+###
+
 DELETE http://localhost:{{$dotenv PORT}}/recipes/{{recipeAId}}
 Authorization: Bearer {{authToken}}
 
@@ -278,6 +595,11 @@ Authorization: Bearer {{authToken}}
 ###
 
 DELETE http://localhost:{{$dotenv PORT}}/items/{{itemId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+DELETE http://localhost:{{$dotenv PORT}}/items/{{manualItemId}}
 Authorization: Bearer {{authToken}}
 
 ###

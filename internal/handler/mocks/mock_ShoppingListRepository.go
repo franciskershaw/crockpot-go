@@ -23,6 +23,151 @@ func (_m *MockShoppingListRepository) EXPECT() *MockShoppingListRepository_Expec
 	return &MockShoppingListRepository_Expecter{mock: &_m.Mock}
 }
 
+// AddManualItem provides a mock function with given fields: ctx, userID, itemID, unitID, quantity
+func (_m *MockShoppingListRepository) AddManualItem(ctx context.Context, userID string, itemID string, unitID *string, quantity float64) error {
+	ret := _m.Called(ctx, userID, itemID, unitID, quantity)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AddManualItem")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, *string, float64) error); ok {
+		r0 = rf(ctx, userID, itemID, unitID, quantity)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShoppingListRepository_AddManualItem_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddManualItem'
+type MockShoppingListRepository_AddManualItem_Call struct {
+	*mock.Call
+}
+
+// AddManualItem is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - itemID string
+//   - unitID *string
+//   - quantity float64
+func (_e *MockShoppingListRepository_Expecter) AddManualItem(ctx interface{}, userID interface{}, itemID interface{}, unitID interface{}, quantity interface{}) *MockShoppingListRepository_AddManualItem_Call {
+	return &MockShoppingListRepository_AddManualItem_Call{Call: _e.mock.On("AddManualItem", ctx, userID, itemID, unitID, quantity)}
+}
+
+func (_c *MockShoppingListRepository_AddManualItem_Call) Run(run func(ctx context.Context, userID string, itemID string, unitID *string, quantity float64)) *MockShoppingListRepository_AddManualItem_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(*string), args[4].(float64))
+	})
+	return _c
+}
+
+func (_c *MockShoppingListRepository_AddManualItem_Call) Return(_a0 error) *MockShoppingListRepository_AddManualItem_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShoppingListRepository_AddManualItem_Call) RunAndReturn(run func(context.Context, string, string, *string, float64) error) *MockShoppingListRepository_AddManualItem_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ClearList provides a mock function with given fields: ctx, userID
+func (_m *MockShoppingListRepository) ClearList(ctx context.Context, userID string) error {
+	ret := _m.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClearList")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, userID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShoppingListRepository_ClearList_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ClearList'
+type MockShoppingListRepository_ClearList_Call struct {
+	*mock.Call
+}
+
+// ClearList is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+func (_e *MockShoppingListRepository_Expecter) ClearList(ctx interface{}, userID interface{}) *MockShoppingListRepository_ClearList_Call {
+	return &MockShoppingListRepository_ClearList_Call{Call: _e.mock.On("ClearList", ctx, userID)}
+}
+
+func (_c *MockShoppingListRepository_ClearList_Call) Run(run func(ctx context.Context, userID string)) *MockShoppingListRepository_ClearList_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockShoppingListRepository_ClearList_Call) Return(_a0 error) *MockShoppingListRepository_ClearList_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShoppingListRepository_ClearList_Call) RunAndReturn(run func(context.Context, string) error) *MockShoppingListRepository_ClearList_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteItem provides a mock function with given fields: ctx, userID, itemRowID
+func (_m *MockShoppingListRepository) DeleteItem(ctx context.Context, userID string, itemRowID string) error {
+	ret := _m.Called(ctx, userID, itemRowID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteItem")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, userID, itemRowID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShoppingListRepository_DeleteItem_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteItem'
+type MockShoppingListRepository_DeleteItem_Call struct {
+	*mock.Call
+}
+
+// DeleteItem is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - itemRowID string
+func (_e *MockShoppingListRepository_Expecter) DeleteItem(ctx interface{}, userID interface{}, itemRowID interface{}) *MockShoppingListRepository_DeleteItem_Call {
+	return &MockShoppingListRepository_DeleteItem_Call{Call: _e.mock.On("DeleteItem", ctx, userID, itemRowID)}
+}
+
+func (_c *MockShoppingListRepository_DeleteItem_Call) Run(run func(ctx context.Context, userID string, itemRowID string)) *MockShoppingListRepository_DeleteItem_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockShoppingListRepository_DeleteItem_Call) Return(_a0 error) *MockShoppingListRepository_DeleteItem_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShoppingListRepository_DeleteItem_Call) RunAndReturn(run func(context.Context, string, string) error) *MockShoppingListRepository_DeleteItem_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Get provides a mock function with given fields: ctx, userID
 func (_m *MockShoppingListRepository) Get(ctx context.Context, userID string) (*models.ShoppingList, error) {
 	ret := _m.Called(ctx, userID)
@@ -78,6 +223,56 @@ func (_c *MockShoppingListRepository_Get_Call) Return(_a0 *models.ShoppingList, 
 }
 
 func (_c *MockShoppingListRepository_Get_Call) RunAndReturn(run func(context.Context, string) (*models.ShoppingList, error)) *MockShoppingListRepository_Get_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateItem provides a mock function with given fields: ctx, userID, itemRowID, obtained, quantity
+func (_m *MockShoppingListRepository) UpdateItem(ctx context.Context, userID string, itemRowID string, obtained *bool, quantity *float64) error {
+	ret := _m.Called(ctx, userID, itemRowID, obtained, quantity)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateItem")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, *bool, *float64) error); ok {
+		r0 = rf(ctx, userID, itemRowID, obtained, quantity)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShoppingListRepository_UpdateItem_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateItem'
+type MockShoppingListRepository_UpdateItem_Call struct {
+	*mock.Call
+}
+
+// UpdateItem is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - itemRowID string
+//   - obtained *bool
+//   - quantity *float64
+func (_e *MockShoppingListRepository_Expecter) UpdateItem(ctx interface{}, userID interface{}, itemRowID interface{}, obtained interface{}, quantity interface{}) *MockShoppingListRepository_UpdateItem_Call {
+	return &MockShoppingListRepository_UpdateItem_Call{Call: _e.mock.On("UpdateItem", ctx, userID, itemRowID, obtained, quantity)}
+}
+
+func (_c *MockShoppingListRepository_UpdateItem_Call) Run(run func(ctx context.Context, userID string, itemRowID string, obtained *bool, quantity *float64)) *MockShoppingListRepository_UpdateItem_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(*bool), args[4].(*float64))
+	})
+	return _c
+}
+
+func (_c *MockShoppingListRepository_UpdateItem_Call) Return(_a0 error) *MockShoppingListRepository_UpdateItem_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShoppingListRepository_UpdateItem_Call) RunAndReturn(run func(context.Context, string, string, *bool, *float64) error) *MockShoppingListRepository_UpdateItem_Call {
 	_c.Call.Return(run)
 	return _c
 }

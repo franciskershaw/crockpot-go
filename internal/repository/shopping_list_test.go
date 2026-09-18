@@ -2,9 +2,11 @@ package repository_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/franciskershaw/crockpot-go/db"
+	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -438,6 +440,469 @@ func TestRegenerate_DismissedItemReappearsWhenQuantityChanges(t *testing.T) {
 	assert.Equal(t, 200.0, reappeared.quantity)
 	assert.False(t, reappeared.obtained, "a reappearing item is a fresh requirement, not previously obtained")
 	assert.Equal(t, 0, countDismissedItems(t, userID, itemID), "stale dismissal record must be cleaned up")
+}
+
+func strPtr(u uuid.UUID) *string {
+	s := u.String()
+	return &s
+}
+
+func TestAddManualItem_LazilyCreatesShoppingListRowAndInsertsNewRow(t *testing.T) {
+	userID := insertTestUser(t, "Manual Add No List Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	err := shoppingListRepo.AddManualItem(context.Background(), userID.String(), itemID.String(), strPtr(grams), 3)
+	require.NoError(t, err)
+
+	var listCount int
+	require.NoError(t, db.DB.QueryRow(context.Background(),
+		`SELECT count(*) FROM shopping_lists WHERE user_id = $1`, userID).Scan(&listCount))
+	assert.Equal(t, 1, listCount, "manual add must lazily create the shopping_lists row")
+
+	items := getShoppingListItemsByUser(t, userID)
+	row, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+	assert.Equal(t, 3.0, row.quantity)
+	assert.True(t, row.isManual)
+	assert.False(t, row.obtained)
+}
+
+func TestAddManualItem_MergesIntoExistingManualRow(t *testing.T) {
+	userID := insertTestUser(t, "Manual Add Merge Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	existingRowID := insertManualShoppingListItem(t, userID, itemID, &grams, 2, false)
+
+	err := shoppingListRepo.AddManualItem(context.Background(), userID.String(), itemID.String(), strPtr(grams), 5)
+	require.NoError(t, err)
+
+	items := getShoppingListItemsByUser(t, userID)
+	row, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+	assert.Equal(t, existingRowID, row.id, "must update the existing manual row in place, not insert a second one")
+	assert.Equal(t, 7.0, row.quantity)
+
+	var count int
+	for _, r := range items {
+		if r.itemID == itemID {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "must not create a second row for the same manual item")
+}
+
+func TestAddManualItem_DoesNotMergeWithGeneratedRow(t *testing.T) {
+	userID := insertTestUser(t, "Manual Add No Merge Generated Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	recipeID := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{itemID, &grams, 100}})
+	addToMenu(t, userID, recipeID, 4)
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+
+	err := shoppingListRepo.AddManualItem(context.Background(), userID.String(), itemID.String(), strPtr(grams), 3)
+	require.NoError(t, err)
+
+	items := getShoppingListItemsByUser(t, userID)
+	generated, ok := findGeneratedShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+	assert.Equal(t, 100.0, generated.quantity, "generated row must be untouched by the manual add")
+
+	var manualCount int
+	for _, r := range items {
+		if r.itemID == itemID && r.isManual {
+			manualCount++
+			assert.Equal(t, 3.0, r.quantity)
+		}
+	}
+	assert.Equal(t, 1, manualCount, "manual add must create its own separate row, not merge into the generated one")
+}
+
+func TestAddManualItem_UnknownItem_ReturnsInvalidItemError(t *testing.T) {
+	userID := insertTestUser(t, "Manual Add Unknown Item Cook")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	err := shoppingListRepo.AddManualItem(context.Background(), userID.String(), uuid.NewString(), nil, 1)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, models.ErrShoppingListInvalidItem)
+}
+
+func TestAddManualItem_RejectedAdd_WithinTxLeavesNoStrayShoppingListRow(t *testing.T) {
+	userID := insertTestUser(t, "Manual Add Rejected Rollback Cook")
+
+	// Mirrors the fixed handler: wrapping in a transaction rolls back GetOrCreateShoppingList's write too.
+	txErr := transactor.WithinTx(context.Background(), func(ctx context.Context) error {
+		return shoppingListRepo.AddManualItem(ctx, userID.String(), uuid.NewString(), nil, 1)
+	})
+	require.Error(t, txErr)
+	assert.ErrorIs(t, txErr, models.ErrShoppingListInvalidItem)
+
+	var count int
+	require.NoError(t, db.DB.QueryRow(context.Background(),
+		`SELECT count(*) FROM shopping_lists WHERE user_id = $1`, userID).Scan(&count))
+	assert.Equal(t, 0, count, "a rejected add wrapped in a transaction must not leave a stray shopping_lists row")
+}
+
+func TestAddManualItem_ConcurrentDuplicateAddsForNewItemMergeIntoOneRow(t *testing.T) {
+	userID := insertTestUser(t, "Concurrent Manual Add Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	// Mirrors what the fixed handler does: wrap the repo call in its own transaction, same as
+	// TestGetOrCreateUser_ConcurrentFirstLoginsForSameAccountBothSucceed's pattern.
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range 2 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = transactor.WithinTx(context.Background(), func(ctx context.Context) error {
+				return shoppingListRepo.AddManualItem(ctx, userID.String(), itemID.String(), strPtr(grams), 1)
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	require.NoError(t, errs[0])
+	require.NoError(t, errs[1])
+
+	items := getShoppingListItemsByUser(t, userID)
+	var count int
+	var totalQuantity float64
+	for _, r := range items {
+		if r.itemID == itemID {
+			count++
+			totalQuantity = r.quantity
+		}
+	}
+	assert.Equal(t, 1, count, "concurrent duplicate manual adds for a brand-new item must merge into one row, not two")
+	assert.Equal(t, 2.0, totalQuantity, "both concurrent adds' quantities must land in the single merged row")
+}
+
+func TestAddManualItem_UnitNotAllowedForItem_ReturnsError(t *testing.T) {
+	userID := insertTestUser(t, "Manual Add Unit Not Allowed Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	tablespoons := unitIDByName(t, "tablespoons")
+	insertTestItemAllowedUnit(t, itemID, grams)
+	registerShoppingListCascadeCleanup(t, userID)
+
+	err := shoppingListRepo.AddManualItem(context.Background(), userID.String(), itemID.String(), strPtr(tablespoons), 1)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, models.ErrIngredientUnitNotAllowed)
+
+	items := getShoppingListItemsByUser(t, userID)
+	assert.Empty(t, items, "a rejected add must not leave a row behind")
+}
+
+func boolPtr(b bool) *bool { return &b }
+
+func floatPtr(f float64) *float64 { return &f }
+
+func TestUpdateItem_TogglesObtained(t *testing.T) {
+	userID := insertTestUser(t, "Update Item Obtained Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	rowID := insertManualShoppingListItem(t, userID, itemID, &grams, 2, false)
+
+	err := shoppingListRepo.UpdateItem(context.Background(), userID.String(), rowID.String(), boolPtr(true), nil)
+	require.NoError(t, err)
+
+	items := getShoppingListItemsByUser(t, userID)
+	row, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+	assert.True(t, row.obtained)
+	assert.Equal(t, 2.0, row.quantity, "quantity must be unchanged when only obtained is set")
+}
+
+func TestUpdateItem_EditsQuantityOnManualRow(t *testing.T) {
+	userID := insertTestUser(t, "Update Item Manual Quantity Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	rowID := insertManualShoppingListItem(t, userID, itemID, &grams, 2, false)
+
+	err := shoppingListRepo.UpdateItem(context.Background(), userID.String(), rowID.String(), nil, floatPtr(6))
+	require.NoError(t, err)
+
+	items := getShoppingListItemsByUser(t, userID)
+	row, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+	assert.Equal(t, 6.0, row.quantity)
+	assert.False(t, row.obtained, "obtained must be unchanged when only quantity is set")
+}
+
+func TestUpdateItem_EditsQuantityOnGeneratedRow(t *testing.T) {
+	userID := insertTestUser(t, "Update Item Generated Quantity Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	recipeID := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{itemID, &grams, 100}})
+	addToMenu(t, userID, recipeID, 4)
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+
+	items := getShoppingListItemsByUser(t, userID)
+	row, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+
+	err := shoppingListRepo.UpdateItem(context.Background(), userID.String(), row.id.String(), nil, floatPtr(999))
+	require.NoError(t, err)
+
+	items = getShoppingListItemsByUser(t, userID)
+	updated, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+	assert.Equal(t, 999.0, updated.quantity)
+}
+
+func TestUpdateItem_BothFieldsAtOnce(t *testing.T) {
+	userID := insertTestUser(t, "Update Item Both Fields Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	rowID := insertManualShoppingListItem(t, userID, itemID, &grams, 2, false)
+
+	err := shoppingListRepo.UpdateItem(context.Background(), userID.String(), rowID.String(), boolPtr(true), floatPtr(9))
+	require.NoError(t, err)
+
+	items := getShoppingListItemsByUser(t, userID)
+	row, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+	assert.True(t, row.obtained)
+	assert.Equal(t, 9.0, row.quantity)
+}
+
+func TestUpdateItem_UnknownID_ReturnsNotFound(t *testing.T) {
+	userID := insertTestUser(t, "Update Item Unknown ID Cook")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	err := shoppingListRepo.UpdateItem(context.Background(), userID.String(), uuid.NewString(), boolPtr(true), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, models.ErrShoppingListItemNotFound)
+}
+
+func TestUpdateItem_AnotherUsersRow_ReturnsNotFound(t *testing.T) {
+	ownerID := insertTestUser(t, "Update Item Owner Cook")
+	otherID := insertTestUser(t, "Update Item Other Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, ownerID)
+	registerShoppingListCascadeCleanup(t, otherID)
+
+	rowID := insertManualShoppingListItem(t, ownerID, itemID, &grams, 2, false)
+
+	err := shoppingListRepo.UpdateItem(context.Background(), otherID.String(), rowID.String(), boolPtr(true), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, models.ErrShoppingListItemNotFound)
+
+	items := getShoppingListItemsByUser(t, ownerID)
+	row, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+	assert.False(t, row.obtained, "another user's failed update must not have touched the row")
+}
+
+func TestDeleteItem_ManualRow_PlainDeleteNoDismissal(t *testing.T) {
+	userID := insertTestUser(t, "Delete Item Manual Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	rowID := insertManualShoppingListItem(t, userID, itemID, &grams, 2, false)
+
+	err := shoppingListRepo.DeleteItem(context.Background(), userID.String(), rowID.String())
+	require.NoError(t, err)
+
+	items := getShoppingListItemsByUser(t, userID)
+	assert.Empty(t, items)
+	assert.Equal(t, 0, countDismissedItems(t, userID, itemID), "deleting a manual item must not write a dismissal record")
+}
+
+func TestDeleteItem_GeneratedRow_DeletesAndWritesDismissal(t *testing.T) {
+	userID := insertTestUser(t, "Delete Item Generated Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	recipeID := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{itemID, &grams, 100}})
+	addToMenu(t, userID, recipeID, 4)
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+
+	items := getShoppingListItemsByUser(t, userID)
+	row, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+
+	err := shoppingListRepo.DeleteItem(context.Background(), userID.String(), row.id.String())
+	require.NoError(t, err)
+
+	items = getShoppingListItemsByUser(t, userID)
+	_, ok = findShoppingListItem(items, itemID, &grams)
+	assert.False(t, ok, "row must be deleted")
+	assert.Equal(t, 1, countDismissedItems(t, userID, itemID), "deleting a generated item must write a dismissal record")
+
+	// An unrelated regen must not bring it back while the required quantity is unchanged.
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+	items = getShoppingListItemsByUser(t, userID)
+	_, ok = findShoppingListItem(items, itemID, &grams)
+	assert.False(t, ok, "dismissed item must not reappear while its required quantity is unchanged")
+}
+
+func TestDeleteItem_UnknownID_ReturnsNotFound(t *testing.T) {
+	userID := insertTestUser(t, "Delete Item Unknown ID Cook")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	err := shoppingListRepo.DeleteItem(context.Background(), userID.String(), uuid.NewString())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, models.ErrShoppingListItemNotFound)
+}
+
+func TestDeleteItem_AnotherUsersRow_ReturnsNotFoundAndLeavesRowIntact(t *testing.T) {
+	ownerID := insertTestUser(t, "Delete Item Owner Cook")
+	otherID := insertTestUser(t, "Delete Item Other Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, ownerID)
+	registerShoppingListCascadeCleanup(t, otherID)
+
+	rowID := insertManualShoppingListItem(t, ownerID, itemID, &grams, 2, false)
+
+	err := shoppingListRepo.DeleteItem(context.Background(), otherID.String(), rowID.String())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, models.ErrShoppingListItemNotFound)
+
+	items := getShoppingListItemsByUser(t, ownerID)
+	_, ok := findShoppingListItem(items, itemID, &grams)
+	assert.True(t, ok, "another user's failed delete must not have removed the row")
+}
+
+func TestClearList_RemovesAllItems_ManualAndGenerated(t *testing.T) {
+	userID := insertTestUser(t, "Clear List Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	manualItem := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	generatedItem := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	insertManualShoppingListItem(t, userID, manualItem, &grams, 2, false)
+	recipeID := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{generatedItem, &grams, 100}})
+	addToMenu(t, userID, recipeID, 4)
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+
+	items := getShoppingListItemsByUser(t, userID)
+	require.Len(t, items, 2, "sanity check: both items must be present before clearing")
+
+	err := shoppingListRepo.ClearList(context.Background(), userID.String())
+	require.NoError(t, err)
+
+	items = getShoppingListItemsByUser(t, userID)
+	assert.Empty(t, items)
+}
+
+func TestClearList_NoExistingList_NoOp(t *testing.T) {
+	userID := insertTestUser(t, "Clear List No List Cook")
+
+	err := shoppingListRepo.ClearList(context.Background(), userID.String())
+	require.NoError(t, err)
+
+	var count int
+	require.NoError(t, db.DB.QueryRow(context.Background(),
+		`SELECT count(*) FROM shopping_lists WHERE user_id = $1`, userID).Scan(&count))
+	assert.Equal(t, 0, count, "clearing a list that never existed must not create one")
+}
+
+func TestClearList_DoesNotWriteDismissals_ItemReappearsOnNextRegen(t *testing.T) {
+	userID := insertTestUser(t, "Clear List No Dismissal Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	recipeID := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{itemID, &grams, 100}})
+	addToMenu(t, userID, recipeID, 4)
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+
+	require.NoError(t, shoppingListRepo.ClearList(context.Background(), userID.String()))
+	assert.Equal(t, 0, countDismissedItems(t, userID, itemID), "clear list must not write dismissal records")
+
+	// The recipe is still on the menu, so the very next regenerate must bring the item straight back.
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+	items := getShoppingListItemsByUser(t, userID)
+	row, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok, "an unrelated dismissal must not have suppressed the still-needed item")
+	assert.Equal(t, 100.0, row.quantity)
+}
+
+func TestClearList_OnlyClearsCallingUsersList(t *testing.T) {
+	clearedUserID := insertTestUser(t, "Clear List Target Cook")
+	otherUserID := insertTestUser(t, "Clear List Bystander Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, clearedUserID)
+	registerShoppingListCascadeCleanup(t, otherUserID)
+
+	insertManualShoppingListItem(t, clearedUserID, itemID, &grams, 2, false)
+	insertManualShoppingListItem(t, otherUserID, itemID, &grams, 3, false)
+
+	require.NoError(t, shoppingListRepo.ClearList(context.Background(), clearedUserID.String()))
+
+	assert.Empty(t, getShoppingListItemsByUser(t, clearedUserID))
+	assert.Len(t, getShoppingListItemsByUser(t, otherUserID), 1, "another user's list must be untouched")
+}
+
+func TestRegenerate_HandEditedGeneratedQuantityResetsOnUnrelatedMenuChange(t *testing.T) {
+	userID := insertTestUser(t, "Hand Edit Reset Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemA := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	itemB := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	recipeA := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{itemA, &grams, 100}})
+	addToMenu(t, userID, recipeA, 4)
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+
+	items := getShoppingListItemsByUser(t, userID)
+	row, ok := findShoppingListItem(items, itemA, &grams)
+	require.True(t, ok)
+
+	require.NoError(t, shoppingListRepo.UpdateItem(context.Background(), userID.String(), row.id.String(), nil, floatPtr(999)))
+	items = getShoppingListItemsByUser(t, userID)
+	edited, ok := findShoppingListItem(items, itemA, &grams)
+	require.True(t, ok)
+	require.Equal(t, 999.0, edited.quantity, "sanity check: the hand edit must have taken")
+
+	// An unrelated recipe joining the menu triggers a regenerate that must recompute every generated row.
+	recipeB := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{itemB, &grams, 50}})
+	addToMenu(t, userID, recipeB, 4)
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+
+	items = getShoppingListItemsByUser(t, userID)
+	reset, ok := findShoppingListItem(items, itemA, &grams)
+	require.True(t, ok)
+	assert.Equal(t, 100.0, reset.quantity, "hand-edited quantity on a generated row must reset to the recipe-calculated amount on the next regenerate")
 }
 
 func TestGet_NoShoppingListRow_ReturnsEmptyWithoutCreatingOne(t *testing.T) {

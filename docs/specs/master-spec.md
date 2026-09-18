@@ -623,6 +623,16 @@ session.*
 - **CROC-020** — Menu history tracking (increment/first/last-added,
   last-removed) as entries are added/removed — powers "you've made this
   before" style features later.
+- **CROC-049** — `DELETE /menu`: clear the whole menu in one call,
+  mirroring `CROC-022`'s shopping-list clear. **Done** (2026-09-18,
+  `docs/handoffs/CROC-049.md`). Surfaced the same way that one was — the
+  design's "Clear menu" button and the old app both have it, but
+  `CROC-019` never named a bulk-clear endpoint, only the four per-entry
+  ones. Regenerates the shopping list in the same transaction, matching
+  every other menu-write endpoint. Deliberately ships without a
+  `CROC-020` history-tracking hook — founder's explicit call to unblock
+  the frontend now; `CROC-020` will need to retrofit bulk-clear once it
+  lands.
 
 ### Epic 6: Shopping Lists
 - **CROC-021** — Generate/regenerate shopping list from current menu,
@@ -632,8 +642,18 @@ session.*
   Regeneration is a transactional side effect of `CROC-019`'s three
   menu-write endpoints, not a separate endpoint; also owns
   `GET /shopping-list`. Unblocks `crockpot-react`'s `CFE-006`/`CFE-009`.
-- **CROC-022** — Manual item add/remove, obtained toggle
-  (`PATCH /shopping-list/items/:id`), bulk mark-obtained.
+- **CROC-022** — Manual item add/remove, quantity edit, obtained toggle,
+  and clear list (`POST`/`PATCH`/`DELETE /shopping-list/items[/:id]`,
+  `DELETE /shopping-list`). **Done** (2026-09-18,
+  `docs/handoffs/CROC-022.md`). Manual add is catalog-scoped and merges
+  only into an existing manual row for the same item+unit — never into a
+  recipe-generated one, which regen would silently overwrite. Quantity
+  is editable on any row, manual or recipe-driven, but not protected
+  against regeneration for recipe-driven rows — an accepted tradeoff
+  matching the old app's actual behaviour. Single-item delete is
+  dismissal-aware (sticky, reusing `CROC-021`'s schema); clear-list is
+  not (wipes everything, no memory). Bulk mark-obtained, named in the
+  original line, was dropped — no design or old-app precedent for it.
 
 ### Epic 7: Roles & Tier Gating
 - **CROC-023** — **Delivered by CROC-014** (`docs/handoffs/CROC-014.md`

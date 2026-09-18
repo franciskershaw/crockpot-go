@@ -23,6 +23,53 @@ func (_m *MockMenuRepository) EXPECT() *MockMenuRepository_Expecter {
 	return &MockMenuRepository_Expecter{mock: &_m.Mock}
 }
 
+// ClearMenu provides a mock function with given fields: ctx, userID
+func (_m *MockMenuRepository) ClearMenu(ctx context.Context, userID string) error {
+	ret := _m.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClearMenu")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, userID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockMenuRepository_ClearMenu_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ClearMenu'
+type MockMenuRepository_ClearMenu_Call struct {
+	*mock.Call
+}
+
+// ClearMenu is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+func (_e *MockMenuRepository_Expecter) ClearMenu(ctx interface{}, userID interface{}) *MockMenuRepository_ClearMenu_Call {
+	return &MockMenuRepository_ClearMenu_Call{Call: _e.mock.On("ClearMenu", ctx, userID)}
+}
+
+func (_c *MockMenuRepository_ClearMenu_Call) Run(run func(ctx context.Context, userID string)) *MockMenuRepository_ClearMenu_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockMenuRepository_ClearMenu_Call) Return(_a0 error) *MockMenuRepository_ClearMenu_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockMenuRepository_ClearMenu_Call) RunAndReturn(run func(context.Context, string) error) *MockMenuRepository_ClearMenu_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetMenu provides a mock function with given fields: ctx, userID
 func (_m *MockMenuRepository) GetMenu(ctx context.Context, userID string) (*models.Menu, error) {
 	ret := _m.Called(ctx, userID)

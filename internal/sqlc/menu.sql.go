@@ -11,6 +11,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearMenuEntries = `-- name: ClearMenuEntries :exec
+DELETE FROM recipe_menu_entries
+WHERE recipe_menu_id IN (SELECT id FROM recipe_menus WHERE user_id = $1)
+`
+
+func (q *Queries) ClearMenuEntries(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, clearMenuEntries, userID)
+	return err
+}
+
 const getMenuByUserID = `-- name: GetMenuByUserID :one
 SELECT id FROM recipe_menus WHERE user_id = $1
 `

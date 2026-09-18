@@ -106,6 +106,42 @@ WHERE d.shopping_list_id = sqlc.arg(shopping_list_id)
     AND d.unit_id IS NOT DISTINCT FROM agg.unit_id
     AND d.quantity_at_dismissal <> agg.quantity;
 
+-- name: FindManualShoppingListItem :one
+SELECT id, quantity FROM shopping_list_items
+WHERE shopping_list_id = sqlc.arg(shopping_list_id)
+    AND item_id = sqlc.arg(item_id)
+    AND unit_id IS NOT DISTINCT FROM sqlc.arg(unit_id)::uuid
+    AND is_manual
+LIMIT 1;
+
+-- name: IncrementShoppingListItemQuantity :exec
+UPDATE shopping_list_items
+SET quantity = quantity + sqlc.arg(delta)
+WHERE id = sqlc.arg(id);
+
+-- name: InsertManualShoppingListItem :exec
+INSERT INTO shopping_list_items (shopping_list_id, item_id, unit_id, quantity, obtained, is_manual)
+VALUES (sqlc.arg(shopping_list_id), sqlc.arg(item_id), sqlc.arg(unit_id), sqlc.arg(quantity), false, true);
+
+-- name: UpdateShoppingListItem :execrows
+UPDATE shopping_list_items
+SET obtained = COALESCE(sqlc.narg(obtained), obtained),
+    quantity = COALESCE(sqlc.narg(quantity), quantity)
+WHERE id = sqlc.arg(id) AND shopping_list_id = sqlc.arg(shopping_list_id);
+
+-- name: DeleteShoppingListItem :one
+DELETE FROM shopping_list_items
+WHERE id = sqlc.arg(id) AND shopping_list_id = sqlc.arg(shopping_list_id)
+RETURNING item_id, unit_id, quantity, is_manual;
+
+-- name: InsertDismissedItem :exec
+INSERT INTO shopping_list_dismissed_items (shopping_list_id, item_id, unit_id, quantity_at_dismissal)
+VALUES (sqlc.arg(shopping_list_id), sqlc.arg(item_id), sqlc.arg(unit_id), sqlc.arg(quantity_at_dismissal));
+
+-- name: ClearShoppingListItems :exec
+DELETE FROM shopping_list_items
+WHERE shopping_list_id IN (SELECT id FROM shopping_lists WHERE user_id = sqlc.arg(user_id));
+
 -- name: DeleteObsoleteShoppingListItems :exec
 DELETE FROM shopping_list_items sli
 WHERE sli.shopping_list_id = sqlc.arg(shopping_list_id)

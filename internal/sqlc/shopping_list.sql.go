@@ -69,6 +69,16 @@ func (q *Queries) AggregateMenuIngredients(ctx context.Context, recipeMenuID pgt
 	return items, nil
 }
 
+const clearShoppingListItems = `-- name: ClearShoppingListItems :exec
+DELETE FROM shopping_list_items
+WHERE shopping_list_id IN (SELECT id FROM shopping_lists WHERE user_id = $1)
+`
+
+func (q *Queries) ClearShoppingListItems(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, clearShoppingListItems, userID)
+	return err
+}
+
 const deleteObsoleteShoppingListItems = `-- name: DeleteObsoleteShoppingListItems :exec
 DELETE FROM shopping_list_items sli
 WHERE sli.shopping_list_id = $1
@@ -93,6 +103,36 @@ type DeleteObsoleteShoppingListItemsParams struct {
 func (q *Queries) DeleteObsoleteShoppingListItems(ctx context.Context, arg DeleteObsoleteShoppingListItemsParams) error {
 	_, err := q.db.Exec(ctx, deleteObsoleteShoppingListItems, arg.ShoppingListID, arg.ItemIds, arg.UnitIds)
 	return err
+}
+
+const deleteShoppingListItem = `-- name: DeleteShoppingListItem :one
+DELETE FROM shopping_list_items
+WHERE id = $1 AND shopping_list_id = $2
+RETURNING item_id, unit_id, quantity, is_manual
+`
+
+type DeleteShoppingListItemParams struct {
+	ID             pgtype.UUID
+	ShoppingListID pgtype.UUID
+}
+
+type DeleteShoppingListItemRow struct {
+	ItemID   pgtype.UUID
+	UnitID   pgtype.UUID
+	Quantity pgtype.Numeric
+	IsManual bool
+}
+
+func (q *Queries) DeleteShoppingListItem(ctx context.Context, arg DeleteShoppingListItemParams) (DeleteShoppingListItemRow, error) {
+	row := q.db.QueryRow(ctx, deleteShoppingListItem, arg.ID, arg.ShoppingListID)
+	var i DeleteShoppingListItemRow
+	err := row.Scan(
+		&i.ItemID,
+		&i.UnitID,
+		&i.Quantity,
+		&i.IsManual,
+	)
+	return i, err
 }
 
 const deleteStaleDismissals = `-- name: DeleteStaleDismissals :exec
@@ -125,6 +165,33 @@ func (q *Queries) DeleteStaleDismissals(ctx context.Context, arg DeleteStaleDism
 	return err
 }
 
+const findManualShoppingListItem = `-- name: FindManualShoppingListItem :one
+SELECT id, quantity FROM shopping_list_items
+WHERE shopping_list_id = $1
+    AND item_id = $2
+    AND unit_id IS NOT DISTINCT FROM $3::uuid
+    AND is_manual
+LIMIT 1
+`
+
+type FindManualShoppingListItemParams struct {
+	ShoppingListID pgtype.UUID
+	ItemID         pgtype.UUID
+	UnitID         pgtype.UUID
+}
+
+type FindManualShoppingListItemRow struct {
+	ID       pgtype.UUID
+	Quantity pgtype.Numeric
+}
+
+func (q *Queries) FindManualShoppingListItem(ctx context.Context, arg FindManualShoppingListItemParams) (FindManualShoppingListItemRow, error) {
+	row := q.db.QueryRow(ctx, findManualShoppingListItem, arg.ShoppingListID, arg.ItemID, arg.UnitID)
+	var i FindManualShoppingListItemRow
+	err := row.Scan(&i.ID, &i.Quantity)
+	return i, err
+}
+
 const getOrCreateShoppingList = `-- name: GetOrCreateShoppingList :one
 INSERT INTO shopping_lists (user_id) VALUES ($1)
 ON CONFLICT (user_id) DO UPDATE SET user_id = excluded.user_id
@@ -147,6 +214,66 @@ func (q *Queries) GetShoppingListByUserID(ctx context.Context, userID pgtype.UUI
 	var id pgtype.UUID
 	err := row.Scan(&id)
 	return id, err
+}
+
+const incrementShoppingListItemQuantity = `-- name: IncrementShoppingListItemQuantity :exec
+UPDATE shopping_list_items
+SET quantity = quantity + $1
+WHERE id = $2
+`
+
+type IncrementShoppingListItemQuantityParams struct {
+	Delta pgtype.Numeric
+	ID    pgtype.UUID
+}
+
+func (q *Queries) IncrementShoppingListItemQuantity(ctx context.Context, arg IncrementShoppingListItemQuantityParams) error {
+	_, err := q.db.Exec(ctx, incrementShoppingListItemQuantity, arg.Delta, arg.ID)
+	return err
+}
+
+const insertDismissedItem = `-- name: InsertDismissedItem :exec
+INSERT INTO shopping_list_dismissed_items (shopping_list_id, item_id, unit_id, quantity_at_dismissal)
+VALUES ($1, $2, $3, $4)
+`
+
+type InsertDismissedItemParams struct {
+	ShoppingListID      pgtype.UUID
+	ItemID              pgtype.UUID
+	UnitID              pgtype.UUID
+	QuantityAtDismissal pgtype.Numeric
+}
+
+func (q *Queries) InsertDismissedItem(ctx context.Context, arg InsertDismissedItemParams) error {
+	_, err := q.db.Exec(ctx, insertDismissedItem,
+		arg.ShoppingListID,
+		arg.ItemID,
+		arg.UnitID,
+		arg.QuantityAtDismissal,
+	)
+	return err
+}
+
+const insertManualShoppingListItem = `-- name: InsertManualShoppingListItem :exec
+INSERT INTO shopping_list_items (shopping_list_id, item_id, unit_id, quantity, obtained, is_manual)
+VALUES ($1, $2, $3, $4, false, true)
+`
+
+type InsertManualShoppingListItemParams struct {
+	ShoppingListID pgtype.UUID
+	ItemID         pgtype.UUID
+	UnitID         pgtype.UUID
+	Quantity       pgtype.Numeric
+}
+
+func (q *Queries) InsertManualShoppingListItem(ctx context.Context, arg InsertManualShoppingListItemParams) error {
+	_, err := q.db.Exec(ctx, insertManualShoppingListItem,
+		arg.ShoppingListID,
+		arg.ItemID,
+		arg.UnitID,
+		arg.Quantity,
+	)
+	return err
 }
 
 const insertNewShoppingListItems = `-- name: InsertNewShoppingListItems :exec
@@ -285,4 +412,31 @@ func (q *Queries) SyncShoppingListItemQuantities(ctx context.Context, arg SyncSh
 		arg.Quantities,
 	)
 	return err
+}
+
+const updateShoppingListItem = `-- name: UpdateShoppingListItem :execrows
+UPDATE shopping_list_items
+SET obtained = COALESCE($1, obtained),
+    quantity = COALESCE($2, quantity)
+WHERE id = $3 AND shopping_list_id = $4
+`
+
+type UpdateShoppingListItemParams struct {
+	Obtained       pgtype.Bool
+	Quantity       pgtype.Numeric
+	ID             pgtype.UUID
+	ShoppingListID pgtype.UUID
+}
+
+func (q *Queries) UpdateShoppingListItem(ctx context.Context, arg UpdateShoppingListItemParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateShoppingListItem,
+		arg.Obtained,
+		arg.Quantity,
+		arg.ID,
+		arg.ShoppingListID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
