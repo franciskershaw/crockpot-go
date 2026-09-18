@@ -189,14 +189,14 @@ with not confirming another user's row exists at all (same posture as
 - [x] `POST /shopping-list/items` with a `unitId` not in the item's
       `allowedUnitIds` returns a `4xx` (reusing `checkAllowedUnits`).
 - [x] `POST /shopping-list/items` with `quantity <= 0` returns `400`.
-- [ ] `PATCH /shopping-list/items/:id` with `{"obtained": true}` flips
+- [x] `PATCH /shopping-list/items/:id` with `{"obtained": true}` flips
       the row's `obtained`; a subsequent `GET` reflects it.
-- [ ] `PATCH /shopping-list/items/:id` with `{"quantity": N}` updates
+- [x] `PATCH /shopping-list/items/:id` with `{"quantity": N}` updates
       quantity on both a manual row and a generated row.
-- [ ] `PATCH /shopping-list/items/:id` with neither field present
+- [x] `PATCH /shopping-list/items/:id` with neither field present
       returns `400`.
-- [ ] `PATCH`/`DELETE` on an id belonging to another user's list returns
-      `404`.
+- [x] `PATCH`/`DELETE` on an id belonging to another user's list returns
+      `404`. (`DELETE` still pending piece 3.)
 - [ ] `DELETE /shopping-list/items/:id` on a manual row deletes it
       outright; no dismissal row is written.
 - [ ] `DELETE /shopping-list/items/:id` on a generated row deletes it

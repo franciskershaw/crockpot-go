@@ -351,3 +351,30 @@ func (q *Queries) SyncShoppingListItemQuantities(ctx context.Context, arg SyncSh
 	)
 	return err
 }
+
+const updateShoppingListItem = `-- name: UpdateShoppingListItem :execrows
+UPDATE shopping_list_items
+SET obtained = COALESCE($1, obtained),
+    quantity = COALESCE($2, quantity)
+WHERE id = $3 AND shopping_list_id = $4
+`
+
+type UpdateShoppingListItemParams struct {
+	Obtained       pgtype.Bool
+	Quantity       pgtype.Numeric
+	ID             pgtype.UUID
+	ShoppingListID pgtype.UUID
+}
+
+func (q *Queries) UpdateShoppingListItem(ctx context.Context, arg UpdateShoppingListItemParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateShoppingListItem,
+		arg.Obtained,
+		arg.Quantity,
+		arg.ID,
+		arg.ShoppingListID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

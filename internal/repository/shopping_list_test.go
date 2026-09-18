@@ -551,6 +551,121 @@ func TestAddManualItem_UnitNotAllowedForItem_ReturnsError(t *testing.T) {
 	assert.Empty(t, items, "a rejected add must not leave a row behind")
 }
 
+func boolPtr(b bool) *bool { return &b }
+
+func floatPtr(f float64) *float64 { return &f }
+
+func TestUpdateItem_TogglesObtained(t *testing.T) {
+	userID := insertTestUser(t, "Update Item Obtained Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	rowID := insertManualShoppingListItem(t, userID, itemID, &grams, 2, false)
+
+	err := shoppingListRepo.UpdateItem(context.Background(), userID.String(), rowID.String(), boolPtr(true), nil)
+	require.NoError(t, err)
+
+	items := getShoppingListItemsByUser(t, userID)
+	row, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+	assert.True(t, row.obtained)
+	assert.Equal(t, 2.0, row.quantity, "quantity must be unchanged when only obtained is set")
+}
+
+func TestUpdateItem_EditsQuantityOnManualRow(t *testing.T) {
+	userID := insertTestUser(t, "Update Item Manual Quantity Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	rowID := insertManualShoppingListItem(t, userID, itemID, &grams, 2, false)
+
+	err := shoppingListRepo.UpdateItem(context.Background(), userID.String(), rowID.String(), nil, floatPtr(6))
+	require.NoError(t, err)
+
+	items := getShoppingListItemsByUser(t, userID)
+	row, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+	assert.Equal(t, 6.0, row.quantity)
+	assert.False(t, row.obtained, "obtained must be unchanged when only quantity is set")
+}
+
+func TestUpdateItem_EditsQuantityOnGeneratedRow(t *testing.T) {
+	userID := insertTestUser(t, "Update Item Generated Quantity Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	recipeID := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{itemID, &grams, 100}})
+	addToMenu(t, userID, recipeID, 4)
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+
+	items := getShoppingListItemsByUser(t, userID)
+	row, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+
+	err := shoppingListRepo.UpdateItem(context.Background(), userID.String(), row.id.String(), nil, floatPtr(999))
+	require.NoError(t, err)
+
+	items = getShoppingListItemsByUser(t, userID)
+	updated, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+	assert.Equal(t, 999.0, updated.quantity)
+}
+
+func TestUpdateItem_BothFieldsAtOnce(t *testing.T) {
+	userID := insertTestUser(t, "Update Item Both Fields Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	rowID := insertManualShoppingListItem(t, userID, itemID, &grams, 2, false)
+
+	err := shoppingListRepo.UpdateItem(context.Background(), userID.String(), rowID.String(), boolPtr(true), floatPtr(9))
+	require.NoError(t, err)
+
+	items := getShoppingListItemsByUser(t, userID)
+	row, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+	assert.True(t, row.obtained)
+	assert.Equal(t, 9.0, row.quantity)
+}
+
+func TestUpdateItem_UnknownID_ReturnsNotFound(t *testing.T) {
+	userID := insertTestUser(t, "Update Item Unknown ID Cook")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	err := shoppingListRepo.UpdateItem(context.Background(), userID.String(), uuid.NewString(), boolPtr(true), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, models.ErrShoppingListItemNotFound)
+}
+
+func TestUpdateItem_AnotherUsersRow_ReturnsNotFound(t *testing.T) {
+	ownerID := insertTestUser(t, "Update Item Owner Cook")
+	otherID := insertTestUser(t, "Update Item Other Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, ownerID)
+	registerShoppingListCascadeCleanup(t, otherID)
+
+	rowID := insertManualShoppingListItem(t, ownerID, itemID, &grams, 2, false)
+
+	err := shoppingListRepo.UpdateItem(context.Background(), otherID.String(), rowID.String(), boolPtr(true), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, models.ErrShoppingListItemNotFound)
+
+	items := getShoppingListItemsByUser(t, ownerID)
+	row, ok := findShoppingListItem(items, itemID, &grams)
+	require.True(t, ok)
+	assert.False(t, row.obtained, "another user's failed update must not have touched the row")
+}
+
 func TestGet_NoShoppingListRow_ReturnsEmptyWithoutCreatingOne(t *testing.T) {
 	userID := insertTestUser(t, "Get No List Cook")
 

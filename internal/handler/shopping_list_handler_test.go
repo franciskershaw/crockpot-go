@@ -36,6 +36,7 @@ func newShoppingListMocks(t *testing.T) *shoppingListMocks {
 	{
 		authed.GET("", h.Get)
 		authed.POST("/items", h.AddItem)
+		authed.PATCH("/items/:id", h.UpdateItem)
 	}
 	return m
 }
@@ -67,6 +68,18 @@ func doShoppingListAddItem(r *gin.Engine, body any, auth string) *httptest.Respo
 		reqBody = bytes.NewReader(nil)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/shopping-list/items", reqBody)
+	req.Header.Set("Content-Type", "application/json")
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func doShoppingListUpdateItem(r *gin.Engine, id string, body any, auth string) *httptest.ResponseRecorder {
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPatch, "/shopping-list/items/"+id, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	if auth != "" {
 		req.Header.Set("Authorization", auth)
@@ -226,6 +239,88 @@ func TestShoppingListAddItem_RepoError_500(t *testing.T) {
 		Return(errors.New("db down"))
 
 	w := doShoppingListAddItem(m.router, map[string]any{"itemId": itemID, "quantity": 2}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestShoppingListUpdateItem_NoToken_401(t *testing.T) {
+	m := newShoppingListMocks(t)
+	w := doShoppingListUpdateItem(m.router, uuid.NewString(), map[string]any{"obtained": true}, "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestShoppingListUpdateItem_MalformedID_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	w := doShoppingListUpdateItem(m.router, "not-a-uuid", map[string]any{"obtained": true}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_request", shoppingListErr(t, w))
+}
+
+func TestShoppingListUpdateItem_NeitherFieldPresent_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	w := doShoppingListUpdateItem(m.router, uuid.NewString(), map[string]any{}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_request", shoppingListErr(t, w))
+}
+
+func TestShoppingListUpdateItem_ZeroQuantity_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	w := doShoppingListUpdateItem(m.router, uuid.NewString(), map[string]any{"quantity": 0}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_quantity", shoppingListErr(t, w))
+}
+
+func TestShoppingListUpdateItem_ObtainedOnly_Success_200(t *testing.T) {
+	m := newShoppingListMocks(t)
+	id := uuid.NewString()
+	obtained := true
+	m.repo.EXPECT().UpdateItem(mock.Anything, shoppingListUserID.String(), id, &obtained, (*float64)(nil)).Return(nil)
+
+	w := doShoppingListUpdateItem(m.router, id, map[string]any{"obtained": true}, shoppingListAuth(t, "FREE"))
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "shopping list item updated", shoppingListMsg(t, w))
+}
+
+func TestShoppingListUpdateItem_QuantityOnly_Success_200(t *testing.T) {
+	m := newShoppingListMocks(t)
+	id := uuid.NewString()
+	quantity := 6.0
+	m.repo.EXPECT().UpdateItem(mock.Anything, shoppingListUserID.String(), id, (*bool)(nil), &quantity).Return(nil)
+
+	w := doShoppingListUpdateItem(m.router, id, map[string]any{"quantity": 6}, shoppingListAuth(t, "FREE"))
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestShoppingListUpdateItem_BothFields_Success_200(t *testing.T) {
+	m := newShoppingListMocks(t)
+	id := uuid.NewString()
+	obtained := false
+	quantity := 9.0
+	m.repo.EXPECT().UpdateItem(mock.Anything, shoppingListUserID.String(), id, &obtained, &quantity).Return(nil)
+
+	w := doShoppingListUpdateItem(m.router, id, map[string]any{"obtained": false, "quantity": 9}, shoppingListAuth(t, "FREE"))
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestShoppingListUpdateItem_NotFound_404(t *testing.T) {
+	m := newShoppingListMocks(t)
+	id := uuid.NewString()
+	obtained := true
+	m.repo.EXPECT().UpdateItem(mock.Anything, shoppingListUserID.String(), id, &obtained, (*float64)(nil)).
+		Return(models.ErrShoppingListItemNotFound)
+
+	w := doShoppingListUpdateItem(m.router, id, map[string]any{"obtained": true}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, "shopping_list_item_not_found", shoppingListErr(t, w))
+}
+
+func TestShoppingListUpdateItem_RepoError_500(t *testing.T) {
+	m := newShoppingListMocks(t)
+	id := uuid.NewString()
+	obtained := true
+	m.repo.EXPECT().UpdateItem(mock.Anything, shoppingListUserID.String(), id, &obtained, (*float64)(nil)).
+		Return(errors.New("db down"))
+
+	w := doShoppingListUpdateItem(m.router, id, map[string]any{"obtained": true}, shoppingListAuth(t, "FREE"))
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 

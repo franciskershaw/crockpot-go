@@ -123,6 +123,12 @@ WHERE id = sqlc.arg(id);
 INSERT INTO shopping_list_items (shopping_list_id, item_id, unit_id, quantity, obtained, is_manual)
 VALUES (sqlc.arg(shopping_list_id), sqlc.arg(item_id), sqlc.arg(unit_id), sqlc.arg(quantity), false, true);
 
+-- name: UpdateShoppingListItem :execrows
+UPDATE shopping_list_items
+SET obtained = COALESCE(sqlc.narg(obtained), obtained),
+    quantity = COALESCE(sqlc.narg(quantity), quantity)
+WHERE id = sqlc.arg(id) AND shopping_list_id = sqlc.arg(shopping_list_id);
+
 -- name: DeleteObsoleteShoppingListItems :exec
 DELETE FROM shopping_list_items sli
 WHERE sli.shopping_list_id = sqlc.arg(shopping_list_id)

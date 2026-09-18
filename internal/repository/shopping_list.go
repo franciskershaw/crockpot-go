@@ -99,6 +99,49 @@ func (r *PostgresShoppingListRepository) AddManualItem(ctx context.Context, user
 	}
 }
 
+func (r *PostgresShoppingListRepository) UpdateItem(ctx context.Context, userID, itemRowID string, obtained *bool, quantity *float64) error {
+	q := queriesFor(ctx, r.db)
+
+	uid, err := uuidParam(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+	rid, err := uuidParam(itemRowID)
+	if err != nil {
+		return fmt.Errorf("invalid item row id: %w", err)
+	}
+
+	listID, err := q.GetShoppingListByUserID(ctx, uid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.ErrShoppingListItemNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("failed to get shopping list: %w", err)
+	}
+
+	var qtyParam pgtype.Numeric
+	if quantity != nil {
+		qtyParam, err = numericParam(*quantity)
+		if err != nil {
+			return fmt.Errorf("invalid quantity: %w", err)
+		}
+	}
+
+	affected, err := q.UpdateShoppingListItem(ctx, sqlc.UpdateShoppingListItemParams{
+		Obtained:       pgtype.Bool{Bool: obtained != nil && *obtained, Valid: obtained != nil},
+		Quantity:       qtyParam,
+		ID:             rid,
+		ShoppingListID: listID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update shopping list item: %w", err)
+	}
+	if affected == 0 {
+		return models.ErrShoppingListItemNotFound
+	}
+	return nil
+}
+
 func (r *PostgresShoppingListRepository) Get(ctx context.Context, userID string) (*models.ShoppingList, error) {
 	q := queriesFor(ctx, r.db)
 

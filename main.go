@@ -203,6 +203,7 @@ func main() {
 	{
 		shoppingList.GET("", shoppingListHandler.Get)
 		shoppingList.POST("/items", shoppingListHandler.AddItem)
+		shoppingList.PATCH("/items/:id", shoppingListHandler.UpdateItem)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

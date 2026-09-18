@@ -40,3 +40,26 @@ func parseAddManualShoppingListItemRequest(c *gin.Context) (string, *string, flo
 
 	return req.ItemID, unitID, *req.Quantity, true
 }
+
+type updateShoppingListItemRequest struct {
+	Obtained *bool    `json:"obtained"`
+	Quantity *float64 `json:"quantity"`
+}
+
+// parseUpdateShoppingListItemRequest validates the body into (obtained, quantity), at least one
+// required; writes the error response and returns ok=false on failure.
+func parseUpdateShoppingListItemRequest(c *gin.Context) (*bool, *float64, bool) {
+	var req updateShoppingListItemRequest
+	if !bindJSON(c, &req) {
+		return nil, nil, false
+	}
+	if req.Obtained == nil && req.Quantity == nil {
+		badRequest(c, "invalid_request")
+		return nil, nil, false
+	}
+	if req.Quantity != nil && *req.Quantity <= 0 {
+		badRequest(c, "invalid_quantity")
+		return nil, nil, false
+	}
+	return req.Obtained, req.Quantity, true
+}

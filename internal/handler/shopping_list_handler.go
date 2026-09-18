@@ -12,6 +12,7 @@ import (
 type ShoppingListRepository interface {
 	Get(ctx context.Context, userID string) (*models.ShoppingList, error)
 	AddManualItem(ctx context.Context, userID, itemID string, unitID *string, quantity float64) error
+	UpdateItem(ctx context.Context, userID, itemRowID string, obtained *bool, quantity *float64) error
 }
 
 type ShoppingListHandler struct {
@@ -60,5 +61,31 @@ func (h *ShoppingListHandler) AddItem(c *gin.Context) {
 		badRequest(c, "unit_not_allowed")
 	default:
 		internalError(c, "failed to add manual shopping list item", err)
+	}
+}
+
+func (h *ShoppingListHandler) UpdateItem(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+	itemRowID := c.Param("id")
+	if !parseID(c, itemRowID) {
+		return
+	}
+	obtained, quantity, ok := parseUpdateShoppingListItemRequest(c)
+	if !ok {
+		return
+	}
+
+	err := h.repo.UpdateItem(c.Request.Context(), userID, itemRowID, obtained, quantity)
+	switch {
+	case err == nil:
+		c.JSON(http.StatusOK, gin.H{"message": "shopping list item updated"})
+	case errors.Is(err, models.ErrShoppingListItemNotFound):
+		notFound(c, "shopping_list_item_not_found")
+	default:
+		internalError(c, "failed to update shopping list item", err)
 	}
 }
