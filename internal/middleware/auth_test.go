@@ -73,6 +73,9 @@ func TestAuthMiddleware(t *testing.T) {
 			if w.Code != http.StatusUnauthorized {
 				t.Errorf("expected status %d, got %d", http.StatusUnauthorized, w.Code)
 			}
+			if got := w.Body.String(); got != `{"error":"unauthorized"}` {
+				t.Errorf("expected body %q, got %q", `{"error":"unauthorized"}`, got)
+			}
 			if called {
 				t.Error("expected handler NOT to be called")
 			}

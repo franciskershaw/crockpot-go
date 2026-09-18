@@ -822,24 +822,31 @@ few-line addendum to a `GET /me` ticket.*
 
 *From the second whole-codebase tech-debt pass, 2026-09-18. Full detail:
 `docs/findings/2026-09-18-tech-debt.md`.*
-- **CROC-046** — `internal/middleware/auth.go`'s three 401 bodies
-  (`missing authorization header` / `invalid authorization header` /
-  `invalid token`) aren't snake_case codes, breaking the
-  `{"error": "snake_case_code"}` contract `CROC-041` retrofitted onto
-  `handler` and `rate_limit.go` but missed on this package. Finding 1.
-- **CROC-047** — Two DRY cleanups, no shared code between them but both
-  mechanical, single-PR: (1) `recipe.go`'s `Create`/`Update` duplicate a
-  ~30-line ingredient-insert + category-link loop pair, unreconciled
-  since `CROC-016`; (2) the `serves` 1-50 bounds check is inlined 3x
-  across `menu_requests.go`/`recipe_requests.go` instead of extracted
-  into `validation.go`, the project's own convention for a field
-  validator used more than once. Findings 2-3.
-- **CROC-048** — `AddFavourite`'s check-then-write (visibility check,
-  then insert) isn't wrapped in `WithinTx`, unlike every other
-  check-then-act write on `RecipeHandler`. Currently benign (nothing
-  flips `Approved` after creation; favourite rows cascade-delete with
-  their recipe) — same "close the trap before it's triggered" shape as
-  `CROC-031`. Finding 4.
+- **CROC-046** — **Done** (2026-09-18). `internal/middleware/auth.go`'s
+  three 401 bodies (previously `missing authorization header` /
+  `invalid authorization header` / `invalid token`) all now return
+  `{"error": "unauthorized"}`, matching the code every other
+  "not authenticated" 401 in the codebase already uses (13 of 17
+  `unauthorized(c, ...)` call sites) — the 4 that use a distinct code
+  (`invalid_credentials`, `google_account_no_password`,
+  `invalid_refresh_token`) stay as they are, deliberately specific.
+  `crockpot-react` confirmed unaffected — its retry logic branches on
+  the 401 status alone, never the body. `auth_test.go`'s reject-case
+  table now asserts the exact body, closing the gap that let this ship
+  undetected the first time. `role.go` untouched (already compliant).
+  Finding 1.
+- **CROC-047** — **Done** (2026-09-18). `recipe.go`'s `Create`/`Update`
+  ingredient-insert + category-link loops collapsed into shared
+  `insertRecipeIngredients`/`linkRecipeCategories` helpers; `serves` 1-50
+  bounds check extracted into `validateServes` (`validation.go`),
+  replacing the 3 inline copies in `menu_requests.go`/`recipe_requests.go`.
+  Pure refactor, no test files touched — full `internal/handler` suite
+  and real-DB `./scripts/test-repo.sh` (recipe + favourite + menu tests)
+  green unmodified. Findings 2-3.
+- **CROC-048** — **Done** (2026-09-18). `AddFavourite` now wraps
+  `h.repo.AddFavourite(...)` in `h.transactor.WithinTx(...)`, matching
+  Create/Update/Delete. No behavior change; existing handler and real-DB
+  favourite tests green unmodified. Finding 4.
 
 *Parked 2026-08-31 — a loosely-scoped idea, not sequenced into a
 priority epic yet. Numbered out of physical order deliberately: this

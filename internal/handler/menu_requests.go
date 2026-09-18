@@ -20,11 +20,11 @@ func parseUpsertMenuEntryRequest(c *gin.Context) (string, int, bool) {
 	if !parseID(c, req.RecipeID) {
 		return "", 0, false
 	}
-	if req.Serves < 1 || req.Serves > 50 {
-		badRequest(c, "invalid_serves")
+	serves, ok := validateServes(c, req.Serves)
+	if !ok {
 		return "", 0, false
 	}
-	return req.RecipeID, req.Serves, true
+	return req.RecipeID, serves, true
 }
 
 // parseMenuEntryServesRequest validates the body into serves; writes the error response and returns ok=false on failure.
@@ -33,9 +33,5 @@ func parseMenuEntryServesRequest(c *gin.Context) (int, bool) {
 	if !bindJSON(c, &req) {
 		return 0, false
 	}
-	if req.Serves < 1 || req.Serves > 50 {
-		badRequest(c, "invalid_serves")
-		return 0, false
-	}
-	return req.Serves, true
+	return validateServes(c, req.Serves)
 }

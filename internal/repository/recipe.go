@@ -332,38 +332,11 @@ func (r *PostgresRecipeRepository) Create(ctx context.Context, input models.Crea
 		return nil, fmt.Errorf("failed to create recipe: %w", err)
 	}
 
-	for i, ing := range input.Ingredients {
-		qty, err := numericParam(ing.Quantity)
-		if err != nil {
-			return nil, fmt.Errorf("invalid quantity: %w", err)
-		}
-		params := sqlc.CreateRecipeIngredientParams{
-			RecipeID: created.ID,
-			ItemID:   pgUUID(ing.ItemID),
-			Quantity: qty,
-			Position: int16(i),
-		}
-		if ing.UnitID != nil {
-			params.UnitID = pgUUID(*ing.UnitID)
-		}
-		if err := q.CreateRecipeIngredient(ctx, params); err != nil {
-			if mapped := pgConstraintError(err, recipeConstraintErrors); mapped != nil {
-				return nil, mapped
-			}
-			return nil, fmt.Errorf("failed to add recipe ingredient: %w", err)
-		}
+	if err := insertRecipeIngredients(ctx, q, created.ID, input.Ingredients); err != nil {
+		return nil, err
 	}
-
-	for _, catID := range input.CategoryIDs {
-		if err := q.CreateRecipeCategoryLink(ctx, sqlc.CreateRecipeCategoryLinkParams{
-			RecipeID:   created.ID,
-			CategoryID: pgUUID(catID),
-		}); err != nil {
-			if mapped := pgConstraintError(err, recipeConstraintErrors); mapped != nil {
-				return nil, mapped
-			}
-			return nil, fmt.Errorf("failed to link recipe category: %w", err)
-		}
+	if err := linkRecipeCategories(ctx, q, created.ID, input.CategoryIDs); err != nil {
+		return nil, err
 	}
 
 	return buildRecipeDetail(ctx, q, created, pgUUID(input.CreatedByID))
@@ -427,10 +400,22 @@ func (r *PostgresRecipeRepository) Update(ctx context.Context, id string, input 
 		return nil, fmt.Errorf("failed to clear recipe categories: %w", err)
 	}
 
-	for i, ing := range input.Ingredients {
+	if err := insertRecipeIngredients(ctx, q, recipeID, input.Ingredients); err != nil {
+		return nil, err
+	}
+	if err := linkRecipeCategories(ctx, q, recipeID, input.CategoryIDs); err != nil {
+		return nil, err
+	}
+
+	return buildRecipeDetail(ctx, q, updated, cid)
+}
+
+// insertRecipeIngredients creates one recipe_ingredients row per ingredient, preserving submit order via Position.
+func insertRecipeIngredients(ctx context.Context, q *sqlc.Queries, recipeID pgtype.UUID, ingredients []models.Ingredient) error {
+	for i, ing := range ingredients {
 		qty, err := numericParam(ing.Quantity)
 		if err != nil {
-			return nil, fmt.Errorf("invalid quantity: %w", err)
+			return fmt.Errorf("invalid quantity: %w", err)
 		}
 		params := sqlc.CreateRecipeIngredientParams{
 			RecipeID: recipeID,
@@ -443,25 +428,28 @@ func (r *PostgresRecipeRepository) Update(ctx context.Context, id string, input 
 		}
 		if err := q.CreateRecipeIngredient(ctx, params); err != nil {
 			if mapped := pgConstraintError(err, recipeConstraintErrors); mapped != nil {
-				return nil, mapped
+				return mapped
 			}
-			return nil, fmt.Errorf("failed to add recipe ingredient: %w", err)
+			return fmt.Errorf("failed to add recipe ingredient: %w", err)
 		}
 	}
+	return nil
+}
 
-	for _, catID := range input.CategoryIDs {
+// linkRecipeCategories creates one recipe_categories_recipes row per category ID.
+func linkRecipeCategories(ctx context.Context, q *sqlc.Queries, recipeID pgtype.UUID, categoryIDs []uuid.UUID) error {
+	for _, catID := range categoryIDs {
 		if err := q.CreateRecipeCategoryLink(ctx, sqlc.CreateRecipeCategoryLinkParams{
 			RecipeID:   recipeID,
 			CategoryID: pgUUID(catID),
 		}); err != nil {
 			if mapped := pgConstraintError(err, recipeConstraintErrors); mapped != nil {
-				return nil, mapped
+				return mapped
 			}
-			return nil, fmt.Errorf("failed to link recipe category: %w", err)
+			return fmt.Errorf("failed to link recipe category: %w", err)
 		}
 	}
-
-	return buildRecipeDetail(ctx, q, updated, cid)
+	return nil
 }
 
 func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) error {

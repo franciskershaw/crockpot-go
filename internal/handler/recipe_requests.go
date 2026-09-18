@@ -52,8 +52,8 @@ func parseCreateRecipeInput(c *gin.Context) (models.CreateRecipeInput, bool) {
 		badRequest(c, "invalid_time")
 		return models.CreateRecipeInput{}, false
 	}
-	if req.Serves < 1 || req.Serves > 50 {
-		badRequest(c, "invalid_serves")
+	serves, ok := validateServes(c, req.Serves)
+	if !ok {
 		return models.CreateRecipeInput{}, false
 	}
 	instructions, ok := validateInstructions(c, req.Instructions)
@@ -81,7 +81,7 @@ func parseCreateRecipeInput(c *gin.Context) (models.CreateRecipeInput, bool) {
 		Name:          name,
 		Description:   description,
 		TimeInMinutes: req.TimeInMinutes,
-		Serves:        req.Serves,
+		Serves:        serves,
 		Instructions:  instructions,
 		Notes:         notes,
 		CategoryIDs:   categoryIDs,
