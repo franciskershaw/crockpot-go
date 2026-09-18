@@ -62,6 +62,15 @@ func validateAbbreviation(c *gin.Context, raw string) (string, bool) {
 	return trimmed, true
 }
 
+// validateServes checks raw is within the 1-50 serves bound, writing 400 invalid_serves and returning ok=false if out of range.
+func validateServes(c *gin.Context, raw int) (int, bool) {
+	if raw < 1 || raw > 50 {
+		badRequest(c, "invalid_serves")
+		return 0, false
+	}
+	return raw, true
+}
+
 // parseID checks raw is a well-formed UUID (not that it exists — the DB confirms that), writing 400 invalid_request and returning ok=false if malformed.
 func parseID(c *gin.Context, raw string) bool {
 	if _, err := uuid.Parse(raw); err != nil {

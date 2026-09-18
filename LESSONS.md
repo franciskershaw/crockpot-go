@@ -545,3 +545,24 @@ implementation quality until CROC-001 lands.
   should be checked against every package that emits that response type,
   not just the one the ticket's own diff touched — `middleware` isn't
   `handler`, and a same-directory grep alone would have missed it.
+
+## 2026-09-18 — CROC-046 — `auth.go`'s 401 bodies collapsed to the shared `unauthorized` code
+
+- No rework. Clean ticket. Test went red for the right reason (exact
+  body mismatch, no panic) on the first attempt; three one-line edits in
+  `auth.go` turned it green on the first attempt.
+- Grill checked the frontend's actual retry logic (`client.ts:61`,
+  status-only) and this codebase's own 13/17-call-site convention before
+  picking "collapse to one code" over inventing three new ones —
+  confirmed rather than assumed. `code-review` skipped by choice, size
+  didn't warrant it.
+
+## 2026-09-18 — CROC-047, CROC-048 — Tech-debt cleanups batched, no rework
+
+- No rework. Both fully specified in the findings doc (no open decision),
+  so grill was skipped for a one-message scope recap instead; run
+  straight through per the founder's choice rather than stopping at each
+  red/green boundary. All existing tests (handler mocks + real-DB
+  recipe/favourite/menu suites) green unmodified — pure refactors.
+- Close-out itself scaled down to just marking Done + this entry, at the
+  founder's request — no retro Q&A for a batch this small and clean.

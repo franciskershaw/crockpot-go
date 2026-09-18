@@ -203,12 +203,15 @@ func (h *RecipeHandler) AddFavourite(c *gin.Context) {
 	}
 	isAdmin := c.GetString("role") == "ADMIN"
 
-	if err := h.repo.AddFavourite(c.Request.Context(), userID, id, isAdmin); err != nil {
-		if errors.Is(err, models.ErrRecipeNotFound) {
+	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
+		return h.repo.AddFavourite(ctx, userID, id, isAdmin)
+	})
+	if txErr != nil {
+		if errors.Is(txErr, models.ErrRecipeNotFound) {
 			notFound(c, "not_found")
 			return
 		}
-		internalError(c, "failed to add favourite", err)
+		internalError(c, "failed to add favourite", txErr)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "recipe favourited"})
