@@ -77,6 +77,7 @@ func main() {
 	recipeCategoryRepo := repository.NewPostgresRecipeCategoryRepository(db.DB)
 	recipeRepo := repository.NewPostgresRecipeRepository(db.DB)
 	menuRepo := repository.NewPostgresMenuRepository(db.DB)
+	shoppingListRepo := repository.NewPostgresShoppingListRepository(db.DB)
 	emailSender := email.NewResendClient(cfg.ResendAPIKey, cfg.EmailFrom)
 	authHandler := handler.NewAuthHandler(userRepo, oauthManager, refreshTokenRepo, emailVerificationTokenRepo, passwordResetTokenRepo, emailSender, transactor, cfg)
 	itemCategoryHandler := handler.NewItemCategoryHandler(itemCategoryRepo)
@@ -84,7 +85,7 @@ func main() {
 	itemHandler := handler.NewItemHandler(itemRepo, transactor)
 	recipeCategoryHandler := handler.NewRecipeCategoryHandler(recipeCategoryRepo)
 	recipeHandler := handler.NewRecipeHandler(recipeRepo, transactor)
-	menuHandler := handler.NewMenuHandler(menuRepo)
+	menuHandler := handler.NewMenuHandler(menuRepo, shoppingListRepo, transactor)
 
 	// Initialize Gin server
 	gin.SetMode(configureGinMode(string(cfg.Environment)))
