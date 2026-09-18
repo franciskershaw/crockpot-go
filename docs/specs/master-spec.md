@@ -820,6 +820,27 @@ few-line addendum to a `GET /me` ticket.*
   log). Paired with a `crockpot-react` companion ticket for the
   show-more/infinite-scroll UI once numbered there.
 
+*From the second whole-codebase tech-debt pass, 2026-09-18. Full detail:
+`docs/findings/2026-09-18-tech-debt.md`.*
+- **CROC-046** — `internal/middleware/auth.go`'s three 401 bodies
+  (`missing authorization header` / `invalid authorization header` /
+  `invalid token`) aren't snake_case codes, breaking the
+  `{"error": "snake_case_code"}` contract `CROC-041` retrofitted onto
+  `handler` and `rate_limit.go` but missed on this package. Finding 1.
+- **CROC-047** — Two DRY cleanups, no shared code between them but both
+  mechanical, single-PR: (1) `recipe.go`'s `Create`/`Update` duplicate a
+  ~30-line ingredient-insert + category-link loop pair, unreconciled
+  since `CROC-016`; (2) the `serves` 1-50 bounds check is inlined 3x
+  across `menu_requests.go`/`recipe_requests.go` instead of extracted
+  into `validation.go`, the project's own convention for a field
+  validator used more than once. Findings 2-3.
+- **CROC-048** — `AddFavourite`'s check-then-write (visibility check,
+  then insert) isn't wrapped in `WithinTx`, unlike every other
+  check-then-act write on `RecipeHandler`. Currently benign (nothing
+  flips `Approved` after creation; favourite rows cascade-delete with
+  their recipe) — same "close the trap before it's triggered" shape as
+  `CROC-031`. Finding 4.
+
 *Parked 2026-08-31 — a loosely-scoped idea, not sequenced into a
 priority epic yet. Numbered out of physical order deliberately: this
 sits conceptually in Epic 6 (Shopping Lists), but the founder wants it

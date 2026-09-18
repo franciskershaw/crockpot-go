@@ -522,3 +522,26 @@ implementation quality until CROC-001 lands.
 - **Pattern**: a diff-scoped review agent can't see transaction-scoping
   code that lives outside the diff — verify a concurrency finding
   against the actual transaction boundary before accepting it as real.
+
+## 2026-09-18 — Second whole-codebase tech-debt pass
+
+- Covered `internal/`, `db/migrations/`, `config/`, `main.go`,
+  `lifecycle.go` (`cmd/migrate-data` excluded, one-time script, not part
+  of the running service). All 9 first-pass findings (`CROC-031`–`037`,
+  `041`) confirmed still holding on re-check, nothing regressed. 4 new
+  findings, 3 tickets (`CROC-046`–`048`), full detail
+  `docs/findings/2026-09-18-tech-debt.md`.
+- The one non-trivial find: `CROC-041`'s error-shape retrofit covered
+  `handler` and `middleware/rate_limit.go` but missed
+  `middleware/auth.go` (a different package) — its three 401 bodies are
+  still sentence-style, and `auth_test.go` only asserts the status code,
+  never the body, so nothing caught the gap. Also found: `recipe.go`'s
+  `Create`/`Update` duplicate a ~30-line ingredient/category-write loop
+  pair unreconciled since `CROC-016`, and `AddFavourite` is the one
+  check-then-write on `RecipeHandler` not wrapped in `WithinTx` (same
+  shape as `CROC-031`, currently benign for the same "not yet exploited"
+  reason).
+- **Pattern**: an error-shape (or any cross-cutting) retrofit ticket
+  should be checked against every package that emits that response type,
+  not just the one the ticket's own diff touched — `middleware` isn't
+  `handler`, and a same-directory grep alone would have missed it.
