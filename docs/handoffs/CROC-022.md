@@ -75,6 +75,25 @@ not-equal for conflict matching), so the merge-into-existing-manual-row
 check is an application-level select-then-update/insert, same shape as
 `Regenerate`'s own multi-statement approach.
 
+**Correction from branch review**: this select-then-write shipped
+without a transaction wrapper — `AddItem` called `repo.AddManualItem`
+directly instead of through `h.transactor.WithinTx`, unlike `DeleteItem`.
+Without the wrapper, `GetOrCreateShoppingList`'s `ON CONFLICT DO UPDATE`
+row lock releases as soon as that one statement commits, not for the
+rest of the sequence — so it never actually serialized the later
+find-then-write the way `CROC-021`'s `Regenerate` relies on it to
+(`Regenerate` only gets that guarantee because `MenuHandler` always
+calls it inside its own `WithinTx`). Two concurrent adds of the same
+new item could each see "no existing row" and both insert. Fixed by
+wrapping `AddItem`'s call in `WithinTx`, matching `DeleteItem`; this
+also closes a second-order effect where a rejected add (e.g. unknown
+`itemId`) left a stray empty `shopping_lists` row behind, since the
+earlier `GetOrCreateShoppingList` write is now rolled back too.
+Verified with a real concurrent-goroutines test against the dev DB
+(`TestAddManualItem_ConcurrentDuplicateAddsForNewItemMergeIntoOneRow`),
+mirroring `user_test.go`'s existing concurrency-test pattern, plus a
+rollback test for the stray-row case — not just reasoned about.
+
 ### 3. Quantity is editable on any row — manual or recipe-driven — and is **not** protected against regeneration
 
 Checked the actual old-app screen (`crockpot/src/app/your-crockpot/
@@ -189,6 +208,12 @@ with not confirming another user's row exists at all (same posture as
 - [x] `POST /shopping-list/items` with a `unitId` not in the item's
       `allowedUnitIds` returns a `4xx` (reusing `checkAllowedUnits`).
 - [x] `POST /shopping-list/items` with `quantity <= 0` returns `400`.
+- [x] Two concurrent `POST /shopping-list/items` for the same new
+      `itemId`/`unitId` merge into one row, not two (branch-review
+      finding — verified with a real concurrent-goroutines test).
+- [x] A rejected `POST /shopping-list/items` (e.g. unknown `itemId`)
+      leaves no stray `shopping_lists` row behind (branch-review
+      finding).
 - [x] `PATCH /shopping-list/items/:id` with `{"obtained": true}` flips
       the row's `obtained`; a subsequent `GET` reflects it.
 - [x] `PATCH /shopping-list/items/:id` with `{"quantity": N}` updates

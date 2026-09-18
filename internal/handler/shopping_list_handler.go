@@ -52,18 +52,20 @@ func (h *ShoppingListHandler) AddItem(c *gin.Context) {
 		return
 	}
 
-	err := h.repo.AddManualItem(c.Request.Context(), userID, itemID, unitID, quantity)
+	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
+		return h.repo.AddManualItem(ctx, userID, itemID, unitID, quantity)
+	})
 	switch {
-	case err == nil:
+	case txErr == nil:
 		c.JSON(http.StatusOK, gin.H{"message": "item added to shopping list"})
-	case errors.Is(err, models.ErrShoppingListInvalidItem):
+	case errors.Is(txErr, models.ErrShoppingListInvalidItem):
 		badRequest(c, "invalid_item")
-	case errors.Is(err, models.ErrShoppingListInvalidUnit):
+	case errors.Is(txErr, models.ErrShoppingListInvalidUnit):
 		badRequest(c, "invalid_unit")
-	case errors.Is(err, models.ErrIngredientUnitNotAllowed):
+	case errors.Is(txErr, models.ErrIngredientUnitNotAllowed):
 		badRequest(c, "unit_not_allowed")
 	default:
-		internalError(c, "failed to add manual shopping list item", err)
+		internalError(c, "failed to add manual shopping list item", txErr)
 	}
 }
 

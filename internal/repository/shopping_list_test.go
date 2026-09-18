@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/franciskershaw/crockpot-go/db"
@@ -532,6 +533,60 @@ func TestAddManualItem_UnknownItem_ReturnsInvalidItemError(t *testing.T) {
 	err := shoppingListRepo.AddManualItem(context.Background(), userID.String(), uuid.NewString(), nil, 1)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, models.ErrShoppingListInvalidItem)
+}
+
+func TestAddManualItem_RejectedAdd_WithinTxLeavesNoStrayShoppingListRow(t *testing.T) {
+	userID := insertTestUser(t, "Manual Add Rejected Rollback Cook")
+
+	// Mirrors the fixed handler: wrapping in a transaction rolls back GetOrCreateShoppingList's write too.
+	txErr := transactor.WithinTx(context.Background(), func(ctx context.Context) error {
+		return shoppingListRepo.AddManualItem(ctx, userID.String(), uuid.NewString(), nil, 1)
+	})
+	require.Error(t, txErr)
+	assert.ErrorIs(t, txErr, models.ErrShoppingListInvalidItem)
+
+	var count int
+	require.NoError(t, db.DB.QueryRow(context.Background(),
+		`SELECT count(*) FROM shopping_lists WHERE user_id = $1`, userID).Scan(&count))
+	assert.Equal(t, 0, count, "a rejected add wrapped in a transaction must not leave a stray shopping_lists row")
+}
+
+func TestAddManualItem_ConcurrentDuplicateAddsForNewItemMergeIntoOneRow(t *testing.T) {
+	userID := insertTestUser(t, "Concurrent Manual Add Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	// Mirrors what the fixed handler does: wrap the repo call in its own transaction, same as
+	// TestGetOrCreateUser_ConcurrentFirstLoginsForSameAccountBothSucceed's pattern.
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range 2 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = transactor.WithinTx(context.Background(), func(ctx context.Context) error {
+				return shoppingListRepo.AddManualItem(ctx, userID.String(), itemID.String(), strPtr(grams), 1)
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	require.NoError(t, errs[0])
+	require.NoError(t, errs[1])
+
+	items := getShoppingListItemsByUser(t, userID)
+	var count int
+	var totalQuantity float64
+	for _, r := range items {
+		if r.itemID == itemID {
+			count++
+			totalQuantity = r.quantity
+		}
+	}
+	assert.Equal(t, 1, count, "concurrent duplicate manual adds for a brand-new item must merge into one row, not two")
+	assert.Equal(t, 2.0, totalQuantity, "both concurrent adds' quantities must land in the single merged row")
 }
 
 func TestAddManualItem_UnitNotAllowedForItem_ReturnsError(t *testing.T) {
