@@ -46,6 +46,7 @@ func newShoppingListMocks(t *testing.T) *shoppingListMocks {
 		authed.POST("/items", h.AddItem)
 		authed.PATCH("/items/:id", h.UpdateItem)
 		authed.DELETE("/items/:id", h.DeleteItem)
+		authed.DELETE("", h.ClearList)
 	}
 	return m
 }
@@ -100,6 +101,16 @@ func doShoppingListUpdateItem(r *gin.Engine, id string, body any, auth string) *
 
 func doShoppingListDeleteItem(r *gin.Engine, id string, auth string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodDelete, "/shopping-list/items/"+id, nil)
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func doShoppingListClear(r *gin.Engine, auth string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodDelete, "/shopping-list", nil)
 	if auth != "" {
 		req.Header.Set("Authorization", auth)
 	}
@@ -384,6 +395,29 @@ func TestShoppingListDeleteItem_RepoError_500(t *testing.T) {
 		Return(errors.New("db down"))
 
 	w := doShoppingListDeleteItem(m.router, id, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestShoppingListClear_NoToken_401(t *testing.T) {
+	m := newShoppingListMocks(t)
+	w := doShoppingListClear(m.router, "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestShoppingListClear_Success_200MessageBody(t *testing.T) {
+	m := newShoppingListMocks(t)
+	m.repo.EXPECT().ClearList(mock.Anything, shoppingListUserID.String()).Return(nil)
+
+	w := doShoppingListClear(m.router, shoppingListAuth(t, "FREE"))
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "shopping list cleared", shoppingListMsg(t, w))
+}
+
+func TestShoppingListClear_RepoError_500(t *testing.T) {
+	m := newShoppingListMocks(t)
+	m.repo.EXPECT().ClearList(mock.Anything, shoppingListUserID.String()).Return(errors.New("db down"))
+
+	w := doShoppingListClear(m.router, shoppingListAuth(t, "FREE"))
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 

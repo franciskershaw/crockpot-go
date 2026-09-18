@@ -205,6 +205,7 @@ func main() {
 		shoppingList.POST("/items", shoppingListHandler.AddItem)
 		shoppingList.PATCH("/items/:id", shoppingListHandler.UpdateItem)
 		shoppingList.DELETE("/items/:id", shoppingListHandler.DeleteItem)
+		shoppingList.DELETE("", shoppingListHandler.ClearList)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

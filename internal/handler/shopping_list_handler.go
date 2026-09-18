@@ -14,6 +14,7 @@ type ShoppingListRepository interface {
 	AddManualItem(ctx context.Context, userID, itemID string, unitID *string, quantity float64) error
 	UpdateItem(ctx context.Context, userID, itemRowID string, obtained *bool, quantity *float64) error
 	DeleteItem(ctx context.Context, userID, itemRowID string) error
+	ClearList(ctx context.Context, userID string) error
 }
 
 type ShoppingListHandler struct {
@@ -114,4 +115,17 @@ func (h *ShoppingListHandler) DeleteItem(c *gin.Context) {
 	default:
 		internalError(c, "failed to delete shopping list item", txErr)
 	}
+}
+
+func (h *ShoppingListHandler) ClearList(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+	if err := h.repo.ClearList(c.Request.Context(), userID); err != nil {
+		internalError(c, "failed to clear shopping list", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "shopping list cleared"})
 }

@@ -204,10 +204,10 @@ with not confirming another user's row exists at all (same posture as
       `quantity_at_dismissal`; a subsequent regenerate from an unrelated
       menu change does not bring it back while the required quantity is
       unchanged.
-- [ ] `DELETE /shopping-list` removes every item (manual and generated)
+- [x] `DELETE /shopping-list` removes every item (manual and generated)
       in one call and writes no dismissal rows; a subsequent regenerate
       freely reintroduces any still-needed recipe-driven item.
-- [ ] A hand-edited quantity on a generated row is overwritten back to
+- [x] A hand-edited quantity on a generated row is overwritten back to
       the recipe-calculated amount by the next regenerate triggered by
       an unrelated menu change (the accepted decision-3 tradeoff,
       exercised as a real regression check, not just documented).

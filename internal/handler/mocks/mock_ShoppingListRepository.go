@@ -73,6 +73,53 @@ func (_c *MockShoppingListRepository_AddManualItem_Call) RunAndReturn(run func(c
 	return _c
 }
 
+// ClearList provides a mock function with given fields: ctx, userID
+func (_m *MockShoppingListRepository) ClearList(ctx context.Context, userID string) error {
+	ret := _m.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClearList")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, userID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShoppingListRepository_ClearList_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ClearList'
+type MockShoppingListRepository_ClearList_Call struct {
+	*mock.Call
+}
+
+// ClearList is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+func (_e *MockShoppingListRepository_Expecter) ClearList(ctx interface{}, userID interface{}) *MockShoppingListRepository_ClearList_Call {
+	return &MockShoppingListRepository_ClearList_Call{Call: _e.mock.On("ClearList", ctx, userID)}
+}
+
+func (_c *MockShoppingListRepository_ClearList_Call) Run(run func(ctx context.Context, userID string)) *MockShoppingListRepository_ClearList_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockShoppingListRepository_ClearList_Call) Return(_a0 error) *MockShoppingListRepository_ClearList_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShoppingListRepository_ClearList_Call) RunAndReturn(run func(context.Context, string) error) *MockShoppingListRepository_ClearList_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DeleteItem provides a mock function with given fields: ctx, userID, itemRowID
 func (_m *MockShoppingListRepository) DeleteItem(ctx context.Context, userID string, itemRowID string) error {
 	ret := _m.Called(ctx, userID, itemRowID)

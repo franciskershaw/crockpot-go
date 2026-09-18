@@ -188,6 +188,20 @@ func (r *PostgresShoppingListRepository) DeleteItem(ctx context.Context, userID,
 	return nil
 }
 
+func (r *PostgresShoppingListRepository) ClearList(ctx context.Context, userID string) error {
+	q := queriesFor(ctx, r.db)
+
+	uid, err := uuidParam(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+
+	if err := q.ClearShoppingListItems(ctx, uid); err != nil {
+		return fmt.Errorf("failed to clear shopping list: %w", err)
+	}
+	return nil
+}
+
 func (r *PostgresShoppingListRepository) Get(ctx context.Context, userID string) (*models.ShoppingList, error) {
 	q := queriesFor(ctx, r.db)
 

@@ -69,6 +69,16 @@ func (q *Queries) AggregateMenuIngredients(ctx context.Context, recipeMenuID pgt
 	return items, nil
 }
 
+const clearShoppingListItems = `-- name: ClearShoppingListItems :exec
+DELETE FROM shopping_list_items
+WHERE shopping_list_id IN (SELECT id FROM shopping_lists WHERE user_id = $1)
+`
+
+func (q *Queries) ClearShoppingListItems(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, clearShoppingListItems, userID)
+	return err
+}
+
 const deleteObsoleteShoppingListItems = `-- name: DeleteObsoleteShoppingListItems :exec
 DELETE FROM shopping_list_items sli
 WHERE sli.shopping_list_id = $1
