@@ -406,7 +406,8 @@ func TestBuildRecipesSkipTally(t *testing.T) {
 
 // --- transform (integration, no DB) ---
 
-func TestTransformAgainstFixture(t *testing.T) {
+func fixtureTransformInput(t *testing.T) transformInput {
+	t.Helper()
 	src, err := loadSource("testdata")
 	if err != nil {
 		t.Fatalf("loadSource: %v", err)
@@ -428,6 +429,11 @@ func TestTransformAgainstFixture(t *testing.T) {
 			"68eb87d8929571824b1516bd": "SUB_Z",
 		},
 	}
+	return in
+}
+
+func TestTransformAgainstFixture(t *testing.T) {
+	in := fixtureTransformInput(t)
 	res, err := transform(in)
 	if err != nil {
 		t.Fatalf("transform: %v", err)
@@ -450,5 +456,157 @@ func TestTransformAgainstFixture(t *testing.T) {
 	}
 	if res.skipped() {
 		t.Fatalf("clean fixture should not skip anything: %+v", res.Notes)
+	}
+}
+
+// --- buildMenuHistory ---
+
+var (
+	uHistFrancis = uuid.MustParse("44444444-0000-0000-0000-000000000001")
+	uHistZoe     = uuid.MustParse("44444444-0000-0000-0000-000000000002")
+	hFirst       = time.Date(2025, 8, 1, 18, 0, 0, 0, time.UTC)
+	hLast        = time.Date(2025, 9, 20, 17, 30, 0, 0, time.UTC)
+	hRemoved     = time.Date(2025, 9, 27, 9, 15, 0, 0, time.UTC)
+)
+
+func historyUsers() []userRow {
+	return []userRow{{SourceID: "francis", ID: uHistFrancis}, {SourceID: "zoe", ID: uHistZoe}}
+}
+
+func historyRecipes(ids ...oid) []recipeRow {
+	rows := make([]recipeRow, len(ids))
+	for i, id := range ids {
+		rows[i] = recipeRow{ID: objectIDToUUID(id)}
+	}
+	return rows
+}
+
+func mHist(recipe oid, times int, first, last, removed time.Time) mongoMenuHistoryEntry {
+	return mongoMenuHistoryEntry{
+		RecipeID: recipe, TimesAddedToMenu: ejsonInt(times),
+		FirstAddedToMenu: ejsonDate{first}, LastAddedToMenu: ejsonDate{last}, LastRemovedFromMenu: ejsonDate{removed},
+	}
+}
+
+func TestBuildMenuHistoryMapsRow(t *testing.T) {
+	menus := []mongoRecipeMenu{{UserID: "francis", History: []mongoMenuHistoryEntry{mHist("r1", 5, hFirst, hLast, hRemoved)}}}
+
+	rows, tally, notes := buildMenuHistory(menus, historyUsers(), historyRecipes("r1"))
+
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows, want 1", len(rows))
+	}
+	want := baselineRow{UserID: uHistFrancis, RecipeID: objectIDToUUID("r1"), TimesAdded: 5, FirstAdded: hFirst, LastAdded: hLast, LastRemoved: hRemoved}
+	if rows[0] != want {
+		t.Fatalf("row = %+v, want %+v", rows[0], want)
+	}
+	if tally != (historyTally{source: 1, leftBehind: 0}) {
+		t.Fatalf("tally = %+v, want {1 0}", tally)
+	}
+	if len(notes) != 0 {
+		t.Fatalf("notes: %+v", notes)
+	}
+}
+
+func TestBuildMenuHistoryLeavesUnmigratedUserBehind(t *testing.T) {
+	menus := []mongoRecipeMenu{{UserID: "spam", History: []mongoMenuHistoryEntry{
+		mHist("r1", 1, hFirst, hFirst, hFirst), mHist("r2", 1, hFirst, hFirst, hFirst),
+	}}}
+
+	rows, tally, notes := buildMenuHistory(menus, historyUsers(), historyRecipes("r1", "r2"))
+
+	if len(rows) != 0 {
+		t.Fatalf("got %d rows for a user who was not migrated, want 0", len(rows))
+	}
+	if tally != (historyTally{source: 0, leftBehind: 2}) {
+		t.Fatalf("tally = %+v, want {0 2}", tally)
+	}
+	if len(notes) != 0 {
+		t.Fatalf("leaving a user behind is not a skip: %+v", notes)
+	}
+}
+
+func TestBuildMenuHistoryMissingRecipeSkips(t *testing.T) {
+	menus := []mongoRecipeMenu{{UserID: "francis", History: []mongoMenuHistoryEntry{
+		mHist("r1", 2, hFirst, hLast, hRemoved), mHist("gone", 4, hFirst, hLast, hRemoved),
+	}}}
+
+	rows, tally, notes := buildMenuHistory(menus, historyUsers(), historyRecipes("r1"))
+
+	if len(rows) != 1 || rows[0].RecipeID != objectIDToUUID("r1") {
+		t.Fatalf("rows = %+v, want only r1", rows)
+	}
+	if tally.source != 2 {
+		t.Fatalf("tally.source = %d, want 2 (skipped rows still count as source)", tally.source)
+	}
+	if !hasNote(notes, noteHistoryRecipeMissing) || len(notes) != 1 {
+		t.Fatalf("notes = %+v, want one %s", notes, noteHistoryRecipeMissing)
+	}
+}
+
+func TestBuildMenuHistoryDuplicateRecipeMerges(t *testing.T) {
+	early := time.Date(2025, 7, 1, 8, 0, 0, 0, time.UTC)
+	menus := []mongoRecipeMenu{{UserID: "francis", History: []mongoMenuHistoryEntry{
+		mHist("r1", 2, hFirst, hLast, hRemoved),
+		mHist("r1", 3, early, hFirst, hLast),
+	}}}
+
+	rows, tally, notes := buildMenuHistory(menus, historyUsers(), historyRecipes("r1"))
+
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows, want 1 merged row", len(rows))
+	}
+	want := baselineRow{UserID: uHistFrancis, RecipeID: objectIDToUUID("r1"), TimesAdded: 5, FirstAdded: early, LastAdded: hLast, LastRemoved: hRemoved}
+	if rows[0] != want {
+		t.Fatalf("row = %+v, want %+v", rows[0], want)
+	}
+	if tally.source != 2 {
+		t.Fatalf("tally.source = %d, want 2", tally.source)
+	}
+	if !hasNote(notes, noteHistoryDuplicate) || len(notes) != 1 {
+		t.Fatalf("notes = %+v, want one %s", notes, noteHistoryDuplicate)
+	}
+}
+
+func TestBuildMenuHistorySameRecipeAcrossUsersKeepsBoth(t *testing.T) {
+	menus := []mongoRecipeMenu{
+		{UserID: "francis", History: []mongoMenuHistoryEntry{mHist("r1", 1, hFirst, hFirst, hFirst)}},
+		{UserID: "zoe", History: []mongoMenuHistoryEntry{mHist("r1", 1, hFirst, hFirst, hFirst)}},
+	}
+
+	rows, _, notes := buildMenuHistory(menus, historyUsers(), historyRecipes("r1"))
+
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows, want 2 (one per user)", len(rows))
+	}
+	if len(notes) != 0 {
+		t.Fatalf("a recipe in two users' histories is not a duplicate: %+v", notes)
+	}
+}
+
+func TestBuildMenuHistoryNoMenusIsEmpty(t *testing.T) {
+	rows, tally, notes := buildMenuHistory(nil, historyUsers(), historyRecipes("r1"))
+
+	if len(rows) != 0 || tally != (historyTally{}) || len(notes) != 0 {
+		t.Fatalf("rows %d, tally %+v, notes %+v; want all empty", len(rows), tally, notes)
+	}
+}
+
+func TestTransformMenuHistoryAgainstFixture(t *testing.T) {
+	res, err := transform(fixtureTransformInput(t))
+	if err != nil {
+		t.Fatalf("transform: %v", err)
+	}
+	if len(res.MenuHistory) != 2 {
+		t.Fatalf("got %d baseline rows, want 2 (Francis and Zoe on the taco recipe)", len(res.MenuHistory))
+	}
+	if res.HistorySource != 3 || res.HistoryLeftBehind != 1 {
+		t.Fatalf("source %d, left behind %d; want 3 and 1", res.HistorySource, res.HistoryLeftBehind)
+	}
+	if !hasNote(res.Notes, noteHistoryRecipeMissing) {
+		t.Fatalf("Francis's history for a recipe that no longer exists should be noted: %+v", res.Notes)
+	}
+	if res.skipped() {
+		t.Fatalf("a missing-recipe history row is informational and must not fail the run: %+v", res.Notes)
 	}
 }

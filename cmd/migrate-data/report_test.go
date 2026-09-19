@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -130,5 +131,69 @@ func TestSummary(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Fatalf("summary missing %q:\n%s", want, s)
 		}
+	}
+}
+
+func TestInflatedBaselineCount(t *testing.T) {
+	day := 24 * time.Hour
+	base := time.Date(2025, 9, 1, 10, 0, 0, 0, time.UTC)
+	row := func(times int, span time.Duration) baselineRow {
+		return baselineRow{TimesAdded: times, FirstAdded: base, LastAdded: base.Add(span)}
+	}
+	rows := []baselineRow{
+		row(3, 2*time.Hour),     // several adds inside one day: inflated
+		row(2, day-time.Minute), // just inside a day: inflated
+		row(5, 40*day),          // spread out: plausible
+		row(1, 0),               // added once: plausible
+		row(2, day),             // exactly a day apart: plausible
+	}
+	if got := inflatedBaselineCount(rows); got != 2 {
+		t.Fatalf("inflatedBaselineCount = %d, want 2", got)
+	}
+}
+
+func TestReconcileIncludesMenuHistory(t *testing.T) {
+	res := &transformResult{
+		MenuHistory:   make([]baselineRow, 3),
+		HistorySource: 5,
+		Notes:         []transformNote{{Kind: noteHistoryRecipeMissing}, {Kind: noteHistoryDuplicate}},
+	}
+	var got *reconciliation
+	for _, r := range reconcile(res, &source{}, map[string]int{"menu_history_baseline": 3}) {
+		if r.Entity == "menu_history_baseline" {
+			r := r
+			got = &r
+		}
+	}
+	if got == nil {
+		t.Fatal("reconcile has no menu_history_baseline row")
+	}
+	if got.Source != 5 || got.Skipped != 2 || got.Built != 3 || got.Persisted != 3 {
+		t.Fatalf("row = %+v, want source 5, skipped 2, built 3, persisted 3", *got)
+	}
+}
+
+func TestSummaryReportsBaselineDiagnostic(t *testing.T) {
+	base := time.Date(2025, 9, 1, 10, 0, 0, 0, time.UTC)
+	res := &transformResult{
+		MenuHistory: []baselineRow{
+			{TimesAdded: 3, FirstAdded: base, LastAdded: base.Add(time.Hour)},
+			{TimesAdded: 1, FirstAdded: base, LastAdded: base},
+		},
+		HistoryLeftBehind: 4,
+	}
+	out := summary(res, &source{}, nil)
+	for _, want := range []string{"menu history baseline: 2 rows", "1 with times_added > 1 inside one day", "4 left behind"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("summary is missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// Guards the informational status: a history skip must not turn the exit code red.
+func TestHistorySkipsDoNotFailTheRun(t *testing.T) {
+	res := &transformResult{Notes: []transformNote{{Kind: noteHistoryRecipeMissing}, {Kind: noteHistoryDuplicate}}}
+	if code := exitCode(res); code != 0 {
+		t.Fatalf("exitCode = %d, want 0", code)
 	}
 }

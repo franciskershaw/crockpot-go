@@ -125,6 +125,7 @@ func countPersisted(ctx context.Context, pool *pgxpool.Pool) (map[string]int, er
 		"recipes":                   "SELECT count(*) FROM recipes",
 		"recipe_ingredients":        "SELECT count(*) FROM recipe_ingredients",
 		"recipe_categories_recipes": "SELECT count(*) FROM recipe_categories_recipes",
+		"menu_history_baseline":     "SELECT count(*) FROM menu_history_baseline",
 	}
 	out := make(map[string]int, len(queries))
 	for name, q := range queries {
