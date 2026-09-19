@@ -107,7 +107,7 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
     Mongo model's one-per-user constraint via a unique `user_id`)
 - **Data migration**: a one-off Go CLI (`cmd/migrate-data`) inside this
   repo, not a throwaway external script. Reads a MongoDB Compass JSON
-  export (6 collections) from disk — no live Mongo connection, no
+  export (8 collections) from disk — no live Mongo connection, no
   `mongo-driver` dependency in the module graph. Writes through
   **dedicated insert queries, not the API's `repository` Create methods**
   — decided at CROC-024's grill (`docs/handoffs/CROC-024.md`). Those
@@ -636,24 +636,19 @@ session.*
   a new `recipe_menu_entries` unique constraint, lazy menu creation, and
   `created_at`-ordered entries. Unblocks `crockpot-react`'s `CFE-020` and
   `CFE-005`'s add-to-menu action.
-- **CROC-020** — Menu history tracking. Every add-to-menu / remove-from-menu
-  is recorded as one dated row in a new append-only `menu_history_events`
-  table, written in the same transaction as the menu write; the old app's
-  per-recipe aggregates (migrated for the two real users) are kept as a
-  frozen baseline, `menu_history_baseline`. Includes a one-time backfill of
-  current menu entries and a `cmd/migrate-data` history import. Tracking
-  only — no read endpoint; future uses are parked as `CROC-050`. Grilled
-  2026-09-19, see `docs/handoffs/CROC-020.md`.
+- **CROC-020** — Menu history tracking. **Done** (2026-09-19,
+  `docs/handoffs/CROC-020.md`). Every menu add/remove writes an
+  append-only `menu_history_events` row in the same statement; the old
+  app's aggregates live on as the frozen `menu_history_baseline`. Tracking
+  only — no read endpoint; uses are parked as `CROC-050`.
 - **CROC-049** — `DELETE /menu`: clear the whole menu in one call,
   mirroring `CROC-022`'s shopping-list clear. **Done** (2026-09-18,
   `docs/handoffs/CROC-049.md`). Surfaced the same way that one was — the
   design's "Clear menu" button and the old app both have it, but
   `CROC-019` never named a bulk-clear endpoint, only the four per-entry
   ones. Regenerates the shopping list in the same transaction, matching
-  every other menu-write endpoint. Deliberately ships without a
-  `CROC-020` history-tracking hook — founder's explicit call to unblock
-  the frontend now; `CROC-020` will need to retrofit bulk-clear once it
-  lands.
+  every other menu-write endpoint. Shipped without a history hook
+  (founder's call, to unblock the frontend); `CROC-020` retrofitted it.
 
 ### Epic 6: Shopping Lists
 - **CROC-021** — Generate/regenerate shopping list from current menu,
@@ -698,7 +693,10 @@ session.*
   items, 213 recipes. See `docs/handoffs/CROC-024.md` (+ its
   `-data-review` companion) and the "Data migration" architecture bullet.
   - **Not yet run against prod** — a separate explicitly-approved step at
-    real cutover, from a *fresh* export (`--allow-prod --yes`).
+    real cutover, from a *fresh* export of all 8 collections (including
+    `RecipeMenu`) (`--allow-prod --yes`). Before it: the history import
+    has no zero-date guard (a missing date would load as `0001-01-01`);
+    add the `fallbackTime`-plus-note pattern recipes already use.
   - **Still deferred to a later pass**: the 40 spam users, favourites,
     the current-menu `entries` and `shoppinglists` (a scrapped menu is
     acceptable at cutover). Menu **history** for the two real users is
@@ -978,6 +976,11 @@ reason as `CROC-038` above.*
     events and not counters.
   - Not named but likely candidates: a per-recipe "made before / N times"
     badge, a recently-made / make-it-again shelf.
+  Reader notes from `CROC-020`'s review: `menu_history_events.occurred_at`
+  is transaction start time, so overlapping transactions can order
+  events slightly out of sequence — don't assume strict ordering; and the
+  table has no `user_id`, so every read must join through
+  `recipe_menus.user_id`.
   Open for its grill: which of these earn a ticket at all; what the read
   API should look like once a real consumer exists (`CROC-020` ships none
   on purpose); whether "added to a menu" is a good-enough proxy for

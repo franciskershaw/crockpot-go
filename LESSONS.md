@@ -583,3 +583,16 @@ implementation quality until CROC-001 lands.
   data-layer function seen once and forgotten led to a wrong claim
   ("this sounds like a new capability") the founder had to correct
   directly.
+
+## 2026-09-19 — CROC-020 — Menu history (diary + frozen baseline) shipped; a "keep in sync" comment had silently drifted
+
+- The migrator's `TRUNCATE` list had been broken since CROC-021 behind a
+  "keep in sync with 000001" comment; only writing a guard test first
+  exposed it. Branch-review found the new history path skipped the
+  zero-date guard recipes already get (`fallbackTime`), and the data-shape
+  grill needed a concrete scoreboard-vs-diary example before it landed.
+- Slips: called a docs commit "ready" after it was committed (no `git
+  status`), and a raw `grep` of `.env` printed the dev DB password.
+- **Pattern**: turn "keep in sync" comments into tests; list a
+  neighbour's guards before writing its sibling; `git status` before
+  naming a commit boundary; read `.env` by key name, never echo a line.

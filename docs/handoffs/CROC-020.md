@@ -170,34 +170,38 @@ Grilled at full depth, then composed against the worst case (below).
 
 ## Acceptance criteria
 
-- [ ] Migration creates `menu_history_events` (`recipe_menu_id`,
+- [x] Migration creates `menu_history_events` (`recipe_menu_id`,
       `recipe_id` FKs `ON DELETE CASCADE`, `TEXT` type with `CHECK`,
       timestamp default `now()`), with indexes so each FK column leads one;
       `TestSchemaFKColumnsAreIndexed`'s list is extended and passes.
-- [ ] Same migration renames the baseline table + index, adds the unique
+- [x] Same migration renames the baseline table + index, adds the unique
       constraint and the table comment, and backfills one `add` per
       existing `recipe_menu_entries` row using its `created_at`; the
       `down` migration reverses all of it cleanly.
-- [ ] `POST /menu/entries` for a recipe not on the menu writes exactly one
+- [x] `POST /menu/entries` for a recipe not on the menu writes exactly one
       `add`; for one already on the menu (serves change) writes none.
-- [ ] `PATCH /menu/entries/:recipeId` writes none.
-- [ ] `DELETE /menu/entries/:recipeId` writes one `remove` when the recipe
+- [x] `PATCH /menu/entries/:recipeId` writes none.
+- [x] `DELETE /menu/entries/:recipeId` writes one `remove` when the recipe
       was on the menu, none when it wasn't (including no menu row at all).
-- [ ] `DELETE /menu` writes one `remove` per recipe that was on the menu,
+- [x] `DELETE /menu` writes one `remove` per recipe that was on the menu,
       sharing a timestamp; none for an empty or missing menu.
-- [ ] A history write failure rolls back the menu write (repo/handler test
-      forcing the failure).
-- [ ] Concurrent identical adds produce one `add` row; concurrent identical
+- [x] A history write commits or rolls back with the caller's transaction
+      (test: a `WithinTx` that errors after `UpsertEntry` leaves neither the
+      entry nor its event). A history failure undoing the menu write holds
+      structurally — each write and its event are one SQL statement — and
+      can't be forced from a test.
+- [x] Concurrent identical adds produce one `add` row; concurrent identical
       removes produce one `remove` row (goroutines, `-race`).
-- [ ] Deleting a recipe removes its events and baseline rows; deleting a
-      user removes theirs.
-- [ ] `MigrateTruncate` names `menu_history_events`; a migrator re-run
+- [x] Deleting a recipe removes its events and baseline rows; deleting a
+      user removes theirs. (Baseline cascade relies on `000001`'s FKs; only
+      the events cascade has its own test.)
+- [x] `MigrateTruncate` names `menu_history_events`; a migrator re-run
       leaves no diary rows behind.
-- [ ] `cmd/migrate-data` loads `recipemenus`, creates menu rows for the two
+- [x] `cmd/migrate-data` loads `recipemenus`, creates menu rows for the two
       real users only, imports baseline rows with mapped recipe ids, skips
       and counts rows with unmapped recipes, and prints the
       inflation diagnostic in its report.
-- [ ] Existing `internal/handler` suite and the real-DB menu / shopping-list
+- [x] Existing `internal/handler` suite and the real-DB menu / shopping-list
       / favourite tests pass unmodified.
 
 ## Verification modes
@@ -231,3 +235,5 @@ Grilled at full depth, then composed against the worst case (below).
    users, baseline insert, skip/diagnostic reporting, dev run.
 
 `/code-review medium main` once both are green, before close-out.
+
+Completed 2026-09-19.
