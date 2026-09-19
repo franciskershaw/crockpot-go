@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -58,7 +59,7 @@ func InitDB(databaseURL string) error {
 }
 
 func runMigrations(databaseURL string) error {
-	migratorURL, err := withPgx5Scheme(databaseURL)
+	migratorConnURL, err := migratorURL(databaseURL)
 	if err != nil {
 		return fmt.Errorf("failed to prepare migrator url: %w", err)
 	}
@@ -68,7 +69,7 @@ func runMigrations(databaseURL string) error {
 		return fmt.Errorf("failed to create migration source: %w", err)
 	}
 
-	m, err := migrate.NewWithSourceInstance("iofs", sourceDriver, migratorURL)
+	m, err := migrate.NewWithSourceInstance("iofs", sourceDriver, migratorConnURL)
 	if err != nil {
 		return fmt.Errorf("failed to create migrator: %w", err)
 	}
@@ -102,4 +103,60 @@ func withPgx5Scheme(databaseURL string) (string, error) {
 	}
 	u.Scheme = "pgx5"
 	return u.String(), nil
+}
+
+// directEndpoint drops "-pooler" from a Neon host. golang-migrate serialises migrators with a session-level
+// advisory lock, which Neon's PgBouncer (transaction mode) can strand on a shared server connection.
+func directEndpoint(databaseURL string) (string, error) {
+	u, err := url.Parse(databaseURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse database url: %w", err)
+	}
+
+	label, rest, hasRest := strings.Cut(u.Hostname(), ".")
+	if !strings.HasSuffix(label, "-pooler") {
+		return databaseURL, nil
+	}
+
+	host := strings.TrimSuffix(label, "-pooler")
+	if hasRest {
+		host += "." + rest
+	}
+	if port := u.Port(); port != "" {
+		host += ":" + port
+	}
+	u.Host = host
+	return u.String(), nil
+}
+
+var migrationLockTimeout = 10 * time.Second
+
+// withLockTimeout makes Postgres cancel any lock wait longer than d. golang-migrate takes its advisory lock
+// with no timeout of its own when it builds the migrator, so without this a held lock hangs the process.
+func withLockTimeout(databaseURL string, d time.Duration) (string, error) {
+	u, err := url.Parse(databaseURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse database url: %w", err)
+	}
+
+	q := u.Query()
+	option := fmt.Sprintf("-c lock_timeout=%d", d.Milliseconds())
+	if existing := q.Get("options"); existing != "" {
+		option = existing + " " + option
+	}
+	q.Set("options", option)
+	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
+
+func migratorURL(databaseURL string) (string, error) {
+	direct, err := directEndpoint(databaseURL)
+	if err != nil {
+		return "", err
+	}
+	timed, err := withLockTimeout(direct, migrationLockTimeout)
+	if err != nil {
+		return "", err
+	}
+	return withPgx5Scheme(timed)
 }
