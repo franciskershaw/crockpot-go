@@ -111,6 +111,9 @@ func load(ctx context.Context, pool *pgxpool.Pool, res *transformResult) (map[st
 	if err := insertRecipes(ctx, q, res.Recipes); err != nil {
 		return nil, err
 	}
+	if err := insertMenuHistory(ctx, q, res.MenuHistory); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
@@ -125,6 +128,7 @@ func countPersisted(ctx context.Context, pool *pgxpool.Pool) (map[string]int, er
 		"recipes":                   "SELECT count(*) FROM recipes",
 		"recipe_ingredients":        "SELECT count(*) FROM recipe_ingredients",
 		"recipe_categories_recipes": "SELECT count(*) FROM recipe_categories_recipes",
+		"menu_history_baseline":     "SELECT count(*) FROM menu_history_baseline",
 	}
 	out := make(map[string]int, len(queries))
 	for name, q := range queries {
@@ -274,4 +278,29 @@ func toNumeric(f float64) (pgtype.Numeric, error) {
 		return pgtype.Numeric{}, err
 	}
 	return n, nil
+}
+
+// insertMenuHistory gives each user with history a menu row (the baseline's FK target) and writes their aggregates.
+func insertMenuHistory(ctx context.Context, q *sqlc.Queries, rows []baselineRow) error {
+	menus := map[uuid.UUID]bool{}
+	for _, r := range rows {
+		if !menus[r.UserID] {
+			if err := q.MigrateInsertRecipeMenu(ctx, pgUUID(r.UserID)); err != nil {
+				return fmt.Errorf("insert recipe menu %s: %w", r.UserID, err)
+			}
+			menus[r.UserID] = true
+		}
+		err := q.MigrateInsertMenuHistoryBaseline(ctx, sqlc.MigrateInsertMenuHistoryBaselineParams{
+			RecipeID:    pgUUID(r.RecipeID),
+			TimesAdded:  int32(r.TimesAdded),
+			FirstAdded:  pgTimestamptz(r.FirstAdded),
+			LastAdded:   pgTimestamptz(r.LastAdded),
+			LastRemoved: pgTimestamptz(r.LastRemoved),
+			UserID:      pgUUID(r.UserID),
+		})
+		if err != nil {
+			return fmt.Errorf("insert menu history baseline (user %s, recipe %s): %w", r.UserID, r.RecipeID, err)
+		}
+	}
+	return nil
 }

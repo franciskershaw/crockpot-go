@@ -1,0 +1,38 @@
+name: Neon check
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: neon-dev-database
+  cancel-in-progress: false
+
+jobs:
+  neon:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: CI database image matches Neon's major version
+        run: |
+          neon_major=$(( $(psql "$DATABASE_URL" -tAc 'SHOW server_version_num') / 10000 ))
+          ci_major=$(sed -n 's/.*image: postgres:\([0-9]*\).*/\1/p' .github/workflows/ci.yml)
+          echo "Neon: $neon_major, CI container: $ci_major"
+          if [ "$neon_major" != "$ci_major" ]; then
+            echo "::error::Neon is on Postgres $neon_major but ci.yml tests against $ci_major; bump the image in ci.yml"
+            exit 1
+          fi
+
+      - name: go test
+        run: go test -p 1 -v -count=1 ./...

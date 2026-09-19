@@ -9,19 +9,21 @@ import (
 )
 
 const (
-	noteRecipeSkipped       = "recipe-skipped"
-	noteItemSkipped         = "item-skipped"
-	noteDuplicateIngredient = "duplicate-ingredient"
-	noteUnitNulled          = "unit-nulled"
-	noteUnitBlank           = "unit-blank"
-	noteAllowedSetDropped   = "allowed-set-dropped"
-	noteAllowedUnitWidened  = "allowed-unit-widened"
-	noteAllowedUnitSkipped  = "allowed-unit-addition-skipped"
-	noteCreatorUnresolved   = "creator-unresolved"
-	noteCreatedAtFallback   = "created-at-fallback"
-	noteCategoryLinkDropped = "category-link-dropped"
-	noteDuplicateCategory   = "duplicate-category"
-	noteGoogleSubPending    = "google-sub-pending"
+	noteRecipeSkipped        = "recipe-skipped"
+	noteItemSkipped          = "item-skipped"
+	noteDuplicateIngredient  = "duplicate-ingredient"
+	noteUnitNulled           = "unit-nulled"
+	noteUnitBlank            = "unit-blank"
+	noteAllowedSetDropped    = "allowed-set-dropped"
+	noteAllowedUnitWidened   = "allowed-unit-widened"
+	noteAllowedUnitSkipped   = "allowed-unit-addition-skipped"
+	noteCreatorUnresolved    = "creator-unresolved"
+	noteCreatedAtFallback    = "created-at-fallback"
+	noteCategoryLinkDropped  = "category-link-dropped"
+	noteDuplicateCategory    = "duplicate-category"
+	noteGoogleSubPending     = "google-sub-pending"
+	noteHistoryRecipeMissing = "history-recipe-missing"
+	noteHistoryDuplicate     = "history-duplicate"
 )
 
 type transformNote struct {
@@ -83,6 +85,21 @@ type recipeRow struct {
 	CategoryIDs   []uuid.UUID
 }
 
+type baselineRow struct {
+	UserID      uuid.UUID
+	RecipeID    uuid.UUID
+	TimesAdded  int
+	FirstAdded  time.Time
+	LastAdded   time.Time
+	LastRemoved time.Time
+}
+
+// historyTally counts source history entries: source is those belonging to migrated users, leftBehind the rest.
+type historyTally struct {
+	source     int
+	leftBehind int
+}
+
 type itemDeps struct {
 	categories    *refResolver
 	units         *refResolver
@@ -114,6 +131,10 @@ type transformResult struct {
 	Items   []itemRow
 	Recipes []recipeRow
 	Notes   []transformNote
+
+	MenuHistory       []baselineRow
+	HistorySource     int
+	HistoryLeftBehind int
 
 	// source rows dropped because their whole recipe was skipped - tracked
 	// so reconcile() can derive "skipped" independently of destination counts.
@@ -158,15 +179,83 @@ func transform(in transformInput) (*transformResult, error) {
 		creators:    creatorLookup(users),
 	})
 
-	notes := make([]transformNote, 0, len(userNotes)+len(itemNotes)+len(recipeNotes))
+	history, historyTally, historyNotes := buildMenuHistory(in.src.RecipeMenus, users, recipes)
+
+	notes := make([]transformNote, 0, len(userNotes)+len(itemNotes)+len(recipeNotes)+len(historyNotes))
 	notes = append(notes, userNotes...)
 	notes = append(notes, itemNotes...)
 	notes = append(notes, recipeNotes...)
+	notes = append(notes, historyNotes...)
 	return &transformResult{
 		Users: users, Items: items, Recipes: recipes, Notes: notes,
+		MenuHistory:          history,
+		HistorySource:        historyTally.source,
+		HistoryLeftBehind:    historyTally.leftBehind,
 		SkippedIngredients:   skips.ingredients,
 		SkippedCategoryLinks: skips.categoryLinks,
 	}, nil
+}
+
+// buildMenuHistory maps each migrated user's per-recipe aggregates onto the built recipes; the menu's current entries are ignored.
+func buildMenuHistory(menus []mongoRecipeMenu, users []userRow, recipes []recipeRow) ([]baselineRow, historyTally, []transformNote) {
+	userIDs := make(map[oid]uuid.UUID, len(users))
+	for _, u := range users {
+		userIDs[u.SourceID] = u.ID
+	}
+	built := make(map[uuid.UUID]bool, len(recipes))
+	for _, r := range recipes {
+		built[r.ID] = true
+	}
+
+	type key struct{ user, recipe uuid.UUID }
+	index := map[key]int{}
+	var rows []baselineRow
+	var tally historyTally
+	var notes []transformNote
+
+	for _, m := range menus {
+		userID, migrated := userIDs[m.UserID]
+		if !migrated {
+			tally.leftBehind += len(m.History)
+			continue
+		}
+		for _, h := range m.History {
+			tally.source++
+			recipeID := objectIDToUUID(h.RecipeID)
+			entity := fmt.Sprintf("menu history user=%s recipe=%s", m.UserID, h.RecipeID)
+			if !built[recipeID] {
+				notes = append(notes, transformNote{Kind: noteHistoryRecipeMissing, Entity: entity, Detail: "recipe is not in the migrated set"})
+				continue
+			}
+			row := baselineRow{
+				UserID: userID, RecipeID: recipeID, TimesAdded: int(h.TimesAddedToMenu),
+				FirstAdded: h.FirstAddedToMenu.Time, LastAdded: h.LastAddedToMenu.Time, LastRemoved: h.LastRemovedFromMenu.Time,
+			}
+			k := key{userID, recipeID}
+			if i, seen := index[k]; seen {
+				rows[i] = mergeBaseline(rows[i], row)
+				notes = append(notes, transformNote{Kind: noteHistoryDuplicate, Entity: entity, Detail: "second entry for the same recipe merged into the first"})
+				continue
+			}
+			index[k] = len(rows)
+			rows = append(rows, row)
+		}
+	}
+	return rows, tally, notes
+}
+
+func mergeBaseline(a, b baselineRow) baselineRow {
+	a.TimesAdded += b.TimesAdded
+	if b.FirstAdded.Before(a.FirstAdded) {
+		a.FirstAdded = b.FirstAdded
+	}
+	if b.LastAdded.After(a.LastAdded) {
+		a.LastAdded = b.LastAdded
+	}
+	if b.LastRemoved.After(a.LastRemoved) {
+		a.LastRemoved = b.LastRemoved
+	}
+	return a
 }
 
 func buildUsers(users []mongoUser, subs map[oid]string, allowMissingSub bool) ([]userRow, []transformNote, error) {

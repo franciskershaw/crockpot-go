@@ -602,10 +602,14 @@ func TestListRecipes_Ordering_SameSeedIsStableAcrossCalls(t *testing.T) {
 func TestListRecipes_Ordering_SeededPaginationHasNoDuplicatesOrGaps(t *testing.T) {
 	ctx := context.Background()
 	seed := "page-seed-" + uuid.NewString()
+	owner := insertTestUser(t, "Cook")
+	for range 5 {
+		createTestRecipe(t, recipeOpts{createdBy: owner, approved: true})
+	}
 
 	full, _, err := recipeRepo.List(ctx, models.RecipeListFilter{Seed: seed, Page: 1, Limit: 1000})
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(full), 4, "need at least a handful of approved recipes in the dev DB to exercise pagination")
+	require.GreaterOrEqual(t, len(full), 4, "the recipes seeded above must be listed")
 
 	pageSize := len(full) / 2
 	if pageSize > 10 {

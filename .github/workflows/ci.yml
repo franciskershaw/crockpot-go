@@ -9,8 +9,22 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: crockpot_test
+          POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d crockpot_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
-      DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/crockpot_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
@@ -44,4 +58,5 @@ jobs:
         run: go mod tidy -diff
 
       - name: go test
-        run: go test ./...
+        timeout-minutes: 10
+        run: go test -p 1 -v -count=1 ./...

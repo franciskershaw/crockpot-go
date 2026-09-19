@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type reconciliation struct {
@@ -47,6 +48,10 @@ func reconcile(res *transformResult, src *source, persisted map[string]int) []re
 			res.SkippedCategoryLinks + counts[noteCategoryLinkDropped] + counts[noteDuplicateCategory],
 			builtCats, inDB("recipe_categories_recipes"),
 		},
+		{
+			"menu_history_baseline", res.HistorySource,
+			counts[noteHistoryRecipeMissing] + counts[noteHistoryDuplicate], len(res.MenuHistory), inDB("menu_history_baseline"),
+		},
 	}
 }
 
@@ -81,7 +86,9 @@ func summary(res *transformResult, src *source, persisted map[string]int) string
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "users: %d migrated, %d left behind\n", len(res.Users), len(src.Users)-len(res.Users))
-	fmt.Fprintf(&b, "item_allowed_units: %d rows\n\n", countAllowedUnits(res))
+	fmt.Fprintf(&b, "item_allowed_units: %d rows\n", countAllowedUnits(res))
+	fmt.Fprintf(&b, "menu history baseline: %d rows, %d with times_added > 1 inside one day (likely serves-only re-adds), %d left behind (users not migrated)\n\n",
+		len(res.MenuHistory), inflatedBaselineCount(res.MenuHistory), res.HistoryLeftBehind)
 
 	b.WriteString("reconciliation:\n")
 	b.WriteString("  entity                       source  skipped   built   in-db\n")
@@ -137,4 +144,15 @@ func sortedKeysInt(m map[string]int) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// inflatedBaselineCount counts rows claiming several adds inside one day, which can only be serves-only re-adds.
+func inflatedBaselineCount(rows []baselineRow) int {
+	n := 0
+	for _, r := range rows {
+		if r.TimesAdded > 1 && r.LastAdded.Sub(r.FirstAdded) < 24*time.Hour {
+			n++
+		}
+	}
+	return n
 }

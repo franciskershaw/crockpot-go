@@ -2,9 +2,13 @@ package repository_test
 
 import (
 	"context"
+	"os"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/franciskershaw/crockpot-go/db"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +25,9 @@ func TestSchemaFKColumnsAreIndexed(t *testing.T) {
 		{"recipe_ingredients", "unit_id"},
 		{"recipe_favourites", "recipe_id"},
 		{"recipe_menu_entries", "recipe_id"},
-		{"menu_history_entries", "recipe_id"},
+		{"menu_history_baseline", "recipe_id"},
+		{"menu_history_events", "recipe_menu_id"},
+		{"menu_history_events", "recipe_id"},
 		{"shopping_list_items", "item_id"},
 		{"shopping_list_items", "unit_id"},
 		{"shopping_list_dismissed_items", "shopping_list_id"},
@@ -195,5 +201,146 @@ func TestShoppingListDismissedItemsSchema(t *testing.T) {
 			  AND kcu.column_name = 'shopping_list_id'`).Scan(&deleteRule)
 		require.NoError(t, err, "shopping_list_dismissed_items.shopping_list_id must have an FK to shopping_lists")
 		assert.Equal(t, "CASCADE", deleteRule)
+	})
+}
+
+// Postgres refuses a TRUNCATE unless every table with an FK into a truncated table is truncated in the same statement.
+func TestMigrateTruncateCoversEveryReferencingTable(t *testing.T) {
+	ctx := context.Background()
+
+	src, err := os.ReadFile("../sqlc/queries/migrate.sql")
+	require.NoError(t, err)
+	m := regexp.MustCompile(`(?s)name: MigrateTruncate.*?TRUNCATE\s+(.*?)\s+RESTART IDENTITY`).FindSubmatch(src)
+	require.NotNil(t, m, "could not find the MigrateTruncate statement in migrate.sql")
+
+	truncated := map[string]bool{}
+	for _, name := range strings.Split(string(m[1]), ",") {
+		truncated[strings.TrimSpace(name)] = true
+	}
+	require.Greater(t, len(truncated), 1, "parsed no tables out of MigrateTruncate")
+
+	rows, err := db.DB.Query(ctx, `
+		SELECT child.relname, parent.relname
+		FROM pg_constraint c
+		JOIN pg_class child ON child.oid = c.conrelid
+		JOIN pg_class parent ON parent.oid = c.confrelid
+		WHERE c.contype = 'f'`)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	for rows.Next() {
+		var child, parent string
+		require.NoError(t, rows.Scan(&child, &parent))
+		if truncated[parent] {
+			assert.True(t, truncated[child],
+				"%s has an FK into %s, which MigrateTruncate wipes, but %s is not in the same TRUNCATE", child, parent, child)
+		}
+	}
+	require.NoError(t, rows.Err())
+}
+
+func tableExists(t *testing.T, name string) bool {
+	t.Helper()
+	var exists bool
+	require.NoError(t, db.DB.QueryRow(context.Background(),
+		`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1)`,
+		name).Scan(&exists))
+	return exists
+}
+
+// insertTestMenu creates a recipe_menus row; it is removed when its user is deleted.
+func insertTestMenu(t *testing.T, userID uuid.UUID) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	require.NoError(t, db.DB.QueryRow(context.Background(),
+		`INSERT INTO recipe_menus (user_id) VALUES ($1) RETURNING id`, userID).Scan(&id))
+	return id
+}
+
+func insertTestHistoryEvent(t *testing.T, menuID, recipeID uuid.UUID, eventType string) error {
+	t.Helper()
+	_, err := db.DB.Exec(context.Background(),
+		`INSERT INTO menu_history_events (recipe_menu_id, recipe_id, event_type) VALUES ($1, $2, $3)`,
+		menuID, recipeID, eventType)
+	return err
+}
+
+func TestMenuHistoryEventsSchema(t *testing.T) {
+	require.True(t, tableExists(t, "menu_history_events"), "menu_history_events table must exist")
+
+	t.Run("event_type accepts add and remove, rejects anything else", func(t *testing.T) {
+		user := insertTestUser(t, "Owner")
+		recipe := insertTestRecipeRow(t, user, true)
+		menu := insertTestMenu(t, user)
+
+		assert.NoError(t, insertTestHistoryEvent(t, menu, recipe, "add"))
+		assert.NoError(t, insertTestHistoryEvent(t, menu, recipe, "remove"))
+		assert.Error(t, insertTestHistoryEvent(t, menu, recipe, "bogus"), "event_type must be constrained to add/remove")
+	})
+
+	t.Run("occurred_at is not null and defaults to now", func(t *testing.T) {
+		user := insertTestUser(t, "Owner")
+		recipe := insertTestRecipeRow(t, user, true)
+		menu := insertTestMenu(t, user)
+		require.NoError(t, insertTestHistoryEvent(t, menu, recipe, "add"))
+
+		var isNullable string
+		require.NoError(t, db.DB.QueryRow(context.Background(), `
+			SELECT is_nullable FROM information_schema.columns
+			WHERE table_name = 'menu_history_events' AND column_name = 'occurred_at'`).Scan(&isNullable))
+		assert.Equal(t, "NO", isNullable)
+
+		var ageSeconds float64
+		require.NoError(t, db.DB.QueryRow(context.Background(),
+			`SELECT EXTRACT(EPOCH FROM (now() - occurred_at)) FROM menu_history_events WHERE recipe_menu_id = $1`,
+			menu).Scan(&ageSeconds))
+		assert.Less(t, ageSeconds, 60.0, "occurred_at must default to the insert time")
+	})
+
+	t.Run("deleting a recipe deletes its events", func(t *testing.T) {
+		user := insertTestUser(t, "Owner")
+		recipe := insertTestRecipeRow(t, user, true)
+		menu := insertTestMenu(t, user)
+		require.NoError(t, insertTestHistoryEvent(t, menu, recipe, "add"))
+
+		_, err := db.DB.Exec(context.Background(), `DELETE FROM recipes WHERE id = $1`, recipe)
+		require.NoError(t, err)
+		assert.Equal(t, 0, rowCount(t, `SELECT count(*) FROM menu_history_events WHERE recipe_menu_id = $1`, menu))
+	})
+
+	t.Run("deleting a user deletes their events", func(t *testing.T) {
+		owner := insertTestUser(t, "Owner")
+		caller := insertTestUser(t, "Caller")
+		recipe := insertTestRecipeRow(t, owner, true)
+		menu := insertTestMenu(t, caller)
+		require.NoError(t, insertTestHistoryEvent(t, menu, recipe, "add"))
+
+		_, err := db.DB.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, caller)
+		require.NoError(t, err)
+		assert.Equal(t, 0, rowCount(t, `SELECT count(*) FROM menu_history_events WHERE recipe_menu_id = $1`, menu))
+	})
+}
+
+func TestMenuHistoryBaselineSchema(t *testing.T) {
+	t.Run("renamed from menu_history_entries", func(t *testing.T) {
+		assert.True(t, tableExists(t, "menu_history_baseline"), "menu_history_baseline table must exist")
+		assert.False(t, tableExists(t, "menu_history_entries"), "menu_history_entries must be renamed away")
+	})
+
+	t.Run("one row per (recipe_menu_id, recipe_id)", func(t *testing.T) {
+		require.True(t, tableExists(t, "menu_history_baseline"), "menu_history_baseline table must exist")
+		user := insertTestUser(t, "Owner")
+		recipe := insertTestRecipeRow(t, user, true)
+		menu := insertTestMenu(t, user)
+
+		insert := func() error {
+			_, err := db.DB.Exec(context.Background(), `
+				INSERT INTO menu_history_baseline
+				    (recipe_menu_id, recipe_id, times_added_to_menu, first_added_to_menu, last_added_to_menu, last_removed_from_menu)
+				VALUES ($1, $2, 3, now(), now(), now())`, menu, recipe)
+			return err
+		}
+		require.NoError(t, insert())
+		assert.Error(t, insert(), "a second baseline row for the same menu and recipe must be rejected")
 	})
 }

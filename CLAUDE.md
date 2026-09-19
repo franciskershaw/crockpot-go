@@ -181,13 +181,21 @@ requests/         Manual .http regression suite, one file per resource
 ## Verification commands
 
 - Handler tests (no DB): `go test ./internal/handler/...`
-- Repository tests (integration, real Neon dev DB — never Docker/local
-  Postgres): `./scripts/test-repo.sh` (sources `.env` itself, so it works
-  from any shell — pass through `go test` flags, e.g. `./scripts/test-repo.sh
-  -run TestUpdateLastLogin`). Older form `DATABASE_URL=$DATABASE_URL go test
-  ./internal/repository/...` passes the shell variable's value through as-is
-  — silently empty, and the tests fail or skip, whenever `DATABASE_URL` is
-  unset or empty in that exact shell — don't use it.
+- Repository tests (integration, real Neon dev DB): `./scripts/test-repo.sh`
+  (sources `.env` itself, so it works from any shell — pass through `go
+  test` flags, e.g. `./scripts/test-repo.sh -run TestUpdateLastLogin`). Older
+  form `DATABASE_URL=$DATABASE_URL go test ./internal/repository/...` passes
+  the shell variable's value through as-is — silently empty, and the tests
+  fail or skip, whenever `DATABASE_URL` is unset or empty in that exact
+  shell — don't use it.
+  **Local runs and close-out go against Neon**: it is the only place the
+  pooler and the real engine are exercised, so a green Neon run is part of
+  every ticket's verification gate. PR CI runs the same suite against a
+  throwaway `postgres:18` service container (`--locale=C.UTF-8`) for speed;
+  its major version must track Neon's. `.github/workflows/neon-check.yml`
+  re-runs everything against Neon on push to `main`, weekly and on demand,
+  and fails if the CI image's major drifts from Neon's. Don't run tests
+  against the shared dev DB while that workflow is running.
 - Lint (uncapped, matches CI):
   `golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`
 - Format: `gofmt` — canonical, no formatter choice to make.

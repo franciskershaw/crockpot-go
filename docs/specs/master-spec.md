@@ -107,7 +107,7 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
     Mongo model's one-per-user constraint via a unique `user_id`)
 - **Data migration**: a one-off Go CLI (`cmd/migrate-data`) inside this
   repo, not a throwaway external script. Reads a MongoDB Compass JSON
-  export (6 collections) from disk — no live Mongo connection, no
+  export (8 collections) from disk — no live Mongo connection, no
   `mongo-driver` dependency in the module graph. Writes through
   **dedicated insert queries, not the API's `repository` Create methods**
   — decided at CROC-024's grill (`docs/handoffs/CROC-024.md`). Those
@@ -345,6 +345,22 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   added no real extra cost. Revisit if a future case needs this pattern
   *without* also needing per-row state preservation, where the
   single-statement sentinel-index form might be the better trade.
+- **Menu history: append-only diary + frozen baseline** (`CROC-020`,
+  `docs/handoffs/CROC-020.md`). Every add/remove of a recipe on a menu is
+  one dated row in `menu_history_events`, written in the same transaction
+  as the menu write; stats are computed as baseline + events. The old
+  app's aggregate rows (count/first/last per recipe) live untouched in
+  `menu_history_baseline` because they can't be turned into dated events
+  without inventing dates, and their counts are an upper bound (the old app
+  counted serves-only changes as adds). Any adjustment for that belongs in
+  the code that reads them, never in the stored data. A serves-only change,
+  or a remove of something not on the menu, writes no row. Rejected:
+  aggregate-only (can't answer cadence/seasonality and bakes counting rules
+  in permanently — a diary can always be summarised, a summary can never
+  become a diary), events + a live-maintained aggregate (redundant, can
+  drift). Recipe deletion cascades its history (matches every other recipe
+  FK). Revisit if a query over events gets slow: add a maintained summary
+  table (additive), or compact old events into the baseline table.
 
 ## Non-functional expectations
 
@@ -620,19 +636,19 @@ session.*
   a new `recipe_menu_entries` unique constraint, lazy menu creation, and
   `created_at`-ordered entries. Unblocks `crockpot-react`'s `CFE-020` and
   `CFE-005`'s add-to-menu action.
-- **CROC-020** — Menu history tracking (increment/first/last-added,
-  last-removed) as entries are added/removed — powers "you've made this
-  before" style features later.
+- **CROC-020** — Menu history tracking. **Done** (2026-09-19,
+  `docs/handoffs/CROC-020.md`). Every menu add/remove writes an
+  append-only `menu_history_events` row in the same statement; the old
+  app's aggregates live on as the frozen `menu_history_baseline`. Tracking
+  only — no read endpoint; uses are parked as `CROC-050`.
 - **CROC-049** — `DELETE /menu`: clear the whole menu in one call,
   mirroring `CROC-022`'s shopping-list clear. **Done** (2026-09-18,
   `docs/handoffs/CROC-049.md`). Surfaced the same way that one was — the
   design's "Clear menu" button and the old app both have it, but
   `CROC-019` never named a bulk-clear endpoint, only the four per-entry
   ones. Regenerates the shopping list in the same transaction, matching
-  every other menu-write endpoint. Deliberately ships without a
-  `CROC-020` history-tracking hook — founder's explicit call to unblock
-  the frontend now; `CROC-020` will need to retrofit bulk-clear once it
-  lands.
+  every other menu-write endpoint. Shipped without a history hook
+  (founder's call, to unblock the frontend); `CROC-020` retrofitted it.
 
 ### Epic 6: Shopping Lists
 - **CROC-021** — Generate/regenerate shopping list from current menu,
@@ -677,9 +693,14 @@ session.*
   items, 213 recipes. See `docs/handoffs/CROC-024.md` (+ its
   `-data-review` companion) and the "Data migration" architecture bullet.
   - **Not yet run against prod** — a separate explicitly-approved step at
-    real cutover, from a *fresh* export (`--allow-prod --yes`).
+    real cutover, from a *fresh* export of all 8 collections (including
+    `RecipeMenu`) (`--allow-prod --yes`). Before it: the history import
+    has no zero-date guard (a missing date would load as `0001-01-01`);
+    add the `fallbackTime`-plus-note pattern recipes already use.
   - **Still deferred to a later pass**: the 40 spam users, favourites,
-    `recipemenus`, `shoppinglists`, menu history.
+    the current-menu `entries` and `shoppinglists` (a scrapped menu is
+    acceptable at cutover). Menu **history** for the two real users is
+    imported by `CROC-020` (into `menu_history_baseline`).
   - **Delete the tool** (`cmd/migrate-data/` + `internal/sqlc/migrate.sql*`)
     once prod cutover is done and settled — disposal steps in the handoff.
 
@@ -934,3 +955,40 @@ touching `CROC-042`'s shipped, tested scoring code.*
   ingredient/category weighting, not this threshold, but the same
   philosophy applies). Not a `CFE-021` fix — the frontend has no lever
   for this by design, it only renders whatever `tier` the API returns.
+
+*Raised 2026-09-19 at `CROC-020`'s grill — deliberately vague. Once history
+is being recorded, someone has to decide what to do with it; that's a
+product conversation, not a ticket to grill today. Parked for the same
+reason as `CROC-038` above.*
+- **CROC-050** — Making use of menu history. Open-ended: a place to hold
+  the wider discussion about what the history diary (`CROC-020`) is *for*,
+  before any of it is built. Uses the founder named while grilling
+  `CROC-020`, each with what it would need from the data:
+  - **Personalisation** — nudging browse ranking (`CROC-042`) toward or
+    away from what a user tends to pick; needs per-user count + recency.
+  - **Recommendations** — "what to add to your menu / planner" from what
+    the user usually picks (`CROC-025` "fill from suggestions"-style),
+    plus the flip side: surfacing recipes the user has **never** put on a
+    menu. The "never" case is an absence query, only correct because
+    `CROC-020` backfills current entries.
+  - **Insights over time** — cadence ("roughly every 5 weeks"), seasonal
+    patterns, most-made, a year-in-review; the reason the diary is dated
+    events and not counters.
+  - Not named but likely candidates: a per-recipe "made before / N times"
+    badge, a recently-made / make-it-again shelf.
+  Reader notes from `CROC-020`'s review: `menu_history_events.occurred_at`
+  is transaction start time, so overlapping transactions can order
+  events slightly out of sequence — don't assume strict ordering; and the
+  table has no `user_id`, so every read must join through
+  `recipe_menus.user_id`.
+  Open for its grill: which of these earn a ticket at all; what the read
+  API should look like once a real consumer exists (`CROC-020` ships none
+  on purpose); whether "added to a menu" is a good-enough proxy for
+  "cooked" (a mis-click add/remove pair is indistinguishable from a real
+  one except by how long it stayed — the diary records both timestamps);
+  how much to trust `menu_history_baseline`'s counts (known upper bound —
+  see `CROC-020`) and whether readers should discount them; whether the
+  planner (`CROC-025`) slotting a recipe should count as history; whether
+  any of this differs for FREE vs PREMIUM; and if a live query over events
+  ever gets slow, the maintained-summary or compact-into-baseline options
+  recorded in the "Menu history" architecture bullet.

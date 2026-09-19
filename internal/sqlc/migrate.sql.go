@@ -69,6 +69,35 @@ func (q *Queries) MigrateInsertItemAllowedUnit(ctx context.Context, arg MigrateI
 	return err
 }
 
+const migrateInsertMenuHistoryBaseline = `-- name: MigrateInsertMenuHistoryBaseline :exec
+INSERT INTO menu_history_baseline
+    (recipe_menu_id, recipe_id, times_added_to_menu, first_added_to_menu, last_added_to_menu, last_removed_from_menu)
+SELECT rm.id, $1, $2, $3, $4, $5
+FROM recipe_menus rm
+WHERE rm.user_id = $6
+`
+
+type MigrateInsertMenuHistoryBaselineParams struct {
+	RecipeID    pgtype.UUID
+	TimesAdded  int32
+	FirstAdded  pgtype.Timestamptz
+	LastAdded   pgtype.Timestamptz
+	LastRemoved pgtype.Timestamptz
+	UserID      pgtype.UUID
+}
+
+func (q *Queries) MigrateInsertMenuHistoryBaseline(ctx context.Context, arg MigrateInsertMenuHistoryBaselineParams) error {
+	_, err := q.db.Exec(ctx, migrateInsertMenuHistoryBaseline,
+		arg.RecipeID,
+		arg.TimesAdded,
+		arg.FirstAdded,
+		arg.LastAdded,
+		arg.LastRemoved,
+		arg.UserID,
+	)
+	return err
+}
+
 const migrateInsertRecipe = `-- name: MigrateInsertRecipe :exec
 INSERT INTO recipes (
     id, name, time_in_minutes, image_url, image_filename,
@@ -161,6 +190,17 @@ func (q *Queries) MigrateInsertRecipeIngredient(ctx context.Context, arg Migrate
 	return err
 }
 
+const migrateInsertRecipeMenu = `-- name: MigrateInsertRecipeMenu :exec
+INSERT INTO recipe_menus (user_id)
+VALUES ($1)
+ON CONFLICT (user_id) DO NOTHING
+`
+
+func (q *Queries) MigrateInsertRecipeMenu(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, migrateInsertRecipeMenu, userID)
+	return err
+}
+
 const migrateInsertUser = `-- name: MigrateInsertUser :exec
 
 INSERT INTO users (
@@ -210,8 +250,10 @@ TRUNCATE
     recipe_ingredients,
     recipe_favourites,
     recipe_menu_entries,
-    menu_history_entries,
+    menu_history_baseline,
+    menu_history_events,
     shopping_list_items,
+    shopping_list_dismissed_items,
     item_allowed_units,
     recipes,
     items
@@ -220,7 +262,8 @@ RESTART IDENTITY
 
 // Every table that FKs into recipes or items is named explicitly (no CASCADE)
 // so a future table added against those references fails this loudly instead of
-// being wiped silently. Keep in sync with 000001_init.up.sql.
+// being wiped silently. TestMigrateTruncateCoversEveryReferencingTable fails if
+// this list drifts from the schema.
 func (q *Queries) MigrateTruncate(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, migrateTruncate)
 	return err

@@ -76,6 +76,20 @@ type mongoRecipe struct {
 	Ingredients   []mongoIngredient `json:"ingredients"`
 }
 
+type mongoMenuHistoryEntry struct {
+	RecipeID            oid       `json:"recipeId"`
+	TimesAddedToMenu    ejsonInt  `json:"timesAddedToMenu"`
+	FirstAddedToMenu    ejsonDate `json:"firstAddedToMenu"`
+	LastAddedToMenu     ejsonDate `json:"lastAddedToMenu"`
+	LastRemovedFromMenu ejsonDate `json:"lastRemovedFromMenu"`
+}
+
+// mongoRecipeMenu carries only the history; the menu's current entries are deliberately not migrated.
+type mongoRecipeMenu struct {
+	UserID  oid                     `json:"userId"`
+	History []mongoMenuHistoryEntry `json:"history"`
+}
+
 type source struct {
 	ItemCategories   []mongoItemCategory
 	Units            []mongoUnit
@@ -84,6 +98,7 @@ type source struct {
 	Accounts         []mongoAccount
 	Items            []mongoItem
 	Recipes          []mongoRecipe
+	RecipeMenus      []mongoRecipeMenu
 }
 
 func loadJSON[T any](path string) ([]T, error) {
@@ -120,6 +135,9 @@ func loadSource(dir string) (*source, error) {
 		return nil, err
 	}
 	if s.Recipes, err = loadJSON[mongoRecipe](filepath.Join(dir, "crockpotV3.Recipe.json")); err != nil {
+		return nil, err
+	}
+	if s.RecipeMenus, err = loadJSON[mongoRecipeMenu](filepath.Join(dir, "crockpotV3.RecipeMenu.json")); err != nil {
 		return nil, err
 	}
 	return &s, nil

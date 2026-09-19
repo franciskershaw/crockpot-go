@@ -1,8 +1,10 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -188,5 +190,51 @@ func TestFixups(t *testing.T) {
 	}
 	if syntheticCrockpotUser.Name != "Crockpot" {
 		t.Fatalf("syntheticCrockpotUser.Name = %q", syntheticCrockpotUser.Name)
+	}
+}
+
+func TestLoadSourceRecipeMenus(t *testing.T) {
+	src, err := loadSource("testdata")
+	if err != nil {
+		t.Fatalf("loadSource: %v", err)
+	}
+	if len(src.RecipeMenus) != 3 {
+		t.Fatalf("got %d recipe menus, want 3", len(src.RecipeMenus))
+	}
+	m := src.RecipeMenus[0]
+	if m.UserID != "68e93f253533a3d30146ba07" || len(m.History) != 2 {
+		t.Fatalf("first menu: user %q, %d history entries", m.UserID, len(m.History))
+	}
+	h := m.History[0]
+	if h.RecipeID != "6348124fe85a13ae0e2fd186" || h.TimesAddedToMenu != 5 {
+		t.Fatalf("history[0] = %+v", h)
+	}
+	if !h.FirstAddedToMenu.Equal(time.Date(2025, 8, 1, 18, 0, 0, 0, time.UTC)) ||
+		!h.LastAddedToMenu.Equal(time.Date(2025, 9, 20, 17, 30, 0, 0, time.UTC)) ||
+		!h.LastRemovedFromMenu.Equal(time.Date(2025, 9, 27, 9, 15, 0, 0, time.UTC)) {
+		t.Fatalf("history[0] dates = %v / %v / %v", h.FirstAddedToMenu, h.LastAddedToMenu, h.LastRemovedFromMenu)
+	}
+}
+
+func TestLoadSourceRequiresRecipeMenuExport(t *testing.T) {
+	dir := t.TempDir()
+	entries, err := os.ReadDir("testdata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() == "crockpotV3.RecipeMenu.json" {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join("testdata", e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, e.Name()), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := loadSource(dir); err == nil {
+		t.Fatal("expected loadSource to fail without crockpotV3.RecipeMenu.json")
 	}
 }
