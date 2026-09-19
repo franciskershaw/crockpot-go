@@ -68,6 +68,18 @@ TRUNCATE
     items
 RESTART IDENTITY;
 
+-- name: MigrateInsertRecipeMenu :exec
+INSERT INTO recipe_menus (user_id)
+VALUES (sqlc.arg(user_id))
+ON CONFLICT (user_id) DO NOTHING;
+
+-- name: MigrateInsertMenuHistoryBaseline :exec
+INSERT INTO menu_history_baseline
+    (recipe_menu_id, recipe_id, times_added_to_menu, first_added_to_menu, last_added_to_menu, last_removed_from_menu)
+SELECT rm.id, sqlc.arg(recipe_id), sqlc.arg(times_added), sqlc.arg(first_added), sqlc.arg(last_added), sqlc.arg(last_removed)
+FROM recipe_menus rm
+WHERE rm.user_id = sqlc.arg(user_id);
+
 -- name: MigrateDeleteUsers :exec
 DELETE FROM users
 WHERE id = ANY(sqlc.arg(ids)::uuid[])

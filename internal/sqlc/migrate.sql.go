@@ -69,6 +69,35 @@ func (q *Queries) MigrateInsertItemAllowedUnit(ctx context.Context, arg MigrateI
 	return err
 }
 
+const migrateInsertMenuHistoryBaseline = `-- name: MigrateInsertMenuHistoryBaseline :exec
+INSERT INTO menu_history_baseline
+    (recipe_menu_id, recipe_id, times_added_to_menu, first_added_to_menu, last_added_to_menu, last_removed_from_menu)
+SELECT rm.id, $1, $2, $3, $4, $5
+FROM recipe_menus rm
+WHERE rm.user_id = $6
+`
+
+type MigrateInsertMenuHistoryBaselineParams struct {
+	RecipeID    pgtype.UUID
+	TimesAdded  int32
+	FirstAdded  pgtype.Timestamptz
+	LastAdded   pgtype.Timestamptz
+	LastRemoved pgtype.Timestamptz
+	UserID      pgtype.UUID
+}
+
+func (q *Queries) MigrateInsertMenuHistoryBaseline(ctx context.Context, arg MigrateInsertMenuHistoryBaselineParams) error {
+	_, err := q.db.Exec(ctx, migrateInsertMenuHistoryBaseline,
+		arg.RecipeID,
+		arg.TimesAdded,
+		arg.FirstAdded,
+		arg.LastAdded,
+		arg.LastRemoved,
+		arg.UserID,
+	)
+	return err
+}
+
 const migrateInsertRecipe = `-- name: MigrateInsertRecipe :exec
 INSERT INTO recipes (
     id, name, time_in_minutes, image_url, image_filename,
@@ -158,6 +187,17 @@ func (q *Queries) MigrateInsertRecipeIngredient(ctx context.Context, arg Migrate
 		arg.Quantity,
 		arg.Position,
 	)
+	return err
+}
+
+const migrateInsertRecipeMenu = `-- name: MigrateInsertRecipeMenu :exec
+INSERT INTO recipe_menus (user_id)
+VALUES ($1)
+ON CONFLICT (user_id) DO NOTHING
+`
+
+func (q *Queries) MigrateInsertRecipeMenu(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, migrateInsertRecipeMenu, userID)
 	return err
 }
 
