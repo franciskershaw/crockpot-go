@@ -52,7 +52,8 @@ VALUES (sqlc.arg(recipe_id), sqlc.arg(category_id));
 -- name: MigrateTruncate :exec
 -- Every table that FKs into recipes or items is named explicitly (no CASCADE)
 -- so a future table added against those references fails this loudly instead of
--- being wiped silently. Keep in sync with 000001_init.up.sql.
+-- being wiped silently. TestMigrateTruncateCoversEveryReferencingTable fails if
+-- this list drifts from the schema.
 TRUNCATE
     recipe_categories_recipes,
     recipe_ingredients,
@@ -60,6 +61,7 @@ TRUNCATE
     recipe_menu_entries,
     menu_history_entries,
     shopping_list_items,
+    shopping_list_dismissed_items,
     item_allowed_units,
     recipes,
     items

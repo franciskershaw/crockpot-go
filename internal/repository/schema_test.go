@@ -2,6 +2,9 @@ package repository_test
 
 import (
 	"context"
+	"os"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/franciskershaw/crockpot-go/db"
@@ -196,4 +199,39 @@ func TestShoppingListDismissedItemsSchema(t *testing.T) {
 		require.NoError(t, err, "shopping_list_dismissed_items.shopping_list_id must have an FK to shopping_lists")
 		assert.Equal(t, "CASCADE", deleteRule)
 	})
+}
+
+// Postgres refuses a TRUNCATE unless every table with an FK into a truncated table is truncated in the same statement.
+func TestMigrateTruncateCoversEveryReferencingTable(t *testing.T) {
+	ctx := context.Background()
+
+	src, err := os.ReadFile("../sqlc/queries/migrate.sql")
+	require.NoError(t, err)
+	m := regexp.MustCompile(`(?s)name: MigrateTruncate.*?TRUNCATE\s+(.*?)\s+RESTART IDENTITY`).FindSubmatch(src)
+	require.NotNil(t, m, "could not find the MigrateTruncate statement in migrate.sql")
+
+	truncated := map[string]bool{}
+	for _, name := range strings.Split(string(m[1]), ",") {
+		truncated[strings.TrimSpace(name)] = true
+	}
+	require.Greater(t, len(truncated), 1, "parsed no tables out of MigrateTruncate")
+
+	rows, err := db.DB.Query(ctx, `
+		SELECT child.relname, parent.relname
+		FROM pg_constraint c
+		JOIN pg_class child ON child.oid = c.conrelid
+		JOIN pg_class parent ON parent.oid = c.confrelid
+		WHERE c.contype = 'f'`)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	for rows.Next() {
+		var child, parent string
+		require.NoError(t, rows.Scan(&child, &parent))
+		if truncated[parent] {
+			assert.True(t, truncated[child],
+				"%s has an FK into %s, which MigrateTruncate wipes, but %s is not in the same TRUNCATE", child, parent, child)
+		}
+	}
+	require.NoError(t, rows.Err())
 }
