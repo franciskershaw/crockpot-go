@@ -39,7 +39,8 @@ type ItemCategory struct {
 	UpdatedAt pgtype.Timestamptz
 }
 
-type MenuHistoryEntry struct {
+// Frozen per-recipe aggregates migrated from the old app; never written by the API. times_added_to_menu is an upper bound: the old app counted serves-only changes as adds.
+type MenuHistoryBaseline struct {
 	ID                  pgtype.UUID
 	RecipeMenuID        pgtype.UUID
 	RecipeID            pgtype.UUID
@@ -47,6 +48,14 @@ type MenuHistoryEntry struct {
 	FirstAddedToMenu    pgtype.Timestamptz
 	LastAddedToMenu     pgtype.Timestamptz
 	LastRemovedFromMenu pgtype.Timestamptz
+}
+
+type MenuHistoryEvent struct {
+	ID           pgtype.UUID
+	RecipeMenuID pgtype.UUID
+	RecipeID     pgtype.UUID
+	EventType    string
+	OccurredAt   pgtype.Timestamptz
 }
 
 type PasswordResetToken struct {
