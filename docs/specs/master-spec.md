@@ -756,6 +756,33 @@ few-line addendum to a `GET /me` ticket.*
   the deleted user's recipes/favourites/menu/shopping-list/planner rows,
   confirmation mechanism, and full session revocation on completion.
 
+### Epic 13: Account Management
+*Raised 2026-09-20, deliberately vague — the founder's "everything a user
+would expect to be able to do once they've signed up." Epic 2 ships
+sign-up/login/reset and a read-only `GET /me` (`CROC-009`); nothing lets a
+user change anything about their account afterwards. Not grilled: what
+belongs in v1 is an open question, and it likely splits into several
+tickets once decided.*
+- **CROC-051** — Self-service account management. Candidate scope:
+  - **Edit profile** — name (`PATCH /me` or similar); email change is the
+    hard one (re-confirmation of the new address, what happens to live
+    sessions, collision with an existing user).
+  - **Change password** — password accounts only, needs the current
+    password; whether to revoke other sessions on success (`CROC-007`'s
+    reset already does). Google accounts have no password, and
+    Google/password are mutually exclusive per user (`CROC-002`), so the
+    UI/API must handle "this account has no password" cleanly.
+  - **Delete account** — already `CROC-030` (Epic 12); sequence with it
+    rather than re-specifying here.
+  - Not named but likely candidates: a session list with "sign out
+    everywhere" (refresh-token rows already exist), and account
+    preferences if any ever exist.
+  Open for its grill: which of these earn tickets and in what order;
+  whether email change is in scope at all for v1; how any of it differs
+  for Google accounts (name/email owned by Google — editable locally, or
+  read-only?); and the `crockpot-react` settings-page surface these would
+  feed.
+
 ### Tech Debt & Production Readiness
 *From the first whole-codebase tech-debt pass, 2026-08-30. Full detail:
 `docs/findings/2026-08-30-tech-debt.md`.*
