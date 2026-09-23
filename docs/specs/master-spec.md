@@ -670,6 +670,18 @@ session.*
   dismissal-aware (sticky, reusing `CROC-021`'s schema); clear-list is
   not (wipes everything, no memory). Bulk mark-obtained, named in the
   original line, was dropped — no design or old-app precedent for it.
+- **CROC-052** — `DELETE /shopping-list/dismissals`-shaped endpoint: clear
+  dismissal records for the current shopping list and recompute from the
+  current menu, without requiring a menu change first. `CROC-021` decision
+  8 only auto-reverts a dismissal when the item's required quantity
+  changes — there's currently no way to get a deleted item back if the
+  menu itself doesn't change. Surfaced by `crockpot-react`'s `CFE-006`
+  grill (2026-09-23): its Menu-tab redesign draws a "Regenerate" button
+  with exactly this behaviour, which no existing endpoint backs. Blocks
+  `CFE-006`'s Regenerate button only — needs its own grill before
+  building (exact endpoint shape; whether it takes an optional
+  `itemId`/`unitId` filter for a per-item vs. whole-list version;
+  interaction with `obtained` state on a row whose dismissal clears).
 
 ### Epic 7: Roles & Tier Gating
 - **CROC-023** — **Delivered by CROC-014** (`docs/handoffs/CROC-014.md`
