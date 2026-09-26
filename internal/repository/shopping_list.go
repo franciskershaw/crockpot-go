@@ -250,6 +250,30 @@ func (r *PostgresShoppingListRepository) Get(ctx context.Context, userID string)
 	return &models.ShoppingList{Items: items}, nil
 }
 
+func (r *PostgresShoppingListRepository) RegenerateFromScratch(ctx context.Context, userID string) error {
+	q := queriesFor(ctx, r.db)
+
+	uid, err := uuidParam(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+
+	listID, err := q.GetOrCreateShoppingList(ctx, uid)
+	if err != nil {
+		return fmt.Errorf("failed to get or create shopping list: %w", err)
+	}
+
+	if err := q.ClearShoppingListItems(ctx, uid); err != nil {
+		return fmt.Errorf("failed to clear shopping list: %w", err)
+	}
+
+	if err := q.DeleteShoppingListDismissals(ctx, listID); err != nil {
+		return fmt.Errorf("failed to delete dismissals: %w", err)
+	}
+
+	return r.Regenerate(ctx, userID)
+}
+
 func (r *PostgresShoppingListRepository) Regenerate(ctx context.Context, userID string) error {
 	q := queriesFor(ctx, r.db)
 

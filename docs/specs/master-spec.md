@@ -670,18 +670,71 @@ session.*
   dismissal-aware (sticky, reusing `CROC-021`'s schema); clear-list is
   not (wipes everything, no memory). Bulk mark-obtained, named in the
   original line, was dropped — no design or old-app precedent for it.
-- **CROC-052** — `DELETE /shopping-list/dismissals`-shaped endpoint: clear
-  dismissal records for the current shopping list and recompute from the
-  current menu, without requiring a menu change first. `CROC-021` decision
-  8 only auto-reverts a dismissal when the item's required quantity
-  changes — there's currently no way to get a deleted item back if the
-  menu itself doesn't change. Surfaced by `crockpot-react`'s `CFE-006`
-  grill (2026-09-23): its Menu-tab redesign draws a "Regenerate" button
-  with exactly this behaviour, which no existing endpoint backs. Blocks
-  `CFE-006`'s Regenerate button only — needs its own grill before
-  building (exact endpoint shape; whether it takes an optional
-  `itemId`/`unitId` filter for a per-item vs. whole-list version;
-  interaction with `obtained` state on a row whose dismissal clears).
+- **CROC-052** — `POST /shopping-list/regenerate`: restore the shopping
+  list to its initial state — exactly as if the current menu's recipes
+  had just been added to an empty list. Backs `crockpot-react` `CFE-006`'s
+  "Regenerate" button (`yp1.png`, list header), which blocks on this.
+  Grilled 2026-09-26. **Implementation mode: AI-driven.**
+
+  - **Full reset, not a merge.** In one `WithinTx`: delete every
+    `shopping_list_items` row (manual included, reusing
+    `ClearShoppingListItems`), delete every
+    `shopping_list_dismissed_items` row for the user's list, then call the
+    existing `Regenerate` unchanged. Result: every recipe-driven item at
+    its recipe-calculated quantity, all unticked, no manual items. Chosen
+    over preserving `obtained`/manual rows — the founder's model is
+    "restore to initial state", and a partial merge adds rules the button
+    doesn't need.
+  - **One endpoint that also regenerates, not `DELETE
+    /shopping-list/dismissals`.** Clearing dismissals alone restores
+    nothing until a regen runs, and today regen only runs on menu writes.
+    Doesn't contradict `CROC-021` decision 1: that rejected a manual
+    regenerate as the *sync mechanism* after menu writes; automatic regen
+    on menu writes stays, this is an additional user-triggered action.
+  - **Whole list only, no `itemId`/`unitId` filter.** No design surface
+    calls a per-item restore, and dismissed items aren't visible in `GET
+    /shopping-list` for a UI to pick from. An optional body later
+    wouldn't break the no-body call.
+
+  **Acceptance criteria**:
+  - [ ] `POST /shopping-list/regenerate` → `200 {"message": "shopping
+        list regenerated"}`, auth required, registered in `main.go`'s
+        `/shopping-list` group.
+  - [ ] A dismissed (deleted generated) item reappears, `obtained =
+        false`, at its recipe quantity; its dismissal row is gone.
+  - [ ] A previously ticked item comes back `obtained = false`.
+  - [ ] Manual items are removed.
+  - [ ] A hand-edited generated-row quantity is back at the
+        recipe-calculated amount.
+  - [ ] After `DELETE /shopping-list`, regenerate rebuilds the list from
+        the menu.
+  - [ ] Deleting an item after a regenerate still dismisses it — an
+        unrelated menu change doesn't bring it back.
+  - [ ] User with no shopping list row → row created, `200`; empty menu →
+        empty list.
+  - [ ] Another user's list and dismissals are untouched.
+  - [ ] A failure in any step rolls back the whole operation (nothing
+        deleted).
+  - [ ] `requests/shopping-list.http` gets a `Regenerate` section.
+  - [ ] `go test ./internal/handler/...`, `./scripts/test-repo.sh`,
+        `golangci-lint run --max-same-issues=0
+        --max-issues-per-linter=0 ./...`, `gofmt`, `go vet` all clean.
+
+  **Non-goals**: per-item restore; preserving `obtained` or manual items
+  across a regenerate; changing `DELETE /shopping-list` (it still leaves
+  dismissals behind, so a later menu change won't restore pre-clear
+  deletions — pre-existing since `CROC-022`, left as-is since regenerate
+  now covers "start over").
+
+  **Verification**: API boundary — repository test against the real Neon
+  dev DB (`./scripts/test-repo.sh -run TestRegenerateFromScratch`),
+  seeding a dismissed item, a ticked item, a manual item, and a
+  hand-edited quantity, plus a second user's list, and asserting the reset
+  state; rollback case via the existing `WithinTx` rollback-test pattern.
+  Handler tests (mocked repo, `go test ./internal/handler/...`): route,
+  `WithinTx` wrapping, `500` on repo error, `401` without token.
+  `requests/shopping-list.http`'s new section run end-to-end against a
+  local server. `/code-review medium main` once green, before close-out.
 
 ### Epic 7: Roles & Tier Gating
 - **CROC-023** — **Delivered by CROC-014** (`docs/handoffs/CROC-014.md`

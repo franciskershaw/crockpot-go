@@ -105,6 +105,16 @@ func (q *Queries) DeleteObsoleteShoppingListItems(ctx context.Context, arg Delet
 	return err
 }
 
+const deleteShoppingListDismissals = `-- name: DeleteShoppingListDismissals :exec
+DELETE FROM shopping_list_dismissed_items
+WHERE shopping_list_id = $1
+`
+
+func (q *Queries) DeleteShoppingListDismissals(ctx context.Context, shoppingListID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteShoppingListDismissals, shoppingListID)
+	return err
+}
+
 const deleteShoppingListItem = `-- name: DeleteShoppingListItem :one
 DELETE FROM shopping_list_items
 WHERE id = $1 AND shopping_list_id = $2

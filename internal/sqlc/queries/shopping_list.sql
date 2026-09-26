@@ -155,3 +155,7 @@ WHERE sli.shopping_list_id = sqlc.arg(shopping_list_id)
         ) t
         WHERE t.item_id = sli.item_id AND t.unit_id IS NOT DISTINCT FROM sli.unit_id
     );
+
+-- name: DeleteShoppingListDismissals :exec
+DELETE FROM shopping_list_dismissed_items
+WHERE shopping_list_id = sqlc.arg(shopping_list_id);
