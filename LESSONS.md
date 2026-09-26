@@ -596,3 +596,8 @@ implementation quality until CROC-001 lands.
 - **Pattern**: turn "keep in sync" comments into tests; list a
   neighbour's guards before writing its sibling; `git status` before
   naming a commit boundary; read `.env` by key name, never echo a line.
+
+## 2026-09-26 — CROC-052 — Shopping-list regenerate (full reset) shipped; build clean, grill needed two corrections
+
+- No rework in the build. The grill asked for a decision on "dismissals" (internal CROC-021 term) unexplained, then over-designed a merge that preserved ticks/manual items when the founder's framing meant a literal full reset. Stale `/code-review` guidance in `CLAUDE.md` also went unnoticed until the founder flagged it.
+- **Pattern**: translate codebase-internal terms into user-facing behaviour before asking for a decision on them; propose the literal reading of the founder's framing first, nuance only if asked.
