@@ -15,6 +15,7 @@ type ShoppingListRepository interface {
 	UpdateItem(ctx context.Context, userID, itemRowID string, obtained *bool, quantity *float64) error
 	DeleteItem(ctx context.Context, userID, itemRowID string) error
 	ClearList(ctx context.Context, userID string) error
+	RegenerateFromScratch(ctx context.Context, userID string) error
 }
 
 type ShoppingListHandler struct {
@@ -130,4 +131,21 @@ func (h *ShoppingListHandler) ClearList(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "shopping list cleared"})
+}
+
+func (h *ShoppingListHandler) Regenerate(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+
+	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
+		return h.repo.RegenerateFromScratch(ctx, userID)
+	})
+	if txErr != nil {
+		internalError(c, "failed to regenerate shopping list", txErr)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "shopping list regenerated"})
 }

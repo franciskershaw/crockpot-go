@@ -47,6 +47,7 @@ func newShoppingListMocks(t *testing.T) *shoppingListMocks {
 		authed.PATCH("/items/:id", h.UpdateItem)
 		authed.DELETE("/items/:id", h.DeleteItem)
 		authed.DELETE("", h.ClearList)
+		authed.POST("/regenerate", h.Regenerate)
 	}
 	return m
 }
@@ -427,4 +428,57 @@ func TestShoppingListGet_RepoError_500(t *testing.T) {
 
 	w := doShoppingListGet(m.router, shoppingListAuth(t, "FREE"))
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func doShoppingListRegenerate(r *gin.Engine, auth string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/shopping-list/regenerate", nil)
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestShoppingListRegenerate_NoToken_401(t *testing.T) {
+	m := newShoppingListMocks(t)
+	w := doShoppingListRegenerate(m.router, "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestShoppingListRegenerate_Success_200MessageBody(t *testing.T) {
+	m := newShoppingListMocks(t)
+	m.repo.EXPECT().RegenerateFromScratch(mock.Anything, shoppingListUserID.String()).Return(nil)
+
+	w := doShoppingListRegenerate(m.router, shoppingListAuth(t, "FREE"))
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "shopping list regenerated", shoppingListMsg(t, w))
+}
+
+func TestShoppingListRegenerate_RepoError_500(t *testing.T) {
+	m := newShoppingListMocks(t)
+	m.repo.EXPECT().RegenerateFromScratch(mock.Anything, shoppingListUserID.String()).Return(errors.New("db down"))
+
+	w := doShoppingListRegenerate(m.router, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+type txMarkerKey struct{}
+
+func TestShoppingListRegenerate_RunsInsideTransaction(t *testing.T) {
+	repo := genmocks.NewMockShoppingListRepository(t)
+	transactor := genmocks.NewMockTransactor(t)
+	transactor.EXPECT().WithinTx(mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+			return fn(context.WithValue(ctx, txMarkerKey{}, true))
+		})
+	inTx := mock.MatchedBy(func(ctx context.Context) bool { return ctx.Value(txMarkerKey{}) == true })
+	repo.EXPECT().RegenerateFromScratch(inTx, shoppingListUserID.String()).Return(nil)
+
+	h := handler.NewShoppingListHandler(repo, transactor)
+	router := gin.New()
+	router.POST("/shopping-list/regenerate", middleware.AuthMiddleware(testutil.TestAccessSecret), h.Regenerate)
+
+	w := doShoppingListRegenerate(router, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusOK, w.Code)
 }

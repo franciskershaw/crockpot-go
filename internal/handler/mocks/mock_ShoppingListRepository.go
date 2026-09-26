@@ -227,6 +227,53 @@ func (_c *MockShoppingListRepository_Get_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
+// RegenerateFromScratch provides a mock function with given fields: ctx, userID
+func (_m *MockShoppingListRepository) RegenerateFromScratch(ctx context.Context, userID string) error {
+	ret := _m.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RegenerateFromScratch")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, userID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShoppingListRepository_RegenerateFromScratch_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RegenerateFromScratch'
+type MockShoppingListRepository_RegenerateFromScratch_Call struct {
+	*mock.Call
+}
+
+// RegenerateFromScratch is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+func (_e *MockShoppingListRepository_Expecter) RegenerateFromScratch(ctx interface{}, userID interface{}) *MockShoppingListRepository_RegenerateFromScratch_Call {
+	return &MockShoppingListRepository_RegenerateFromScratch_Call{Call: _e.mock.On("RegenerateFromScratch", ctx, userID)}
+}
+
+func (_c *MockShoppingListRepository_RegenerateFromScratch_Call) Run(run func(ctx context.Context, userID string)) *MockShoppingListRepository_RegenerateFromScratch_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockShoppingListRepository_RegenerateFromScratch_Call) Return(_a0 error) *MockShoppingListRepository_RegenerateFromScratch_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShoppingListRepository_RegenerateFromScratch_Call) RunAndReturn(run func(context.Context, string) error) *MockShoppingListRepository_RegenerateFromScratch_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateItem provides a mock function with given fields: ctx, userID, itemRowID, obtained, quantity
 func (_m *MockShoppingListRepository) UpdateItem(ctx context.Context, userID string, itemRowID string, obtained *bool, quantity *float64) error {
 	ret := _m.Called(ctx, userID, itemRowID, obtained, quantity)

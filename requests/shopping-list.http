@@ -3,12 +3,16 @@
 # GET /shopping-list — CROC-021. Behind full AuthMiddleware, same shape
 # as /menu. Never writes: a user with no shopping_lists row yet gets 200
 # + empty items, no row created. The list itself is a side effect of the
-# three /menu/entries write endpoints (CROC-019) — there is no separate
-# "regenerate" endpoint to call here, POST/PATCH/DELETE on /menu/entries
-# below do that automatically, in the same transaction as the menu write.
+# three /menu/entries write endpoints (CROC-019) — POST/PATCH/DELETE on
+# /menu/entries below regenerate it automatically, in the same
+# transaction as the menu write.
 #
 # POST/PATCH/DELETE /shopping-list/items and DELETE /shopping-list —
 # CROC-022 (manual items, obtain-toggle, quantity edit, clear list).
+#
+# POST /shopping-list/regenerate — CROC-052. User-triggered reset: wipes
+# every row (manual included) and every dismissal, then rebuilds from the
+# current menu.
 #
 # This file creates its own throwaway items + two throwaway recipes
 # (both using itemId, no unit — "2 eggs"-style) with the ADMIN account,
@@ -544,6 +548,63 @@ Content-Type: application/json
 ### memory, unlike a single-item removal.
 GET http://localhost:{{$dotenv PORT}}/shopping-list
 Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  POST /shopping-list/regenerate — restore to initial state (CROC-052)
+# ══════════════════════════════════════════
+
+### ✅ 200 — recipeA is on the menu at serves 8, so the list holds exactly
+### one row: itemId's generated row, quantity 4. Capture its id.
+# @name listBeforeRegenerate
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+@regenGeneratedRowId = {{listBeforeRegenerate.response.body.items[0].id}}
+
+### ✅ 200 — delete the generated row (writes a dismissal).
+DELETE http://localhost:{{$dotenv PORT}}/shopping-list/items/{{regenGeneratedRowId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — add a manual row, so there's something regenerate must wipe.
+POST http://localhost:{{$dotenv PORT}}/shopping-list/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "itemId": "{{manualItemId}}",
+  "quantity": 2
+}
+
+###
+
+### ✅ 200 — only the manual row (quantity 2) is on the list.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 {"message": "shopping list regenerated"}
+POST http://localhost:{{$dotenv PORT}}/shopping-list/regenerate
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — exactly one row: itemId's generated row is back at quantity
+### 4, obtained false. The manual row is gone.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 401 — no token.
+POST http://localhost:{{$dotenv PORT}}/shopping-list/regenerate
 
 ###
 
