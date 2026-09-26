@@ -46,6 +46,10 @@ written.
 
 ### 2. Adding a duplicate item merges only across manual-to-manual; never manual-to-generated
 
+**Superseded by `CROC-053` (2026-09-26)**: manual add now merges into
+any existing row for the item + unit, recipe-driven included, and unticks
+it. See `master-spec.md`.
+
 Adding "onions" via manual add when a **manual** "onions" row already
 exists (same `itemId/unitId`) increments that row's quantity — safe,
 since manual rows are never touched by regeneration.

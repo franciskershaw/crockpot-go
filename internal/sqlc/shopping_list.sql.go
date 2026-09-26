@@ -175,29 +175,29 @@ func (q *Queries) DeleteStaleDismissals(ctx context.Context, arg DeleteStaleDism
 	return err
 }
 
-const findManualShoppingListItem = `-- name: FindManualShoppingListItem :one
+const findShoppingListItemForMerge = `-- name: FindShoppingListItemForMerge :one
 SELECT id, quantity FROM shopping_list_items
 WHERE shopping_list_id = $1
     AND item_id = $2
     AND unit_id IS NOT DISTINCT FROM $3::uuid
-    AND is_manual
+ORDER BY is_manual
 LIMIT 1
 `
 
-type FindManualShoppingListItemParams struct {
+type FindShoppingListItemForMergeParams struct {
 	ShoppingListID pgtype.UUID
 	ItemID         pgtype.UUID
 	UnitID         pgtype.UUID
 }
 
-type FindManualShoppingListItemRow struct {
+type FindShoppingListItemForMergeRow struct {
 	ID       pgtype.UUID
 	Quantity pgtype.Numeric
 }
 
-func (q *Queries) FindManualShoppingListItem(ctx context.Context, arg FindManualShoppingListItemParams) (FindManualShoppingListItemRow, error) {
-	row := q.db.QueryRow(ctx, findManualShoppingListItem, arg.ShoppingListID, arg.ItemID, arg.UnitID)
-	var i FindManualShoppingListItemRow
+func (q *Queries) FindShoppingListItemForMerge(ctx context.Context, arg FindShoppingListItemForMergeParams) (FindShoppingListItemForMergeRow, error) {
+	row := q.db.QueryRow(ctx, findShoppingListItemForMerge, arg.ShoppingListID, arg.ItemID, arg.UnitID)
+	var i FindShoppingListItemForMergeRow
 	err := row.Scan(&i.ID, &i.Quantity)
 	return i, err
 }
@@ -228,7 +228,7 @@ func (q *Queries) GetShoppingListByUserID(ctx context.Context, userID pgtype.UUI
 
 const incrementShoppingListItemQuantity = `-- name: IncrementShoppingListItemQuantity :exec
 UPDATE shopping_list_items
-SET quantity = quantity + $1
+SET quantity = quantity + $1, obtained = false
 WHERE id = $2
 `
 
