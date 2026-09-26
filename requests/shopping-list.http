@@ -400,7 +400,7 @@ Authorization: Bearer {{authToken}}
 
 
 # ══════════════════════════════════════════
-#  Manual add never merges with a generated row for the same item
+#  Manual add merges into an existing generated row (CROC-053)
 # ══════════════════════════════════════════
 
 ### ✅ 200 — put recipeA back on the menu: one generated row for itemId,
@@ -416,9 +416,7 @@ Content-Type: application/json
 
 ###
 
-### ✅ 200 — exactly one row for itemId at this point (the manual
-### duplicate below doesn't exist yet) — capture its id now, while it's
-### still unambiguous, rather than after two same-named rows exist.
+### ✅ 200 — exactly one row for itemId. Capture its id.
 # @name listRecipeAOnly
 GET http://localhost:{{$dotenv PORT}}/shopping-list
 Authorization: Bearer {{authToken}}
@@ -427,8 +425,7 @@ Authorization: Bearer {{authToken}}
 
 @generatedItemRowId = {{listRecipeAOnly.response.body.items[0].id}}
 
-### ✅ 200 — manually add itemId too, the exact same item the generated
-### row already covers.
+### ✅ 200 — manually add 1 of the same item the generated row covers.
 POST http://localhost:{{$dotenv PORT}}/shopping-list/items
 Authorization: Bearer {{authToken}}
 Content-Type: application/json
@@ -440,10 +437,8 @@ Content-Type: application/json
 
 ###
 
-### ✅ 200 — two separate rows for itemId now: the generated one
-### (quantity 2, id = generatedItemRowId above) and a new manual one
-### (quantity 1) — confirm both are present in the response, not
-### combined into one.
+### ✅ 200 — still one row: same id as generatedItemRowId, quantity 3,
+### isManual false. Adding merges into it, like a quantity edit.
 GET http://localhost:{{$dotenv PORT}}/shopping-list
 Authorization: Bearer {{authToken}}
 
@@ -454,49 +449,40 @@ Authorization: Bearer {{authToken}}
 #  DELETE /shopping-list/items/:id — generated row: sticky dismissal
 # ══════════════════════════════════════════
 
-### ✅ 200 — delete the generated row (id captured above, before the
-### manual duplicate existed).
+### ✅ 200 — delete the generated row (showing 3 after the add above).
+### The dismissal is recorded at the recipes' need (2), not the 3 shown.
 DELETE http://localhost:{{$dotenv PORT}}/shopping-list/items/{{generatedItemRowId}}
 Authorization: Bearer {{authToken}}
 
 ###
 
-### ✅ 200 — only the manual row (quantity 1) remains.
+### ✅ 200 — empty.
 GET http://localhost:{{$dotenv PORT}}/shopping-list
 Authorization: Bearer {{authToken}}
 
 ###
 
-### ✅ 200 — an unrelated menu change (recipeB, a different item) triggers
-### a regenerate. itemId's required quantity is still 2, matching the
-### dismissal recorded above, so it must NOT reappear.
-POST http://localhost:{{$dotenv PORT}}/menu/entries
+### ✅ 200 — re-save recipeA at the same serves (4) to trigger a
+### regenerate without changing itemId's need (still 2).
+PATCH http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeAId}}
 Authorization: Bearer {{authToken}}
 Content-Type: application/json
 
 {
-  "recipeId": "{{recipeBId}}",
   "serves": 4
 }
 
 ###
 
-### ✅ 200 — still only the manual itemId row (quantity 1) plus recipeB's
-### own item — the dismissed generated row for itemId must not be back.
+### ✅ 200 — still empty: the dismissal holds even though the row showed
+### 3 when it was deleted.
 GET http://localhost:{{$dotenv PORT}}/shopping-list
 Authorization: Bearer {{authToken}}
 
 ###
 
-### ✅ 200 — remove recipeB again, back to just recipeA on the menu.
-DELETE http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeBId}}
-Authorization: Bearer {{authToken}}
-
-###
-
-### ✅ 200 — bump recipeA's serves to 8: itemId's required quantity
-### changes from 2 to 4, which no longer matches the stale dismissal
-### (quantity 2) — the item must reappear as a fresh, unobtained row.
+### ✅ 200 — bump recipeA's serves to 8: itemId's need changes from 2 to
+### 4, so the dismissal is stale and the item must reappear.
 PATCH http://localhost:{{$dotenv PORT}}/menu/entries/{{recipeAId}}
 Authorization: Bearer {{authToken}}
 Content-Type: application/json
@@ -507,8 +493,7 @@ Content-Type: application/json
 
 ###
 
-### ✅ 200 — itemId's generated row is back at quantity 4, obtained
-### false, alongside the still-present manual row (quantity 1).
+### ✅ 200 — itemId's generated row is back at quantity 4, obtained false.
 GET http://localhost:{{$dotenv PORT}}/shopping-list
 Authorization: Bearer {{authToken}}
 

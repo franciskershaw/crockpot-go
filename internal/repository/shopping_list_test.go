@@ -498,8 +498,8 @@ func TestAddManualItem_MergesIntoExistingManualRow(t *testing.T) {
 	assert.Equal(t, 1, count, "must not create a second row for the same manual item")
 }
 
-func TestAddManualItem_DoesNotMergeWithGeneratedRow(t *testing.T) {
-	userID := insertTestUser(t, "Manual Add No Merge Generated Cook")
+func TestAddManualItem_MergesIntoGeneratedRow(t *testing.T) {
+	userID := insertTestUser(t, "Manual Add Merge Generated Cook")
 	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
 	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
 	grams := unitIDByName(t, "grams")
@@ -513,18 +513,46 @@ func TestAddManualItem_DoesNotMergeWithGeneratedRow(t *testing.T) {
 	require.NoError(t, err)
 
 	items := getShoppingListItemsByUser(t, userID)
-	generated, ok := findGeneratedShoppingListItem(items, itemID, &grams)
-	require.True(t, ok)
-	assert.Equal(t, 100.0, generated.quantity, "generated row must be untouched by the manual add")
+	require.Len(t, items, 1, "adding an item already on the list must not create a second row")
+	assert.Equal(t, 103.0, items[0].quantity)
+	assert.False(t, items[0].isManual, "the row stays recipe-driven")
+}
 
-	var manualCount int
-	for _, r := range items {
-		if r.itemID == itemID && r.isManual {
-			manualCount++
-			assert.Equal(t, 3.0, r.quantity)
-		}
-	}
-	assert.Equal(t, 1, manualCount, "manual add must create its own separate row, not merge into the generated one")
+func TestAddManualItem_MergeIntoTickedGeneratedRowUnticksIt(t *testing.T) {
+	userID := insertTestUser(t, "Manual Add Untick Generated Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	recipeID := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{itemID, &grams, 100}})
+	addToMenu(t, userID, recipeID, 4)
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+	row, ok := findShoppingListItem(getShoppingListItemsByUser(t, userID), itemID, &grams)
+	require.True(t, ok)
+	setShoppingListItemObtained(t, row.id, true)
+
+	require.NoError(t, shoppingListRepo.AddManualItem(context.Background(), userID.String(), itemID.String(), strPtr(grams), 3))
+
+	merged, ok := findShoppingListItem(getShoppingListItemsByUser(t, userID), itemID, &grams)
+	require.True(t, ok)
+	assert.False(t, merged.obtained, "adding more of a ticked item must untick it")
+}
+
+func TestAddManualItem_MergeIntoTickedManualRowUnticksIt(t *testing.T) {
+	userID := insertTestUser(t, "Manual Add Untick Manual Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	registerShoppingListCascadeCleanup(t, userID)
+
+	insertManualShoppingListItem(t, userID, itemID, nil, 2, true)
+
+	require.NoError(t, shoppingListRepo.AddManualItem(context.Background(), userID.String(), itemID.String(), nil, 1))
+
+	items := getShoppingListItemsByUser(t, userID)
+	require.Len(t, items, 1)
+	assert.Equal(t, 3.0, items[0].quantity)
+	assert.False(t, items[0].obtained, "adding more of a ticked item must untick it")
 }
 
 func TestAddManualItem_UnknownItem_ReturnsInvalidItemError(t *testing.T) {
@@ -767,6 +795,44 @@ func TestDeleteItem_GeneratedRow_DeletesAndWritesDismissal(t *testing.T) {
 	items = getShoppingListItemsByUser(t, userID)
 	_, ok = findShoppingListItem(items, itemID, &grams)
 	assert.False(t, ok, "dismissed item must not reappear while its required quantity is unchanged")
+}
+
+func TestDeleteItem_GeneratedRowAddedTo_StaysDismissedOnUnrelatedMenuChange(t *testing.T) {
+	assertDeletedAdjustedRowStaysDismissed(t, "Delete Added-To Row Cook", func(userID, itemID, rowID uuid.UUID, grams uuid.UUID) {
+		require.NoError(t, shoppingListRepo.AddManualItem(context.Background(), userID.String(), itemID.String(), strPtr(grams), 3))
+	})
+}
+
+func TestDeleteItem_GeneratedRowQuantityEdited_StaysDismissedOnUnrelatedMenuChange(t *testing.T) {
+	assertDeletedAdjustedRowStaysDismissed(t, "Delete Edited Row Cook", func(userID, _, rowID uuid.UUID, _ uuid.UUID) {
+		require.NoError(t, shoppingListRepo.UpdateItem(context.Background(), userID.String(), rowID.String(), nil, floatPtr(999)))
+	})
+}
+
+func assertDeletedAdjustedRowStaysDismissed(t *testing.T, name string, adjust func(userID, itemID, rowID, grams uuid.UUID)) {
+	t.Helper()
+	userID := insertTestUser(t, name)
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	unrelatedItem := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	recipeA := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{itemID, &grams, 100}})
+	addToMenu(t, userID, recipeA, 4)
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+	row, ok := findShoppingListItem(getShoppingListItemsByUser(t, userID), itemID, &grams)
+	require.True(t, ok)
+
+	adjust(userID, itemID, row.id, grams)
+	require.NoError(t, shoppingListRepo.DeleteItem(context.Background(), userID.String(), row.id.String()))
+
+	recipeB := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{unrelatedItem, &grams, 50}})
+	addToMenu(t, userID, recipeB, 4)
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+
+	_, ok = findShoppingListItem(getShoppingListItemsByUser(t, userID), itemID, &grams)
+	assert.False(t, ok, "a deleted row must stay dismissed while the recipes' need is unchanged, whatever its displayed quantity was")
 }
 
 func TestDeleteItem_UnknownID_ReturnsNotFound(t *testing.T) {

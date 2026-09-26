@@ -25,8 +25,8 @@ func NewPostgresShoppingListRepository(db sqlc.DBTX) *PostgresShoppingListReposi
 	return &PostgresShoppingListRepository{db: db}
 }
 
-// AddManualItem merges into an existing manual row for the same (itemID, unitID) by summing
-// quantity; never merges into a generated row, since Regenerate would just overwrite it.
+// AddManualItem merges into any existing row for the same (itemID, unitID), preferring the
+// recipe-driven one; like a quantity edit, an amount added to that row resets on the next Regenerate.
 func (r *PostgresShoppingListRepository) AddManualItem(ctx context.Context, userID, itemID string, unitID *string, quantity float64) error {
 	q := queriesFor(ctx, r.db)
 
@@ -67,7 +67,7 @@ func (r *PostgresShoppingListRepository) AddManualItem(ctx context.Context, user
 		pgUnitID = pgUUID(*parsedUnitID)
 	}
 
-	existing, err := q.FindManualShoppingListItem(ctx, sqlc.FindManualShoppingListItemParams{
+	existing, err := q.FindShoppingListItemForMerge(ctx, sqlc.FindShoppingListItemForMergeParams{
 		ShoppingListID: listID,
 		ItemID:         pgItemID,
 		UnitID:         pgUnitID,
@@ -87,13 +87,13 @@ func (r *PostgresShoppingListRepository) AddManualItem(ctx context.Context, user
 		}
 		return nil
 	case err != nil:
-		return fmt.Errorf("failed to find existing manual shopping list item: %w", err)
+		return fmt.Errorf("failed to find existing shopping list item: %w", err)
 	default:
 		if err := q.IncrementShoppingListItemQuantity(ctx, sqlc.IncrementShoppingListItemQuantityParams{
 			Delta: qty,
 			ID:    existing.ID,
 		}); err != nil {
-			return fmt.Errorf("failed to increment manual shopping list item: %w", err)
+			return fmt.Errorf("failed to increment shopping list item: %w", err)
 		}
 		return nil
 	}
@@ -177,15 +177,46 @@ func (r *PostgresShoppingListRepository) DeleteItem(ctx context.Context, userID,
 		return nil
 	}
 
+	quantityAtDismissal, err := recipeQuantityFor(ctx, q, uid, deleted.ItemID, deleted.UnitID)
+	if err != nil {
+		return err
+	}
+	if !quantityAtDismissal.Valid {
+		quantityAtDismissal = deleted.Quantity
+	}
+
 	if err := q.InsertDismissedItem(ctx, sqlc.InsertDismissedItemParams{
 		ShoppingListID:      listID,
 		ItemID:              deleted.ItemID,
 		UnitID:              deleted.UnitID,
-		QuantityAtDismissal: deleted.Quantity,
+		QuantityAtDismissal: quantityAtDismissal,
 	}); err != nil {
 		return fmt.Errorf("failed to insert dismissed item: %w", err)
 	}
 	return nil
+}
+
+// recipeQuantityFor returns the menu's aggregated need for (itemID, unitID) — what Regenerate compares
+// dismissals against — or an invalid Numeric when the menu doesn't need it.
+func recipeQuantityFor(ctx context.Context, q *sqlc.Queries, userID, itemID, unitID pgtype.UUID) (pgtype.Numeric, error) {
+	menuID, err := q.GetMenuByUserID(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return pgtype.Numeric{}, nil
+	}
+	if err != nil {
+		return pgtype.Numeric{}, fmt.Errorf("failed to get menu: %w", err)
+	}
+
+	aggregate, err := q.AggregateMenuIngredients(ctx, menuID)
+	if err != nil {
+		return pgtype.Numeric{}, fmt.Errorf("failed to aggregate menu ingredients: %w", err)
+	}
+	for _, row := range aggregate {
+		if row.ItemID == itemID && row.UnitID == unitID {
+			return row.Quantity, nil
+		}
+	}
+	return pgtype.Numeric{}, nil
 }
 
 func (r *PostgresShoppingListRepository) ClearList(ctx context.Context, userID string) error {

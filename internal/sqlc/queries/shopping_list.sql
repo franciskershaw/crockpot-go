@@ -106,17 +106,17 @@ WHERE d.shopping_list_id = sqlc.arg(shopping_list_id)
     AND d.unit_id IS NOT DISTINCT FROM agg.unit_id
     AND d.quantity_at_dismissal <> agg.quantity;
 
--- name: FindManualShoppingListItem :one
+-- name: FindShoppingListItemForMerge :one
 SELECT id, quantity FROM shopping_list_items
 WHERE shopping_list_id = sqlc.arg(shopping_list_id)
     AND item_id = sqlc.arg(item_id)
     AND unit_id IS NOT DISTINCT FROM sqlc.arg(unit_id)::uuid
-    AND is_manual
+ORDER BY is_manual
 LIMIT 1;
 
 -- name: IncrementShoppingListItemQuantity :exec
 UPDATE shopping_list_items
-SET quantity = quantity + sqlc.arg(delta)
+SET quantity = quantity + sqlc.arg(delta), obtained = false
 WHERE id = sqlc.arg(id);
 
 -- name: InsertManualShoppingListItem :exec

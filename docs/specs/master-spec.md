@@ -675,6 +675,53 @@ session.*
   then rebuilds from the current menu, in one transaction. Backs
   `crockpot-react` `CFE-006`'s Regenerate button.
 
+- **CROC-053** — Manual add merges into any existing row for the same
+  item + unit, recipe-driven included, instead of creating a separate
+  manual row. Supersedes `CROC-022` decision 2. Surfaced at
+  `crockpot-react` `CFE-006` (2026-09-26): adding an item that's already
+  on the list should behave like editing that row's quantity — one row,
+  bigger number. **Implementation mode: AI-driven.**
+
+  - **Same trade-off as a quantity edit**: an amount added to a
+    recipe-driven row resets on the next menu change (`CROC-022`
+    decision 3, accepted). Chosen over keeping a separate manual row
+    (protects the added amount, but shows the item twice) and over a
+    recipe/extra two-quantity schema (not needed unless additions must
+    survive menu changes).
+  - **Adding to a ticked row unticks it** — there's more to buy. Applies
+    to manual-row merges too (the same increment query), a change from
+    `CROC-022`'s quantity-only increment.
+  - No matching row → new manual row, unchanged. If legacy data already
+    holds both a manual and a recipe row for the pair, merge into the
+    recipe row.
+
+  **Acceptance criteria**:
+  - [ ] Adding an item + unit that has a recipe-driven row increases that
+        row's quantity; no manual row is created; the row stays
+        recipe-driven.
+  - [ ] Adding to a ticked row (recipe-driven or manual) unticks it.
+  - [ ] Deleting a recipe-driven row records its dismissal at the menu's
+        recipe-calculated quantity, not the row's displayed one — so a
+        row that was added to or hand-edited stays dismissed across an
+        unrelated menu change (pre-existing since `CROC-022` for edits;
+        `CROC-053` made it common). Falls back to the row's quantity if
+        the menu no longer needs the item.
+  - [ ] Existing behaviour holds: merge into a manual row, new manual row
+        when nothing matches, unit/item validation, no stray list row on a
+        rejected add, concurrent adds of a new item merge into one row.
+  - [ ] `requests/shopping-list.http`'s manual-add-vs-generated section
+        updated to the new behaviour.
+  - [ ] `go test ./internal/handler/...`, `./scripts/test-repo.sh`,
+        `golangci-lint run --max-same-issues=0
+        --max-issues-per-linter=0 ./...`, `gofmt`, `go vet` all clean.
+
+  **Non-goals**: making added amounts survive menu changes; any response
+  shape change (`POST` stays `200 {"message"}`).
+
+  **Verification**: API boundary — `./scripts/test-repo.sh -run
+  TestAddManualItem` against the Neon dev DB; `requests/shopping-list.http`
+  run end-to-end against a local server. `branch-review` once green.
+
 ### Epic 7: Roles & Tier Gating
 - **CROC-023** — **Delivered by CROC-014** (`docs/handoffs/CROC-014.md`
   decision 1). The recipe-cap limit helper: a `role`-keyed limit lookup
