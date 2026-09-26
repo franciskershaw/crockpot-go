@@ -670,6 +670,10 @@ session.*
   dismissal-aware (sticky, reusing `CROC-021`'s schema); clear-list is
   not (wipes everything, no memory). Bulk mark-obtained, named in the
   original line, was dropped — no design or old-app precedent for it.
+- **CROC-052** — **Done** (2026-09-26). `POST /shopping-list/regenerate`:
+  full reset — clears every item (manual included) and every dismissal,
+  then rebuilds from the current menu, in one transaction. Backs
+  `crockpot-react` `CFE-006`'s Regenerate button.
 
 ### Epic 7: Roles & Tier Gating
 - **CROC-023** — **Delivered by CROC-014** (`docs/handoffs/CROC-014.md`

@@ -124,7 +124,7 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
   writes no code at all "not even TDD stubs" for a hand-written ticket;
   in practice the founder wants hands-on practice writing the
   repo/handler function bodies, not the test boilerplate.) Once done,
-  Claude runs a `code-review` pass on the diff and confirms the ticket's
+  Claude runs a `branch-review` pass on the diff and confirms the ticket's
   verification mode was actually exercised (real command run, real
   screen looked at) before close-out — same gate as a Claude-implemented
   ticket, just applied to implementation code Claude didn't write.
@@ -205,32 +205,21 @@ requests/         Manual .http regression suite, one file per resource
   would change anything), never rewrites `go.mod`/`go.sum` itself. Adding
   a dependency mid-ticket: use `go get <pkg>@<version>` alone, which
   updates precisely that dependency without a full-tree prune.
-- **Per-ticket review is `/code-review medium`, run once per ticket, not
-  CodeRabbit.** CodeRabbit handled this from `CROC-005` through `CROC-010`
-  but its free trial ended and it now only summarises PRs on the free
-  tier — removed from the repo (`.coderabbit.yaml` deleted, GitHub App
-  uninstalled) rather than paying for it. Once a ticket's code is done and
-  green, run `/code-review medium main` against the diff — **pass `main`
-  as the base explicitly**, since a ticket spans many commits under this
-  project's piece-by-piece cadence and an unscoped review only sees the
-  latest commit, not the ticket's actual diff (`CROC-010`'s close-out).
-  `medium`'s broader, multi-angle coverage is the default: `CROC-010`'s
-  close-out found `low`'s single pass missed real ground a second
-  `medium` pass then caught cleanly, and its session-usage cost held up
-  fine at this project's pace — the earlier `CROC-005` finding that a
-  `medium` run "burned a large fraction of a session's usage" no longer
-  holds. Fix what's real in one pass, verify, only then run close-out.
-  Reach for `high`/`ultra` only when a ticket's diff feels genuinely
-  riskier than usual (touches auth, money, or an established pattern this
-  ticket deliberately breaks). The periodic security review + tech-debt
-  pass `~/.claude/CLAUDE.md` schedules separately ("every few units")
-  stays periodic — a dedicated session for it, not folded into every
-  ticket's gate.
+- **Per-ticket review is the `branch-review` skill, run once per ticket
+  against `main`** — not Claude Code's built-in `/code-review`, and not
+  CodeRabbit (free tier only summarises PRs; removed after `CROC-010`).
+  `branch-review` reviews the whole branch diff vs `main` with a fixed
+  two-agent budget (bugs + security), so its cost doesn't scale with diff
+  size the way `/code-review` does. Run it once a ticket's code is done
+  and green; fix what's real in one pass, verify, only then run
+  close-out. Don't suggest `/code-review` as the gate. The periodic
+  security review + tech-debt pass `~/.claude/CLAUDE.md` schedules
+  separately ("every few units") stays periodic — a dedicated session,
+  not folded into every ticket's gate.
   For **hand-written tickets** (founder writes the code, Claude reviews
-  after — see "Overrides" below): `/code-review medium main` still
-  applies the same way — ask before running it rather than launching it
-  automatically, since remaining session budget at the time may argue for
-  deferring it.
+  after — see "Overrides" below): `branch-review` still applies the same
+  way — ask before running it rather than launching it automatically,
+  since remaining session budget at the time may argue for deferring it.
 
 ## Pre-commit hook
 

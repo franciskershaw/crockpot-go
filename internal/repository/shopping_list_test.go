@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -982,4 +983,130 @@ func TestGet_ReflectsRegenerate(t *testing.T) {
 	assert.Equal(t, itemID, list.Items[0].ItemID)
 	assert.Equal(t, 120.0, list.Items[0].Quantity)
 	assert.False(t, list.Items[0].IsManual)
+}
+
+func TestRegenerateFromScratch_RestoresListToInitialState(t *testing.T) {
+	userID := insertTestUser(t, "Regen From Scratch Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	tickedItem := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	dismissedItem := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	editedItem := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	manualItem := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	recipeID := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{
+		{tickedItem, &grams, 100},
+		{dismissedItem, &grams, 200},
+		{editedItem, &grams, 50},
+	})
+	addToMenu(t, userID, recipeID, 4)
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+
+	items := getShoppingListItemsByUser(t, userID)
+	ticked, ok := findShoppingListItem(items, tickedItem, &grams)
+	require.True(t, ok)
+	setShoppingListItemObtained(t, ticked.id, true)
+	dismissed, ok := findShoppingListItem(items, dismissedItem, &grams)
+	require.True(t, ok)
+	require.NoError(t, shoppingListRepo.DeleteItem(context.Background(), userID.String(), dismissed.id.String()))
+	edited, ok := findShoppingListItem(items, editedItem, &grams)
+	require.True(t, ok)
+	require.NoError(t, shoppingListRepo.UpdateItem(context.Background(), userID.String(), edited.id.String(), nil, floatPtr(999)))
+	insertManualShoppingListItem(t, userID, manualItem, &grams, 3, false)
+
+	require.NoError(t, shoppingListRepo.RegenerateFromScratch(context.Background(), userID.String()))
+
+	items = getShoppingListItemsByUser(t, userID)
+	require.Len(t, items, 3, "only the menu's recipe-driven items must remain")
+	for itemID, want := range map[uuid.UUID]float64{tickedItem: 100, dismissedItem: 200, editedItem: 50} {
+		row, ok := findShoppingListItem(items, itemID, &grams)
+		require.True(t, ok, "every recipe-driven item must be on the list")
+		assert.Equal(t, want, row.quantity, "quantity must be the recipe-calculated amount")
+		assert.False(t, row.obtained, "every row must come back unticked")
+		assert.False(t, row.isManual)
+	}
+	assert.Equal(t, 0, countDismissedItems(t, userID, dismissedItem), "dismissal records must be cleared")
+
+	// Dismissal still works as normal after a from-scratch regenerate.
+	restored, _ := findShoppingListItem(items, dismissedItem, &grams)
+	require.NoError(t, shoppingListRepo.DeleteItem(context.Background(), userID.String(), restored.id.String()))
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+	_, ok = findShoppingListItem(getShoppingListItemsByUser(t, userID), dismissedItem, &grams)
+	assert.False(t, ok, "an item deleted after a from-scratch regenerate must stay dismissed")
+}
+
+func TestRegenerateFromScratch_RebuildsAfterClearList(t *testing.T) {
+	userID := insertTestUser(t, "Regen From Scratch After Clear Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	recipeID := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{itemID, &grams, 100}})
+	addToMenu(t, userID, recipeID, 4)
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+	require.NoError(t, shoppingListRepo.ClearList(context.Background(), userID.String()))
+	require.Empty(t, getShoppingListItemsByUser(t, userID), "sanity check: list must be empty after clearing")
+
+	require.NoError(t, shoppingListRepo.RegenerateFromScratch(context.Background(), userID.String()))
+
+	row, ok := findShoppingListItem(getShoppingListItemsByUser(t, userID), itemID, &grams)
+	require.True(t, ok, "the menu's items must be rebuilt after a clear")
+	assert.Equal(t, 100.0, row.quantity)
+}
+
+func TestRegenerateFromScratch_NoShoppingListRow_CreatesEmptyList(t *testing.T) {
+	userID := insertTestUser(t, "Regen From Scratch No List Cook")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	require.NoError(t, shoppingListRepo.RegenerateFromScratch(context.Background(), userID.String()))
+
+	assert.Equal(t, 1, rowCount(t, `SELECT count(*) FROM shopping_lists WHERE user_id = $1`, userID), "a shopping list row must be created")
+	assert.Empty(t, getShoppingListItemsByUser(t, userID), "an empty menu must produce an empty list")
+}
+
+func TestRegenerateFromScratch_OnlyAffectsCallingUsersList(t *testing.T) {
+	targetID := insertTestUser(t, "Regen From Scratch Target Cook")
+	otherID := insertTestUser(t, "Regen From Scratch Bystander Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, targetID)
+	registerShoppingListCascadeCleanup(t, otherID)
+
+	insertManualShoppingListItem(t, targetID, itemID, &grams, 2, false)
+	insertManualShoppingListItem(t, otherID, itemID, &grams, 3, false)
+	insertDismissedItem(t, otherID, itemID, &grams, 5)
+
+	require.NoError(t, shoppingListRepo.RegenerateFromScratch(context.Background(), targetID.String()))
+
+	assert.Empty(t, getShoppingListItemsByUser(t, targetID), "sanity check: the calling user's list must be reset")
+	assert.Len(t, getShoppingListItemsByUser(t, otherID), 1, "another user's items must be untouched")
+	assert.Equal(t, 1, countDismissedItems(t, otherID, itemID), "another user's dismissals must be untouched")
+}
+
+func TestRegenerateFromScratch_WithinTxRollsBackOnError(t *testing.T) {
+	userID := insertTestUser(t, "Regen From Scratch Rollback Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	dismissedItem := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	insertManualShoppingListItem(t, userID, itemID, &grams, 2, false)
+	insertDismissedItem(t, userID, dismissedItem, &grams, 5)
+	sentinelErr := errors.New("boom")
+
+	txErr := transactor.WithinTx(context.Background(), func(ctx context.Context) error {
+		require.NoError(t, shoppingListRepo.RegenerateFromScratch(ctx, userID.String()))
+		list, err := shoppingListRepo.Get(ctx, userID.String())
+		require.NoError(t, err)
+		require.Empty(t, list.Items, "sanity check: the reset must be visible inside the transaction")
+		return sentinelErr
+	})
+	require.ErrorIs(t, txErr, sentinelErr)
+
+	assert.Len(t, getShoppingListItemsByUser(t, userID), 1, "the manual item must survive the rolled-back reset")
+	assert.Equal(t, 1, countDismissedItems(t, userID, dismissedItem), "the dismissal must survive the rolled-back reset")
 }
