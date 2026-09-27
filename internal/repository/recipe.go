@@ -130,24 +130,33 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 		return nil, 0, err
 	}
 
-	if callerID.Valid && len(ids) > 0 {
-		favIDs, err := q.ListFavouritedRecipeIDs(ctx, sqlc.ListFavouritedRecipeIDsParams{
-			UserID:    callerID,
-			RecipeIds: ids,
-		})
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to load favourited recipe ids: %w", err)
-		}
-		favourited := make(map[uuid.UUID]bool, len(favIDs))
-		for _, fid := range favIDs {
-			favourited[uuidValue(fid)] = true
-		}
-		for _, card := range cards {
-			card.IsFavourite = favourited[card.ID]
-		}
+	if err := markFavourites(ctx, q, callerID, cards, ids); err != nil {
+		return nil, 0, err
 	}
 
 	return cards, int(total), nil
+}
+
+// markFavourites sets IsFavourite on each card the caller has favourited; a null callerID leaves every card false.
+func markFavourites(ctx context.Context, q *sqlc.Queries, callerID pgtype.UUID, cards []*models.RecipeCard, ids []pgtype.UUID) error {
+	if !callerID.Valid || len(ids) == 0 {
+		return nil
+	}
+	favIDs, err := q.ListFavouritedRecipeIDs(ctx, sqlc.ListFavouritedRecipeIDsParams{
+		UserID:    callerID,
+		RecipeIds: ids,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to load favourited recipe ids: %w", err)
+	}
+	favourited := make(map[uuid.UUID]bool, len(favIDs))
+	for _, fid := range favIDs {
+		favourited[uuidValue(fid)] = true
+	}
+	for _, card := range cards {
+		card.IsFavourite = favourited[card.ID]
+	}
+	return nil
 }
 
 // hydrateCardCategories batch-loads categories for ids and assigns them onto the matching cards in place.

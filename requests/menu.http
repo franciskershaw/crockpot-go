@@ -255,6 +255,25 @@ Content-Type: application/json
 
 ###
 
+### ✅ 200 — favourite recipeA only.
+POST http://localhost:{{$dotenv PORT}}/recipes/{{recipeAId}}/favourite
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — cards carry the caller's favourite state (CROC-057): recipeA's
+### card has isFavourite true, recipeB's false.
+GET http://localhost:{{$dotenv PORT}}/menu
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — unfavourite recipeA again.
+DELETE http://localhost:{{$dotenv PORT}}/recipes/{{recipeAId}}/favourite
+Authorization: Bearer {{authToken}}
+
+###
+
 ### ✅ 200 — two entries present before clearing.
 GET http://localhost:{{$dotenv PORT}}/menu
 Authorization: Bearer {{authToken}}

@@ -675,52 +675,59 @@ session.*
   then rebuilds from the current menu, in one transaction. Backs
   `crockpot-react` `CFE-006`'s Regenerate button.
 
-- **CROC-053** — Manual add merges into any existing row for the same
-  item + unit, recipe-driven included, instead of creating a separate
-  manual row. Supersedes `CROC-022` decision 2. Surfaced at
-  `crockpot-react` `CFE-006` (2026-09-26): adding an item that's already
-  on the list should behave like editing that row's quantity — one row,
-  bigger number. **Implementation mode: AI-driven.**
+- **CROC-053** — **Done** (2026-09-26). Manual add merges into any
+  existing row for the same item + unit (recipe-driven included) and
+  unticks it; supersedes `CROC-022` decision 2. Dismissals record the
+  recipe-calculated quantity, so an edited or added-to row stays deleted
+  across unrelated menu changes.
 
-  - **Same trade-off as a quantity edit**: an amount added to a
-    recipe-driven row resets on the next menu change (`CROC-022`
-    decision 3, accepted). Chosen over keeping a separate manual row
-    (protects the added amount, but shows the item twice) and over a
-    recipe/extra two-quantity schema (not needed unless additions must
-    survive menu changes).
-  - **Adding to a ticked row unticks it** — there's more to buy. Applies
-    to manual-row merges too (the same increment query), a change from
-    `CROC-022`'s quantity-only increment.
-  - No matching row → new manual row, unchanged. If legacy data already
-    holds both a manual and a recipe row for the pair, merge into the
-    recipe row.
+- **CROC-054** — Feature: merge manual adds in a compatible mass/volume
+  unit into the existing row. Today adding flour in kg next to "Flour
+  500 g" gives a separate kg row (merging matches `unit_id` exactly;
+  recipe-driven rows store grams/millilitres). Fine as-is; this would
+  convert with `units.base_factor`, as `AggregateMenuIngredients`
+  already does, before `FindShoppingListItemForMerge`. Surfaced at
+  `CROC-053`'s branch review (2026-09-26).
+- **CROC-055** — Decide what happens to an amount added to a recipe-driven
+  row when that recipe leaves the menu. Since `CROC-053`, adding onions ×1
+  to a recipe's onions ×2 row merges into it; removing the recipe then
+  deletes the whole row, extra included (before `CROC-053` the extra was
+  its own manual row and survived). Consistent with "adding works like a
+  quantity edit", but sharper than "resets". Options: accept and document
+  it in `CROC-053`'s block, or keep the extra via a recipe/extra
+  two-quantity row (a schema change — expensive-to-undo grill). Surfaced
+  at `CROC-053`'s branch review (2026-09-26).
+- **CROC-056** — Concurrent `DeleteItem` + `AddManualItem` on the same row
+  can silently drop the add. `DeleteItem` reads the list with a plain
+  `GetShoppingListByUserID` (no row lock, unlike `AddManualItem`'s
+  `GetOrCreateShoppingList` upsert), so a delete committing between the
+  add's find and increment leaves `IncrementShoppingListItemQuantity`
+  updating 0 rows while returning success. Fix: lock the list in
+  `DeleteItem` (and `UpdateItem`), or check rows-affected on the
+  increment and fall through to insert. Low — needs two devices acting on
+  the same item at once; pre-existing for manual rows, widened to
+  recipe-driven rows by `CROC-053`. Tech-debt pass candidate.
 
-  **Acceptance criteria**:
-  - [ ] Adding an item + unit that has a recipe-driven row increases that
-        row's quantity; no manual row is created; the row stays
-        recipe-driven.
-  - [ ] Adding to a ticked row (recipe-driven or manual) unticks it.
-  - [ ] Deleting a recipe-driven row records its dismissal at the menu's
-        recipe-calculated quantity, not the row's displayed one — so a
-        row that was added to or hand-edited stays dismissed across an
-        unrelated menu change (pre-existing since `CROC-022` for edits;
-        `CROC-053` made it common). Falls back to the row's quantity if
-        the menu no longer needs the item.
-  - [ ] Existing behaviour holds: merge into a manual row, new manual row
-        when nothing matches, unit/item validation, no stray list row on a
-        rejected add, concurrent adds of a new item merge into one row.
-  - [ ] `requests/shopping-list.http`'s manual-add-vs-generated section
-        updated to the new behaviour.
-  - [ ] `go test ./internal/handler/...`, `./scripts/test-repo.sh`,
-        `golangci-lint run --max-same-issues=0
-        --max-issues-per-linter=0 ./...`, `gofmt`, `go vet` all clean.
-
-  **Non-goals**: making added amounts survive menu changes; any response
-  shape change (`POST` stays `200 {"message"}`).
-
-  **Verification**: API boundary — `./scripts/test-repo.sh -run
-  TestAddManualItem` against the Neon dev DB; `requests/shopping-list.http`
-  run end-to-end against a local server. `branch-review` once green.
+- **CROC-057** — `GET /menu` recipe cards carry the caller's real
+  `isFavourite`. `ListMenuEntries` builds each card without checking
+  favourites, so every menu card arrives `isFavourite: false` — the
+  Menu tab's hearts always show unfavourited (`crockpot-react`
+  `CFE-006`, 2026-09-27). Reuse the list path's approach
+  (`internal/repository/recipe.go` — `ListFavouritedRecipeIDs` over the
+  page's recipe ids, then set `card.IsFavourite`) in the menu
+  repository's `Get`. The frontend already updates the menu cache when a
+  heart is toggled; this fixes the state cards load with.
+- **CROC-058** — Deleting a recipe leaves its ingredients on every shopping
+  list built from it. `DELETE /recipes/:id` (`internal/repository/recipe.go`
+  `Delete`) only runs `DeleteRecipe`; the `recipe_menu_entries` cascade
+  takes the recipe off each menu that held it, but none of those users'
+  shopping lists resync, unlike `CROC-021`'s menu-write endpoints, which
+  regenerate transactionally. Affects every user with the recipe on their
+  menu, not just the owner. Fix direction (not grilled): in the same
+  transaction, find the affected menus before the delete and run the
+  existing resync for each. Surfaced at `crockpot-react` `CFE-041`'s grill
+  (2026-09-27); the frontend already invalidates its shopping-list cache
+  on delete, so no client change is needed once this lands.
 
 ### Epic 7: Roles & Tier Gating
 - **CROC-023** — **Delivered by CROC-014** (`docs/handoffs/CROC-014.md`

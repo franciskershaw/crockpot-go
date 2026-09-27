@@ -601,3 +601,9 @@ implementation quality until CROC-001 lands.
 
 - No rework in the build. The grill asked for a decision on "dismissals" (internal CROC-021 term) unexplained, then over-designed a merge that preserved ticks/manual items when the founder's framing meant a literal full reset. Stale `/code-review` guidance in `CLAUDE.md` also went unnoticed until the founder flagged it.
 - **Pattern**: translate codebase-internal terms into user-facing behaviour before asking for a decision on them; propose the literal reading of the founder's framing first, nuance only if asked.
+
+## 2026-09-26 — CROC-053 — Manual add merges into the existing row; build surfaced a pre-existing dismissal bug
+
+- The ticket took three founder pushbacks to reach: I framed the duplicate as a frontend display problem, then offered "two lines" and a schema change before "adding works like a quantity edit". Second literal-reading miss in one day (see CROC-052).
+- Rewriting the `.http` walkthrough exposed a real bug (dismissals stored the displayed quantity, so edited rows reappeared) and a walkthrough that had never shown what it claimed. Branch review then backlogged CROC-054–056.
+- **Pattern**: answer the founder's framing literally before adding nuance; when a walkthrough step claims "unrelated", check the fixture actually is.

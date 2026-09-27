@@ -47,6 +47,29 @@ func TestGetMenu_NoMenuReturnsEmptyEntries(t *testing.T) {
 	assert.Empty(t, menu.Entries)
 }
 
+func TestGetMenu_CardsCarryCallersFavouriteState(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Owner")
+	caller := insertTestUser(t, "Caller")
+	other := insertTestUser(t, "Other")
+	favourited := insertTestRecipeRow(t, owner, true)
+	notFavourited := insertTestRecipeRow(t, owner, true)
+
+	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), favourited.String(), 4, false))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), notFavourited.String(), 4, false))
+	require.NoError(t, recipeRepo.AddFavourite(ctx, caller.String(), favourited.String(), false))
+	require.NoError(t, recipeRepo.AddFavourite(ctx, other.String(), notFavourited.String(), false))
+
+	menu, err := menuRepo.GetMenu(ctx, caller.String())
+	require.NoError(t, err)
+
+	got := make(map[uuid.UUID]bool, len(menu.Entries))
+	for _, e := range menu.Entries {
+		got[e.RecipeID] = e.Recipe.IsFavourite
+	}
+	assert.Equal(t, map[uuid.UUID]bool{favourited: true, notFavourited: false}, got)
+}
+
 func TestUpsertEntry_FirstCallCreatesMenuAndEntry(t *testing.T) {
 	owner := insertTestUser(t, "Owner")
 	caller := insertTestUser(t, "Caller")
