@@ -708,15 +708,10 @@ session.*
   the same item at once; pre-existing for manual rows, widened to
   recipe-driven rows by `CROC-053`. Tech-debt pass candidate.
 
-- **CROC-057** — `GET /menu` recipe cards carry the caller's real
-  `isFavourite`. `ListMenuEntries` builds each card without checking
-  favourites, so every menu card arrives `isFavourite: false` — the
-  Menu tab's hearts always show unfavourited (`crockpot-react`
-  `CFE-006`, 2026-09-27). Reuse the list path's approach
-  (`internal/repository/recipe.go` — `ListFavouritedRecipeIDs` over the
-  page's recipe ids, then set `card.IsFavourite`) in the menu
-  repository's `Get`. The frontend already updates the menu cache when a
-  heart is toggled; this fixes the state cards load with.
+- **CROC-057** — **Done** (2026-09-27). `GET /menu` recipe cards carry
+  the caller's real `isFavourite`, via a `markFavourites` helper shared
+  with `GET /recipes`. Fixes the Menu tab's hearts always loading
+  unfavourited (`crockpot-react` `CFE-006`).
 - **CROC-058** — Deleting a recipe leaves its ingredients on every shopping
   list built from it. `DELETE /recipes/:id` (`internal/repository/recipe.go`
   `Delete`) only runs `DeleteRecipe`; the `recipe_menu_entries` cascade

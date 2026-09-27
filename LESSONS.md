@@ -607,3 +607,7 @@ implementation quality until CROC-001 lands.
 - The ticket took three founder pushbacks to reach: I framed the duplicate as a frontend display problem, then offered "two lines" and a schema change before "adding works like a quantity edit". Second literal-reading miss in one day (see CROC-052).
 - Rewriting the `.http` walkthrough exposed a real bug (dismissals stored the displayed quantity, so edited rows reappeared) and a walkthrough that had never shown what it claimed. Branch review then backlogged CROC-054–056.
 - **Pattern**: answer the founder's framing literally before adding nuance; when a walkthrough step claims "unrelated", check the fixture actually is.
+
+## 2026-09-27 — CROC-057 — Menu cards carry isFavourite; clean
+
+- No rework. The ticket named the cause and the fix, and both checked out against source, so no grill was needed. The favourite lookup moved into a shared `markFavourites` helper instead of being copied.
