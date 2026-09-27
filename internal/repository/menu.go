@@ -81,6 +81,9 @@ func (r *PostgresMenuRepository) GetMenu(ctx context.Context, userID string) (*m
 	if err := hydrateCardCategories(ctx, q, cards, ids); err != nil {
 		return nil, err
 	}
+	if err := markFavourites(ctx, q, uid, cards, ids); err != nil {
+		return nil, err
+	}
 
 	return &models.Menu{Entries: entries}, nil
 }
