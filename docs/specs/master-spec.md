@@ -627,47 +627,10 @@ session.*
   reflected, plus the fallback with zero approved rows; `requests/
   recipes.http`'s new section run for real against the local server;
   `/code-review medium main` once green, before close-out.
-- **CROC-060** — `GET /recipes?mine=true` lists newest first. Today
-  `isUnfiltered` (`internal/repository/recipe.go:65-69`) ignores
-  `filter.Mine`, so an otherwise-unfiltered own-recipes list takes the
-  browse shuffle (`md5(id || seed)`, `recipes.sql:150-151`) instead of the
-  `created_at DESC, id` tiebreak. Fix: `&& !filter.Mine`, plus an
-  ordering test (see acceptance criteria).
-  Paired with `crockpot-react` `CFE-008`, which is built alongside it
-  rather than blocked. Surfaced at `CFE-008`'s grill (2026-09-28).
-  Grilled 2026-09-28, cheap-to-undo, AI-driven, one piece/one commit.
-
-  **Acceptance criteria**:
-  - [ ] `mine=true` with no other filter orders `created_at DESC, id`;
-        any `seed` is ignored.
-  - [ ] `mine=true` + a name query stays newest first (unchanged);
-        `mine=true` + category/ingredient filters stay score-ranked with
-        the newest-first tiebreak (unchanged). Only the unfiltered case
-        moves: `isUnfiltered` gains `&& !filter.Mine`, no SQL change.
-  - [ ] Browse with no filters and no `mine` keeps the seeded shuffle —
-        `TestListRecipes_Ordering_NoFiltersUsesSeededRandomOrder` green
-        unmodified.
-  - [ ] New `TestListRecipes_Ordering_MineOnlyKeepsPlainDefaultOrder`
-        beside `…NameQueryOnlyKeepsPlainDefaultOrder`: fresh owner, **5**
-        recipes with explicit `setCreatedAt` timestamps (with 3, the random
-        shuffle matches newest first 1 time in 6, so the test could pass
-        before the fix), `Mine` + `CallerID` + a non-empty `Seed`, asserts
-        exact order.
-  - [ ] `requests/recipes.http` `?mine=true` (ADMIN) section retitled to
-        state newest first.
-
-  **Non-goals**: making `Mine` force newest-first over score ranking
-  (no screen sends `mine` with category/ingredient filters); any SQL or
-  handler change; the `CFE-008` screen itself.
-
-  **Verification**: logic, test-first against the real DB. Red:
-  `./scripts/test-repo.sh -run TestListRecipes_Ordering_MineOnly` fails
-  on an order diff. Green: full `./scripts/test-repo.sh` against Neon,
-  `go test ./internal/handler/...`, `golangci-lint run
-  --max-same-issues=0 --max-issues-per-linter=0 ./...`, `gofmt`,
-  `go vet`. The `.http` `?mine=true` (ADMIN) request is run for real
-  against the local server, and `createdAt` in the response is checked
-  to descend. `branch-review` against `main` before close-out.
+- **CROC-060** — **Done** (2026-09-28). `GET /recipes?mine=true` with no
+  other filter lists newest first instead of the browse shuffle; filtered
+  own-recipe lists keep their existing order. Unblocks `crockpot-react`
+  `CFE-008`'s ordering.
 
 ### Epic 5: Meal Planning
 - **CROC-019** — Menu read/upsert-entry (`GET /menu`, `POST /menu/entries`,
