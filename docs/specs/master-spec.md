@@ -631,8 +631,8 @@ session.*
   `isUnfiltered` (`internal/repository/recipe.go:65-69`) ignores
   `filter.Mine`, so an otherwise-unfiltered own-recipes list takes the
   browse shuffle (`md5(id || seed)`, `recipes.sql:150-151`) instead of the
-  `created_at DESC, id` tiebreak. Proposed fix: `&& !filter.Mine`, plus a
-  repository test beside `TestListRecipes_MineFilter` asserting order.
+  `created_at DESC, id` tiebreak. Fix: `&& !filter.Mine`, plus an
+  ordering test (see acceptance criteria).
   Paired with `crockpot-react` `CFE-008`, which is built alongside it
   rather than blocked. Surfaced at `CFE-008`'s grill (2026-09-28).
   Grilled 2026-09-28, cheap-to-undo, AI-driven, one piece/one commit.

@@ -568,7 +568,7 @@ func TestListRecipes_Ordering_MineOnlyKeepsPlainDefaultOrder(t *testing.T) {
 	ctx := context.Background()
 	owner := insertTestUser(t, "Cook")
 
-	// Five, not three: the pre-fix shuffle would match newest-first 1 time in 6 with three.
+	// Five so a leftover shuffle can't match newest-first by chance (1 in 120).
 	ids := make([]uuid.UUID, 5)
 	now := time.Now()
 	for i := range ids {
