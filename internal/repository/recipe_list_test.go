@@ -564,6 +564,29 @@ func TestListRecipes_Ordering_NameQueryOnlyKeepsPlainDefaultOrder(t *testing.T) 
 	assert.Equal(t, []uuid.UUID{a, c, b}, cardIDs(cards))
 }
 
+func TestListRecipes_Ordering_MineOnlyKeepsPlainDefaultOrder(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+
+	// Five so a leftover shuffle can't match newest-first by chance (1 in 120).
+	ids := make([]uuid.UUID, 5)
+	now := time.Now()
+	for i := range ids {
+		ids[i] = createTestRecipe(t, recipeOpts{createdBy: owner, approved: true})
+	}
+	offsets := []int{3, 1, 5, 2, 4}
+	for i, h := range offsets {
+		setCreatedAt(t, ids[i], now.Add(time.Duration(-h)*time.Hour))
+	}
+
+	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+		Mine: true, CallerID: strptr(owner.String()),
+		Seed: "should-be-ignored-in-this-mode", Page: 1, Limit: 50,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []uuid.UUID{ids[1], ids[3], ids[0], ids[4], ids[2]}, cardIDs(cards))
+}
+
 func TestListRecipes_Ordering_NoFiltersUsesSeededRandomOrder(t *testing.T) {
 	ctx := context.Background()
 	owner := insertTestUser(t, "Cook")

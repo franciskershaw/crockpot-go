@@ -627,6 +627,10 @@ session.*
   reflected, plus the fallback with zero approved rows; `requests/
   recipes.http`'s new section run for real against the local server;
   `/code-review medium main` once green, before close-out.
+- **CROC-060** — **Done** (2026-09-28). `GET /recipes?mine=true` with no
+  other filter lists newest first instead of the browse shuffle; filtered
+  own-recipe lists keep their existing order. Unblocks `crockpot-react`
+  `CFE-008`'s ordering.
 
 ### Epic 5: Meal Planning
 - **CROC-019** — Menu read/upsert-entry (`GET /menu`, `POST /menu/entries`,
@@ -649,6 +653,15 @@ session.*
   ones. Regenerates the shopping list in the same transaction, matching
   every other menu-write endpoint. Shipped without a history hook
   (founder's call, to unblock the frontend); `CROC-020` retrofitted it.
+- **CROC-059** — Cap the number of recipes on a menu. Nothing limits it
+  today, and a menu of ~200 recipes would regenerate a huge shopping list
+  on every write and degrade the Menu page. `POST /menu/entries` rejects
+  a new recipe past the cap with a coded error; an upsert of a recipe
+  already on the menu (serves change) must not count against it. Starting
+  number to test: 30 (the planner's 7×3 = 21 slots plus batch-cooking
+  headroom), to be settled at this ticket's grill. No existing menu is
+  near it (old app data: 0 and 2 entries). Paired with `crockpot-react`
+  `CFE-045`. Surfaced at `CFE-007`'s grill (2026-09-27), not grilled.
 
 ### Epic 6: Shopping Lists
 - **CROC-021** — Generate/regenerate shopping list from current menu,
@@ -1050,7 +1063,9 @@ reason as `CROC-038` above.*
     the user usually picks (`CROC-025` "fill from suggestions"-style),
     plus the flip side: surfacing recipes the user has **never** put on a
     menu. The "never" case is an absence query, only correct because
-    `CROC-020` backfills current entries.
+    `CROC-020` backfills current entries. A natural first surface: the
+    empty states of `crockpot-react`'s Your Crockpot tabs (noted at
+    `CFE-007`'s grill, 2026-09-27).
   - **Insights over time** — cadence ("roughly every 5 weeks"), seasonal
     patterns, most-made, a year-in-review; the reason the diary is dated
     events and not counters.

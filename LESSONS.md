@@ -611,3 +611,8 @@ implementation quality until CROC-001 lands.
 ## 2026-09-27 — CROC-057 — Menu cards carry isFavourite; clean
 
 - No rework. The ticket named the cause and the fix, and both checked out against source, so no grill was needed. The favourite lookup moved into a shared `markFavourites` helper instead of being copied.
+
+## 2026-09-28 — CROC-060 — Own-recipes list newest first; clean
+
+- No rework. The ticket named both the cause and the fix, and both checked out against source. Branch-review only turned up two wording nits.
+- **Pattern**: when the red state is a random shuffle, use enough rows that it can't match the expected order by chance (5 rows, 1 in 120).
