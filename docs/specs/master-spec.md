@@ -627,6 +627,47 @@ session.*
   reflected, plus the fallback with zero approved rows; `requests/
   recipes.http`'s new section run for real against the local server;
   `/code-review medium main` once green, before close-out.
+- **CROC-060** — `GET /recipes?mine=true` lists newest first. Today
+  `isUnfiltered` (`internal/repository/recipe.go:65-69`) ignores
+  `filter.Mine`, so an otherwise-unfiltered own-recipes list takes the
+  browse shuffle (`md5(id || seed)`, `recipes.sql:150-151`) instead of the
+  `created_at DESC, id` tiebreak. Proposed fix: `&& !filter.Mine`, plus a
+  repository test beside `TestListRecipes_MineFilter` asserting order.
+  Paired with `crockpot-react` `CFE-008`, which is built alongside it
+  rather than blocked. Surfaced at `CFE-008`'s grill (2026-09-28).
+  Grilled 2026-09-28, cheap-to-undo, AI-driven, one piece/one commit.
+
+  **Acceptance criteria**:
+  - [ ] `mine=true` with no other filter orders `created_at DESC, id`;
+        any `seed` is ignored.
+  - [ ] `mine=true` + a name query stays newest first (unchanged);
+        `mine=true` + category/ingredient filters stay score-ranked with
+        the newest-first tiebreak (unchanged). Only the unfiltered case
+        moves: `isUnfiltered` gains `&& !filter.Mine`, no SQL change.
+  - [ ] Browse with no filters and no `mine` keeps the seeded shuffle —
+        `TestListRecipes_Ordering_NoFiltersUsesSeededRandomOrder` green
+        unmodified.
+  - [ ] New `TestListRecipes_Ordering_MineOnlyKeepsPlainDefaultOrder`
+        beside `…NameQueryOnlyKeepsPlainDefaultOrder`: fresh owner, **5**
+        recipes with explicit `setCreatedAt` timestamps (with 3, the random
+        shuffle matches newest first 1 time in 6, so the test could pass
+        before the fix), `Mine` + `CallerID` + a non-empty `Seed`, asserts
+        exact order.
+  - [ ] `requests/recipes.http` `?mine=true` (ADMIN) section retitled to
+        state newest first.
+
+  **Non-goals**: making `Mine` force newest-first over score ranking
+  (no screen sends `mine` with category/ingredient filters); any SQL or
+  handler change; the `CFE-008` screen itself.
+
+  **Verification**: logic, test-first against the real DB. Red:
+  `./scripts/test-repo.sh -run TestListRecipes_Ordering_MineOnly` fails
+  on an order diff. Green: full `./scripts/test-repo.sh` against Neon,
+  `go test ./internal/handler/...`, `golangci-lint run
+  --max-same-issues=0 --max-issues-per-linter=0 ./...`, `gofmt`,
+  `go vet`. The `.http` `?mine=true` (ADMIN) request is run for real
+  against the local server, and `createdAt` in the response is checked
+  to descend. `branch-review` against `main` before close-out.
 
 ### Epic 5: Meal Planning
 - **CROC-019** — Menu read/upsert-entry (`GET /menu`, `POST /menu/entries`,
@@ -649,6 +690,15 @@ session.*
   ones. Regenerates the shopping list in the same transaction, matching
   every other menu-write endpoint. Shipped without a history hook
   (founder's call, to unblock the frontend); `CROC-020` retrofitted it.
+- **CROC-059** — Cap the number of recipes on a menu. Nothing limits it
+  today, and a menu of ~200 recipes would regenerate a huge shopping list
+  on every write and degrade the Menu page. `POST /menu/entries` rejects
+  a new recipe past the cap with a coded error; an upsert of a recipe
+  already on the menu (serves change) must not count against it. Starting
+  number to test: 30 (the planner's 7×3 = 21 slots plus batch-cooking
+  headroom), to be settled at this ticket's grill. No existing menu is
+  near it (old app data: 0 and 2 entries). Paired with `crockpot-react`
+  `CFE-045`. Surfaced at `CFE-007`'s grill (2026-09-27), not grilled.
 
 ### Epic 6: Shopping Lists
 - **CROC-021** — Generate/regenerate shopping list from current menu,
@@ -1050,7 +1100,9 @@ reason as `CROC-038` above.*
     the user usually picks (`CROC-025` "fill from suggestions"-style),
     plus the flip side: surfacing recipes the user has **never** put on a
     menu. The "never" case is an absence query, only correct because
-    `CROC-020` backfills current entries.
+    `CROC-020` backfills current entries. A natural first surface: the
+    empty states of `crockpot-react`'s Your Crockpot tabs (noted at
+    `CFE-007`'s grill, 2026-09-27).
   - **Insights over time** — cadence ("roughly every 5 weeks"), seasonal
     patterns, most-made, a year-in-review; the reason the diary is dated
     events and not counters.

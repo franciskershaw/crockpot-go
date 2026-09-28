@@ -66,7 +66,8 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 		len(filter.ExcludeCategoryIDs) == 0 &&
 		filter.Query == "" &&
 		filter.MinTime == 0 &&
-		filter.MaxTime == 0
+		filter.MaxTime == 0 &&
+		!filter.Mine
 
 	rows, err := q.ListRecipes(ctx, sqlc.ListRecipesParams{
 		CallerIsAdmin:      filter.CallerIsAdmin,

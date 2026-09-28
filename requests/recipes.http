@@ -494,7 +494,7 @@ Authorization: Bearer {{authToken}}
 
 ###
 
-### ✅ 200 — ?mine=true with the ADMIN token: only recipes this account created.
+### ✅ 200 — ?mine=true with the ADMIN token: only recipes this account created, newest first.
 GET http://localhost:{{$dotenv PORT}}/recipes?mine=true
 Authorization: Bearer {{authToken}}
 
