@@ -83,6 +83,25 @@ func TestItemCategoryList_Success(t *testing.T) {
 	assert.Equal(t, fakeCategory.Icon, got[0].Icon)
 }
 
+func TestItemCategoryList_IncludesIsIngredient(t *testing.T) {
+	m := newItemCategoryMocks(t)
+	house := *fakeCategory
+	house.Name = "House"
+	house.IsIngredient = false
+	cupboard := *fakeCategory
+	cupboard.IsIngredient = true
+	m.repo.EXPECT().List(mock.Anything).Return([]*models.ItemCategory{&cupboard, &house}, nil)
+
+	w := doItemCategoryRequest(m.router, http.MethodGet, "/item-categories", nil)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var got []map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	require.Len(t, got, 2)
+	assert.Equal(t, true, got[0]["isIngredient"])
+	assert.Equal(t, false, got[1]["isIngredient"])
+}
+
 // --- Create ---
 
 func TestItemCategoryCreate_InvalidJSON(t *testing.T) {

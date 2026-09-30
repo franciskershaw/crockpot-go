@@ -93,10 +93,11 @@ func (r *PostgresItemCategoryRepository) Delete(ctx context.Context, id string) 
 
 func toModelItemCategory(c sqlc.ItemCategory) *models.ItemCategory {
 	return &models.ItemCategory{
-		ID:        uuidValue(c.ID),
-		Name:      c.Name,
-		Icon:      c.Icon,
-		CreatedAt: c.CreatedAt.Time,
-		UpdatedAt: c.UpdatedAt.Time,
+		ID:           uuidValue(c.ID),
+		Name:         c.Name,
+		Icon:         c.Icon,
+		IsIngredient: c.IsIngredient,
+		CreatedAt:    c.CreatedAt.Time,
+		UpdatedAt:    c.UpdatedAt.Time,
 	}
 }
