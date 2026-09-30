@@ -483,6 +483,18 @@ session.*
   `handler.Transactor`. **Done.** See `docs/handoffs/CROC-012.md`.
 - **CROC-013** — Recipe categories CRUD (admin-only writes, public reads).
   **Done.** See `docs/handoffs/CROC-013.md`.
+- **CROC-061** — Mark item categories that aren't recipe ingredients
+  (House: toilet paper, bin bags, dishwasher tablets…).
+  **Grilled** (2026-09-30), see `docs/handoffs/CROC-061.md`:
+  `is_ingredient` (default true, House false) set by migration only and
+  returned by `GET /item-categories` as `isIngredient`; recipe
+  create/update reject such items with 400 `item_not_ingredient`, via a
+  check separate from `checkAllowedUnits` so shopping-list adds are
+  untouched. `GET /items` unchanged: the frontend filters its one cached
+  catalogue fetch by the flag. Rejected: a `GET /items` param (a second
+  cache entry, API still accepting House items); an admin-editable flag
+  (no admin UI; revisit if one is built). Needed by `crockpot-react`
+  `CFE-010` (piece 10b) and `CFE-047`. Three pieces, AI-driven.
 
 ### Epic 4: Recipes
 - **CROC-014** — Recipe creation (`POST /recipes`, any authenticated
