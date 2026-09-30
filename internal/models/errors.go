@@ -56,6 +56,8 @@ var ErrRecipeInvalidCategory = errors.New("recipe category does not exist")
 
 var ErrIngredientUnitNotAllowed = errors.New("unit not allowed for item")
 
+var ErrRecipeNonIngredientItem = errors.New("item is not a recipe ingredient")
+
 var ErrRecipeDuplicateIngredient = errors.New("recipe has a duplicate ingredient item")
 
 var ErrRecipeNotFound = errors.New("recipe not found")

@@ -304,6 +304,8 @@ func writeRecipeWriteError(c *gin.Context, err error) {
 		badRequest(c, "invalid_category_id")
 	case errors.Is(err, models.ErrIngredientUnitNotAllowed):
 		badRequest(c, "unit_not_allowed_for_item")
+	case errors.Is(err, models.ErrRecipeNonIngredientItem):
+		badRequest(c, "item_not_ingredient")
 	case errors.Is(err, models.ErrRecipeDuplicateIngredient):
 		badRequest(c, "duplicate_ingredient")
 	case errors.Is(err, models.ErrRecipeNotFound):

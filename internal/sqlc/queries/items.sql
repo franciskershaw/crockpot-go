@@ -37,3 +37,8 @@ RETURNING *;
 DELETE FROM items
 WHERE id = $1
 RETURNING id;
+
+-- name: ListNonIngredientItemIDs :many
+SELECT i.id FROM items i
+JOIN item_categories ic ON ic.id = i.category_id
+WHERE i.id = ANY(sqlc.arg(item_ids)::uuid[]) AND NOT ic.is_ingredient;

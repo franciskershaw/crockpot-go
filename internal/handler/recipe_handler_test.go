@@ -460,6 +460,7 @@ func TestRecipeCreate_RepoErrorTranslation(t *testing.T) {
 		{"invalid unit", models.ErrRecipeInvalidUnit, http.StatusBadRequest, "invalid_unit_id"},
 		{"invalid category", models.ErrRecipeInvalidCategory, http.StatusBadRequest, "invalid_category_id"},
 		{"unit not allowed", models.ErrIngredientUnitNotAllowed, http.StatusBadRequest, "unit_not_allowed_for_item"},
+		{"non-ingredient item", models.ErrRecipeNonIngredientItem, http.StatusBadRequest, "item_not_ingredient"},
 		{"duplicate ingredient", models.ErrRecipeDuplicateIngredient, http.StatusBadRequest, "duplicate_ingredient"},
 		{"generic error", errors.New("kaboom"), http.StatusInternalServerError, "server_error"},
 	}

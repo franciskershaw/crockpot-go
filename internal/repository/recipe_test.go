@@ -366,6 +366,39 @@ func TestCreateRecipe_UnitNotInItemAllowedSet(t *testing.T) {
 	assert.ErrorIs(t, err, models.ErrIngredientUnitNotAllowed)
 }
 
+func insertTestNonIngredientItem(t *testing.T) uuid.UUID {
+	t.Helper()
+	catID := insertTestItemCategory(t, "repo-test-category-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	_, err := db.DB.Exec(context.Background(), `UPDATE item_categories SET is_ingredient = false WHERE id = $1`, catID)
+	require.NoError(t, err)
+	return insertTestItem(t, "repo-test-item-"+uuid.NewString(), catID)
+}
+
+func TestCreateRecipe_RejectsNonIngredientItemAndRollsBack(t *testing.T) {
+	ctx := context.Background()
+	userID := insertTestUser(t, "Cook")
+	catID := insertTestItemCategory(t, "repo-test-category-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-item-"+uuid.NewString(), catID)
+	householdID := insertTestNonIngredientItem(t)
+	recipeCatID := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
+
+	input := baseRecipeInput(userID, itemID, recipeCatID)
+	input.Ingredients = []models.Ingredient{
+		{ItemID: itemID, Quantity: 1},
+		{ItemID: householdID, Quantity: 1},
+	}
+	cleanupExec(t, `DELETE FROM recipes WHERE name = $1`, input.Name)
+
+	txErr := transactor.WithinTx(ctx, func(ctx context.Context) error {
+		_, err := recipeRepo.Create(ctx, input)
+		return err
+	})
+	assert.ErrorIs(t, txErr, models.ErrRecipeNonIngredientItem)
+
+	assert.Equal(t, 0, rowCount(t, `SELECT count(*) FROM recipes WHERE name = $1`, input.Name),
+		"no recipe row should survive the rolled-back transaction")
+}
+
 func TestCreateRecipe_UnitInItemAllowedSet(t *testing.T) {
 	ctx := context.Background()
 	userID := insertTestUser(t, "Cook")
@@ -531,6 +564,23 @@ func TestUpdateRecipe_OwnerEditingApprovedResetsToPending(t *testing.T) {
 	updated, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(userID, itemID, recipeCatID), userID.String(), false)
 	require.NoError(t, err)
 	assert.False(t, updated.Approved)
+}
+
+func TestUpdateRecipe_RejectsNonIngredientItem(t *testing.T) {
+	ctx := context.Background()
+	userID := insertTestUser(t, "Cook")
+	householdID := insertTestNonIngredientItem(t)
+	recipeCatID := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
+	recipeID := insertTestRecipeRow(t, userID, true)
+
+	txErr := transactor.WithinTx(ctx, func(ctx context.Context) error {
+		_, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(userID, householdID, recipeCatID), userID.String(), false)
+		return err
+	})
+	assert.ErrorIs(t, txErr, models.ErrRecipeNonIngredientItem)
+
+	assert.Equal(t, 0, rowCount(t, `SELECT count(*) FROM recipe_ingredients WHERE recipe_id = $1`, recipeID),
+		"a rejected update must not write the non-ingredient item")
 }
 
 func TestUpdateRecipe_AdminEditingAnothersApprovedStaysApproved(t *testing.T) {
