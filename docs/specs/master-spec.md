@@ -289,23 +289,30 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   rejected — stable `created_at DESC, id` order makes offset correct for
   TanStack `useInfiniteQuery`, and the dataset is ~189 rows. Revisit if
   a list ever needs stable paging under heavy concurrent inserts.
-- **Images**: Cloudinary, **signed** client-side direct upload — the
-  browser uploads the file straight to Cloudinary using a short-lived
-  signature the API issues (`CROC-040`), gets back a `secure_url` +
-  `public_id`, and sends only those two strings in the recipe JSON. The
-  API never proxies image bytes (keeps the 1 MB JSON body cap
-  meaningful) and never ships the Cloudinary API secret to the browser
-  (the secret computes the signature server-side, same secret the old
-  app's `src/lib/cloudinary.ts` already uses). Unsigned upload presets
-  were rejected at `CROC-014`'s grill: extractable from the JS bundle,
-  they can't be gated on this app's auth, so anyone could upload to the
-  account. Endpoints that accept an image URL (`CROC-014` recipe create,
-  `CROC-016` update, `CROC-026` import) validate scheme `https` +
-  host `res.cloudinary.com`, not just that it is a well-formed URL —
-  otherwise a caller could store an arbitrary third-party URL that every
-  viewer's browser then fetches. `CROC-040` adds `CLOUDINARY_CLOUD_NAME`
-  config and tightens this to a path-prefix check (this project's cloud,
-  not another Cloudinary customer's).
+- **Images**: Cloudinary, **uploaded through the API** (`CROC-040`).
+  Recipe create/update are `multipart/form-data`: a `recipe` JSON part
+  plus an optional `photo` file; the API checks the file (sniffed type,
+  jpeg/png/webp, ≤5 MB), uploads it server-side into a per-environment
+  folder (`CLOUDINARY_UPLOAD_FOLDER`) with a server-chosen public_id and
+  a `c_limit,w_1600,h_1600` incoming transformation, then saves. The
+  client never sends an image URL. Old assets are destroyed after commit
+  on replace/remove/delete unless another recipe references them, only
+  under folders the environment owns. Delivery sizing
+  (`f_auto,q_auto,w_…`) is the frontend's. **Reverses** the earlier
+  browser-direct design (unsigned preset rejected at `CROC-014`, signed
+  direct upload chosen then): at this scale direct upload's offloading
+  is worth ~nothing, and its distributed trust caused signature reuse,
+  URL adoption and abandoned-upload problems the proxy doesn't have;
+  `CROC-026` import needs a server-side upload anyway. Cost: a second
+  hop (~0.3–0.8 s) and a 6 MiB body cap on the two recipe write routes.
+  Revisit if uploads become heavy (many photos per recipe, video, many
+  users) — the multipart contract can stay while transport moves to
+  direct upload. Full rationale: `docs/handoffs/CROC-040.md`. Uploads
+  use Cloudinary's public delivery type, so a photo on an unapproved
+  recipe is readable by anyone holding its URL; accepted at `CROC-040`'s
+  review (the public_id is a random UUID). Revisit if photos ever need
+  to stay private — authenticated delivery means signed URLs on every
+  render.
 - **Email**: Resend, for verification and password-reset emails (matching
   the old app's provider choice).
 - **API error response shape**: locked in at `CROC-005` (previously
@@ -374,7 +381,7 @@ this a real concern (tracked as a tech-debt-pass item, not a v1 ticket).
 **Rate limiting & body caps**: reuse `packing-list-go`'s starting values —
 global 120 req/min/IP, tighter limits on auth endpoints (login-type routes
 10/min, refresh 30/min) — tuned per-route once real traffic patterns
-exist. JSON body cap 1 MB (images never transit the API body). No ticket
+exist. Body cap 1 MB, except 6 MiB on recipe create/update (photos, `CROC-040`). No ticket
 prior to `CROC-005` owned actually building this — the middleware itself
 (`ulule/limiter`, ported from `packing-list-go`) is first wired up there,
 being the first ticket that needs it (see `docs/handoffs/CROC-005.md`).
@@ -511,8 +518,8 @@ session.*
   create and update both return the hydrated `RecipeDetail` shape
   (retiring `CROC-014`'s bare-`CategoryIDs` response); write-authz reuses
   `CROC-015`'s 403 (visible)/404 (hidden) enumeration-defense split.
-  Cloudinary orphan cleanup deliberately out of scope — revisit once
-  `CROC-040` lands credentials.
+  Cloudinary orphan cleanup deliberately out of scope — owned by
+  `CROC-040`.
 - **CROC-017** — Admin approval (`PATCH /recipes/:id/approve`, admin-only).
   May add a `GET /recipes?approved=false` admin-only pending-queue filter
   (CROC-015 makes admins see all recipes but adds no focused filter).
@@ -538,21 +545,10 @@ session.*
   walls. Until then the founder (admin) adds missing items via CROC-012's
   `/items` API. Grill properly before building — the approve-vs-merge
   UX and near-duplicate handling are open.
-- **CROC-040** — Cloudinary signed-upload signature endpoint. `POST
-  /uploads/signature`, authenticated: the API computes an HMAC over the
-  upload params (timestamp, folder, maybe `public_id`) using the
-  Cloudinary API secret held server-side, returns `{signature,
-  timestamp, apiKey, cloudName, folder}`; the browser then uploads the
-  file straight to Cloudinary with that signature. Keeps image bytes off
-  the API and the secret out of the bundle (see the Images architecture
-  decision). New config: `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`,
-  `CLOUDINARY_API_SECRET` (the old app's `src/lib/cloudinary.ts` already
-  holds real values). **Dependency of** `crockpot-react` CFE-010; CROC-014's
-  `image` fields are inert without it. **Sequencing:** before real signup
-  opens (same gate as CROC-039); an unsigned preset with Cloudinary-side
-  size/format/folder limits is a defensible interim if deferred. Grill
-  before building — which params are signed, signature TTL, per-user
-  rate limit, whether FREE users may upload at all.
+- **CROC-040** — Recipe photos: proxied multipart upload to Cloudinary
+  plus cleanup of replaced/removed/deleted assets. **Done** (2026-10-02,
+  `docs/handoffs/CROC-040.md`). Deploy needs nginx
+  `client_max_body_size` ≥6 MB and `CLOUDINARY_UPLOAD_FOLDER=recipes`.
 - **CROC-042** — **Done** (2026-09-06, `docs/handoffs/CROC-042.md`).
   Coverage-based scoring (ingredients: matched/total on the recipe;
   categories: matched/selected), combined via a selection-count-weighted

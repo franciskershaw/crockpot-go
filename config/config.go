@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -12,6 +13,9 @@ const (
 	EnvDevelopment Environment = "development"
 	EnvProduction  Environment = "production"
 )
+
+// LegacyImageFolders hold the migrated recipes' photos (production's upload folder is one of them); only production may destroy in them.
+var LegacyImageFolders = []string{"Crockpot", "recipes"}
 
 type Config struct {
 	Port                string
@@ -27,6 +31,11 @@ type Config struct {
 	TrustedProxies      []string
 	ResendAPIKey        string
 	EmailFrom           string
+
+	CloudinaryCloudName    string
+	CloudinaryAPIKey       string
+	CloudinaryAPISecret    string
+	CloudinaryUploadFolder string
 }
 
 func Load() (*Config, error) {
@@ -54,6 +63,11 @@ func loadFromEnv() *Config {
 		TrustedProxies:      getEnvAsSlice("TRUSTED_PROXIES"),
 		ResendAPIKey:        os.Getenv("RESEND_API_KEY"),
 		EmailFrom:           os.Getenv("EMAIL_FROM"),
+
+		CloudinaryCloudName:    os.Getenv("CLOUDINARY_CLOUD_NAME"),
+		CloudinaryAPIKey:       os.Getenv("CLOUDINARY_API_KEY"),
+		CloudinaryAPISecret:    os.Getenv("CLOUDINARY_API_SECRET"),
+		CloudinaryUploadFolder: os.Getenv("CLOUDINARY_UPLOAD_FOLDER"),
 	}
 }
 
@@ -72,6 +86,10 @@ func validate(cfg *Config) error {
 		{"FRONTEND_URL", cfg.FrontendURL},
 		{"RESEND_API_KEY", cfg.ResendAPIKey},
 		{"EMAIL_FROM", cfg.EmailFrom},
+		{"CLOUDINARY_CLOUD_NAME", cfg.CloudinaryCloudName},
+		{"CLOUDINARY_API_KEY", cfg.CloudinaryAPIKey},
+		{"CLOUDINARY_API_SECRET", cfg.CloudinaryAPISecret},
+		{"CLOUDINARY_UPLOAD_FOLDER", cfg.CloudinaryUploadFolder},
 	}
 
 	var missing []string
@@ -83,6 +101,18 @@ func validate(cfg *Config) error {
 
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
+	}
+
+	return validateUploadFolder(cfg.CloudinaryUploadFolder, cfg.Environment)
+}
+
+// validateUploadFolder keeps a non-production environment from uploading into, and so destroying in, production's folders.
+func validateUploadFolder(folder string, env Environment) error {
+	if strings.HasPrefix(folder, "/") || strings.HasSuffix(folder, "/") || strings.Contains(folder, "//") {
+		return fmt.Errorf("CLOUDINARY_UPLOAD_FOLDER %q must not start or end with / or contain //", folder)
+	}
+	if env != EnvProduction && slices.Contains(LegacyImageFolders, folder) {
+		return fmt.Errorf("CLOUDINARY_UPLOAD_FOLDER %q is a production folder; use e.g. dev/recipes outside production", folder)
 	}
 
 	return nil

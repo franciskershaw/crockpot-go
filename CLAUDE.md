@@ -49,8 +49,9 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
   `packing-list-go`
 - Rate limiting: `ulule/limiter`
 - Email: Resend (verification + password-reset emails)
-- Images: Cloudinary, uploaded client-side by the frontend — the API only
-  ever stores the resulting URL, never proxies image bytes
+- Images: Cloudinary, uploaded through the API — recipe create/update
+  are multipart (`recipe` JSON part + optional `photo`); the client never
+  sends an image URL (`CROC-040`)
 - Testing: stdlib `testing` + `testify/mock` for handler-layer repository
   mocks. **Diverges from `packing-list-go`** (hand-written mocks there):
   mocks are generated via `mockery` (`go tool mockery`, config in

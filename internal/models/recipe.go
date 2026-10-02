@@ -96,6 +96,15 @@ type RecipeListFilter struct {
 	Limit              int
 }
 
+// ImageUpdate is what a recipe update does to the stored image; the zero value keeps it.
+type ImageUpdate int
+
+const (
+	ImageKeep ImageUpdate = iota
+	ImageReplace
+	ImageRemove
+)
+
 // CreateRecipeInput is the validated payload the handler hands the repository, kept in models so neither package imports the other.
 type CreateRecipeInput struct {
 	Name          string
@@ -108,6 +117,7 @@ type CreateRecipeInput struct {
 	Ingredients   []Ingredient
 	ImageURL      *string
 	ImageFilename *string
+	Image         ImageUpdate // Update only: ImageReplace stores ImageURL/ImageFilename.
 	CreatedByID   uuid.UUID
 	Approved      bool
 }

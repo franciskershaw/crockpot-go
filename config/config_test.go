@@ -19,6 +19,10 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("FRONTEND_URL", "http://localhost:5173")
 	t.Setenv("RESEND_API_KEY", "test-resend-key")
 	t.Setenv("EMAIL_FROM", "noreply@example.com")
+	t.Setenv("CLOUDINARY_CLOUD_NAME", "test-cloud")
+	t.Setenv("CLOUDINARY_API_KEY", "test-cloudinary-key")
+	t.Setenv("CLOUDINARY_API_SECRET", "test-cloudinary-secret")
+	t.Setenv("CLOUDINARY_UPLOAD_FOLDER", "test/recipes")
 }
 
 // unsetEnv clears key for the test and restores its prior value after.
@@ -58,6 +62,10 @@ func TestLoad_RequiresEnvVar(t *testing.T) {
 		"FRONTEND_URL",
 		"RESEND_API_KEY",
 		"EMAIL_FROM",
+		"CLOUDINARY_CLOUD_NAME",
+		"CLOUDINARY_API_KEY",
+		"CLOUDINARY_API_SECRET",
+		"CLOUDINARY_UPLOAD_FOLDER",
 	}
 
 	for _, key := range required {
@@ -181,5 +189,61 @@ func TestLoad_ReadsEmailFields(t *testing.T) {
 	}
 	if cfg.EmailFrom != "hello@crockpot.app" {
 		t.Errorf("EmailFrom = %q, want %q", cfg.EmailFrom, "hello@crockpot.app")
+	}
+}
+
+func TestLoad_ReadsCloudinaryFields(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("CLOUDINARY_CLOUD_NAME", "cloud-name")
+	t.Setenv("CLOUDINARY_API_KEY", "api-key")
+	t.Setenv("CLOUDINARY_API_SECRET", "api-secret")
+	t.Setenv("CLOUDINARY_UPLOAD_FOLDER", "dev/recipes")
+
+	cfg := mustLoad(t)
+
+	if cfg.CloudinaryCloudName != "cloud-name" {
+		t.Errorf("CloudinaryCloudName = %q, want %q", cfg.CloudinaryCloudName, "cloud-name")
+	}
+	if cfg.CloudinaryAPIKey != "api-key" {
+		t.Errorf("CloudinaryAPIKey = %q, want %q", cfg.CloudinaryAPIKey, "api-key")
+	}
+	if cfg.CloudinaryAPISecret != "api-secret" {
+		t.Errorf("CloudinaryAPISecret = %q, want %q", cfg.CloudinaryAPISecret, "api-secret")
+	}
+	if cfg.CloudinaryUploadFolder != "dev/recipes" {
+		t.Errorf("CloudinaryUploadFolder = %q, want %q", cfg.CloudinaryUploadFolder, "dev/recipes")
+	}
+}
+
+func TestLoad_UploadFolderRules(t *testing.T) {
+	tests := []struct {
+		name    string
+		appEnv  string
+		folder  string
+		wantErr bool
+	}{
+		{"dev: its own folder", "development", "dev/recipes", false},
+		{"dev: production's folder", "development", "recipes", true},
+		{"dev: the legacy folder", "development", "Crockpot", true},
+		{"prod: recipes", "production", "recipes", false},
+		{"trailing slash", "development", "dev/recipes/", true},
+		{"leading slash", "development", "/dev/recipes", true},
+		{"doubled slash", "development", "dev//recipes", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("APP_ENV", tt.appEnv)
+			t.Setenv("CLOUDINARY_UPLOAD_FOLDER", tt.folder)
+
+			_, err := Load()
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "CLOUDINARY_UPLOAD_FOLDER") {
+					t.Errorf("Load() error = %v, want one naming CLOUDINARY_UPLOAD_FOLDER", err)
+				}
+			} else if err != nil {
+				t.Errorf("Load() unexpected error: %v", err)
+			}
+		})
 	}
 }

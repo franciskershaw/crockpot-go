@@ -3,11 +3,14 @@ package handler
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 
+	"github.com/franciskershaw/crockpot-go/internal/cloudinary"
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/ulule/limiter/v3"
 )
 
 // recipeLimits maps a role to its max owned-recipe count; a role absent from the map is uncapped.
@@ -15,8 +18,10 @@ var recipeLimits = map[string]int{"FREE": 5}
 
 type RecipeRepository interface {
 	Create(ctx context.Context, input models.CreateRecipeInput) (*models.RecipeDetail, error)
-	Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (*models.RecipeDetail, error)
-	Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) ([]string, error)
+	Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (detail *models.RecipeDetail, orphanedImage *string, err error)
+	Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) (menuUserIDs []string, orphanedImage *string, err error)
+	CheckWritable(ctx context.Context, id string, callerID string, callerIsAdmin bool) error
+	ImageInUse(ctx context.Context, publicID string) (bool, error)
 	MenuUserIDs(ctx context.Context, id string) ([]string, error)
 	CountByCreator(ctx context.Context, userID string) (int, error)
 	List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error)
@@ -28,14 +33,28 @@ type RecipeRepository interface {
 	ListFavourites(ctx context.Context, userID string, page, limit int) ([]*models.RecipeCard, int, error)
 }
 
+type ImageStore interface {
+	Upload(ctx context.Context, file io.Reader, publicID string) (cloudinary.UploadedImage, error)
+	Destroy(ctx context.Context, publicID string) error
+}
+
+// RecipeImages is what the recipe handler needs for photos: PhotoLimiter is keyed per user and only counts saves that carry a photo.
+type RecipeImages struct {
+	Store        ImageStore
+	Scope        ImageScope
+	PhotoLimiter *limiter.Limiter
+	NewID        func() string
+}
+
 type RecipeHandler struct {
 	repo          RecipeRepository
 	shoppingLists ShoppingListRegenerator
 	transactor    Transactor
+	images        RecipeImages
 }
 
-func NewRecipeHandler(repo RecipeRepository, shoppingLists ShoppingListRegenerator, transactor Transactor) *RecipeHandler {
-	return &RecipeHandler{repo: repo, shoppingLists: shoppingLists, transactor: transactor}
+func NewRecipeHandler(repo RecipeRepository, shoppingLists ShoppingListRegenerator, transactor Transactor, images RecipeImages) *RecipeHandler {
+	return &RecipeHandler{repo: repo, shoppingLists: shoppingLists, transactor: transactor, images: images}
 }
 
 func (h *RecipeHandler) Create(c *gin.Context) {
@@ -46,10 +65,11 @@ func (h *RecipeHandler) Create(c *gin.Context) {
 	}
 	role := c.GetString("role")
 
-	input, ok := parseCreateRecipeInput(c)
+	write, ok := parseRecipeWrite(c, false)
 	if !ok {
 		return
 	}
+	input := write.input
 
 	creatorID, err := uuid.Parse(userID)
 	if err != nil {
@@ -62,6 +82,13 @@ func (h *RecipeHandler) Create(c *gin.Context) {
 	if !h.withinRecipeCap(c, role, userID) {
 		return
 	}
+	var uploaded *cloudinary.UploadedImage
+	if write.photo != nil {
+		if uploaded, ok = h.uploadPhoto(c, userID, write.photo); !ok {
+			return
+		}
+		input.ImageURL, input.ImageFilename = &uploaded.SecureURL, &uploaded.PublicID
+	}
 
 	var recipe *models.RecipeDetail
 	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
@@ -70,6 +97,9 @@ func (h *RecipeHandler) Create(c *gin.Context) {
 		return err
 	})
 	if txErr != nil {
+		if uploaded != nil {
+			h.destroyUnusedUpload(c, uploaded.PublicID)
+		}
 		writeRecipeWriteError(c, txErr)
 		return
 	}
@@ -86,16 +116,34 @@ func (h *RecipeHandler) Update(c *gin.Context) {
 	if !parseID(c, id) {
 		return
 	}
-	input, ok := parseCreateRecipeInput(c)
+	write, ok := parseRecipeWrite(c, true)
 	if !ok {
 		return
 	}
+	input := write.input
 	isAdmin := c.GetString("role") == "ADMIN"
 
+	var uploaded *cloudinary.UploadedImage
+	switch {
+	case write.photo != nil:
+		if err := h.repo.CheckWritable(c.Request.Context(), id, userID, isAdmin); err != nil {
+			writeRecipeWriteError(c, err)
+			return
+		}
+		if uploaded, ok = h.uploadPhoto(c, userID, write.photo); !ok {
+			return
+		}
+		input.Image = models.ImageReplace
+		input.ImageURL, input.ImageFilename = &uploaded.SecureURL, &uploaded.PublicID
+	case write.removeImage:
+		input.Image = models.ImageRemove
+	}
+
 	var detail *models.RecipeDetail
+	var orphan *string
 	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
 		var err error
-		detail, err = h.repo.Update(ctx, id, input, userID, isAdmin)
+		detail, orphan, err = h.repo.Update(ctx, id, input, userID, isAdmin)
 		if err != nil {
 			return err
 		}
@@ -106,9 +154,13 @@ func (h *RecipeHandler) Update(c *gin.Context) {
 		return h.regenerateShoppingLists(ctx, holders)
 	})
 	if txErr != nil {
+		if uploaded != nil {
+			h.destroyUnusedUpload(c, uploaded.PublicID)
+		}
 		writeRecipeWriteError(c, txErr)
 		return
 	}
+	h.destroyOrphan(c, orphan)
 	c.JSON(http.StatusOK, detail)
 }
 
@@ -124,8 +176,11 @@ func (h *RecipeHandler) Delete(c *gin.Context) {
 	}
 	isAdmin := c.GetString("role") == "ADMIN"
 
+	var orphan *string
 	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
-		affected, err := h.repo.Delete(ctx, id, userID, isAdmin)
+		var affected []string
+		var err error
+		affected, orphan, err = h.repo.Delete(ctx, id, userID, isAdmin)
 		if err != nil {
 			return err
 		}
@@ -135,6 +190,7 @@ func (h *RecipeHandler) Delete(c *gin.Context) {
 		writeRecipeWriteError(c, txErr)
 		return
 	}
+	h.destroyOrphan(c, orphan)
 	c.Status(http.StatusNoContent)
 }
 

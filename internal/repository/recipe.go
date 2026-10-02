@@ -355,34 +355,40 @@ func (r *PostgresRecipeRepository) Create(ctx context.Context, input models.Crea
 	return buildRecipeDetail(ctx, q, created, pgUUID(input.CreatedByID))
 }
 
-func (r *PostgresRecipeRepository) Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (*models.RecipeDetail, error) {
+// Update returns the old image's public id when the update dropped it and no other recipe uses it, for the caller to destroy after commit.
+func (r *PostgresRecipeRepository) Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (*models.RecipeDetail, *string, error) {
 	q := queriesFor(ctx, r.db)
 
 	recipeID, err := uuidParam(id)
 	if err != nil {
-		return nil, fmt.Errorf("invalid recipe id: %w", err)
+		return nil, nil, fmt.Errorf("invalid recipe id: %w", err)
 	}
 	cid, err := uuidParam(callerID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid caller id: %w", err)
+		return nil, nil, fmt.Errorf("invalid caller id: %w", err)
 	}
 
 	existing, err := q.GetRecipeForWrite(ctx, recipeID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, models.ErrRecipeNotFound
+			return nil, nil, models.ErrRecipeNotFound
 		}
-		return nil, fmt.Errorf("failed to get recipe: %w", err)
+		return nil, nil, fmt.Errorf("failed to get recipe: %w", err)
 	}
 	if err := recipeWriteError(existing, cid, callerIsAdmin); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := checkAllowedUnits(ctx, q, input.Ingredients); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := checkIngredientItems(ctx, q, input.Ingredients); err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	imageURL, imageFilename := existing.ImageUrl, existing.ImageFilename
+	if input.Image != models.ImageKeep {
+		imageURL, imageFilename = textPtrParam(input.ImageURL), textPtrParam(input.ImageFilename)
 	}
 
 	updated, err := q.UpdateRecipe(ctx, sqlc.UpdateRecipeParams{
@@ -393,29 +399,40 @@ func (r *PostgresRecipeRepository) Update(ctx context.Context, id string, input 
 		Serves:        int32(input.Serves),
 		Instructions:  input.Instructions,
 		Notes:         input.Notes,
-		ImageUrl:      textPtrParam(input.ImageURL),
-		ImageFilename: textPtrParam(input.ImageFilename),
+		ImageUrl:      imageURL,
+		ImageFilename: imageFilename,
 		Approved:      existing.Approved,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to update recipe: %w", err)
+		return nil, nil, fmt.Errorf("failed to update recipe: %w", err)
 	}
 
 	if err := q.DeleteRecipeIngredients(ctx, recipeID); err != nil {
-		return nil, fmt.Errorf("failed to clear recipe ingredients: %w", err)
+		return nil, nil, fmt.Errorf("failed to clear recipe ingredients: %w", err)
 	}
 	if err := q.DeleteRecipeCategoryLinks(ctx, recipeID); err != nil {
-		return nil, fmt.Errorf("failed to clear recipe categories: %w", err)
+		return nil, nil, fmt.Errorf("failed to clear recipe categories: %w", err)
 	}
 
 	if err := insertRecipeIngredients(ctx, q, recipeID, input.Ingredients); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := linkRecipeCategories(ctx, q, recipeID, input.CategoryIDs); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return buildRecipeDetail(ctx, q, updated, cid)
+	detail, err := buildRecipeDetail(ctx, q, updated, cid)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !existing.ImageFilename.Valid || existing.ImageFilename == imageFilename {
+		return detail, nil, nil
+	}
+	orphan, err := orphanedImage(ctx, q, existing.ImageFilename, recipeID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return detail, orphan, nil
 }
 
 // insertRecipeIngredients creates one recipe_ingredients row per ingredient, preserving submit order via Position.
@@ -460,39 +477,93 @@ func linkRecipeCategories(ctx context.Context, q *sqlc.Queries, recipeID pgtype.
 	return nil
 }
 
-func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) ([]string, error) {
+// Delete returns the users whose menus held the recipe, and its image's public id when no other recipe uses it.
+func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) ([]string, *string, error) {
 	q := queriesFor(ctx, r.db)
 
 	recipeID, err := uuidParam(id)
 	if err != nil {
-		return nil, fmt.Errorf("invalid recipe id: %w", err)
+		return nil, nil, fmt.Errorf("invalid recipe id: %w", err)
 	}
 	cid, err := uuidParam(callerID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid caller id: %w", err)
+		return nil, nil, fmt.Errorf("invalid caller id: %w", err)
 	}
 
 	existing, err := q.GetRecipeForWrite(ctx, recipeID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, models.ErrRecipeNotFound
+			return nil, nil, models.ErrRecipeNotFound
 		}
-		return nil, fmt.Errorf("failed to get recipe: %w", err)
+		return nil, nil, fmt.Errorf("failed to get recipe: %w", err)
 	}
 	if err := recipeWriteError(existing, cid, callerIsAdmin); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Read before the delete: the cascade removes the menu entries that say who held it.
 	menuUserIDs, err := q.ListMenuUserIDsForRecipe(ctx, recipeID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list menus holding recipe: %w", err)
+		return nil, nil, fmt.Errorf("failed to list menus holding recipe: %w", err)
 	}
 
 	if err := q.DeleteRecipe(ctx, recipeID); err != nil {
-		return nil, fmt.Errorf("failed to delete recipe: %w", err)
+		return nil, nil, fmt.Errorf("failed to delete recipe: %w", err)
 	}
-	return uuidStrings(menuUserIDs), nil
+	var orphan *string
+	if existing.ImageFilename.Valid {
+		if orphan, err = orphanedImage(ctx, q, existing.ImageFilename, recipeID); err != nil {
+			return nil, nil, err
+		}
+	}
+	return uuidStrings(menuUserIDs), orphan, nil
+}
+
+// orphanedImage returns publicID when no recipe other than recipeID still uses it.
+func orphanedImage(ctx context.Context, q *sqlc.Queries, publicID pgtype.Text, recipeID pgtype.UUID) (*string, error) {
+	if err := q.LockImage(ctx, publicID.String); err != nil {
+		return nil, fmt.Errorf("failed to lock image: %w", err)
+	}
+	n, err := q.CountRecipesUsingImage(ctx, sqlc.CountRecipesUsingImageParams{ImageFilename: publicID, ExcludeID: recipeID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to count recipes using image: %w", err)
+	}
+	if n > 0 {
+		return nil, nil
+	}
+	return textPtr(publicID), nil
+}
+
+// ImageInUse reports whether any recipe still points at publicID.
+func (r *PostgresRecipeRepository) ImageInUse(ctx context.Context, publicID string) (bool, error) {
+	n, err := queriesFor(ctx, r.db).CountRecipesWithImage(ctx, pgtype.Text{String: publicID, Valid: true})
+	if err != nil {
+		return false, fmt.Errorf("failed to count recipes with image: %w", err)
+	}
+	return n > 0, nil
+}
+
+// CheckWritable applies the write rule outside a transaction, so a refused photo save never uploads; Update and Delete re-check under the row lock.
+func (r *PostgresRecipeRepository) CheckWritable(ctx context.Context, id string, callerID string, callerIsAdmin bool) error {
+	q := queriesFor(ctx, r.db)
+
+	recipeID, err := uuidParam(id)
+	if err != nil {
+		return fmt.Errorf("invalid recipe id: %w", err)
+	}
+	cid, err := uuidParam(callerID)
+	if err != nil {
+		return fmt.Errorf("invalid caller id: %w", err)
+	}
+
+	existing, err := q.GetRecipeForWrite(ctx, recipeID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.ErrRecipeNotFound
+		}
+		return fmt.Errorf("failed to get recipe: %w", err)
+	}
+	return recipeWriteError(existing, cid, callerIsAdmin)
 }
 
 func (r *PostgresRecipeRepository) MenuUserIDs(ctx context.Context, id string) ([]string, error) {
