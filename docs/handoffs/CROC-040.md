@@ -92,13 +92,14 @@ bytes" decision, changes the recipe write contract `crockpot-react`
 7. **Hard cutover:** the old app goes offline at launch after a final
    `cmd/migrate-data` run, so production may destroy legacy assets from
    day one. No legacy-delete flag.
-8. **Stored URLs strictly parsed:** `https://res.cloudinary.com/<CLOUDINARY_CLOUD_NAME>/image/upload/v<digits>/<public_id>.<ext>`,
-   public_id under the environment folder or a legacy folder
-   (`Crockpot/`, `recipes/`) — legacy allowed in every environment so
-   migrated recipes stay editable. public_id is always derived from the
-   URL and stored as `image_filename`; a client `filename` is never
-   trusted. Store Cloudinary's `secure_url` as `image_url`. Response
-   shapes unchanged.
+8. **No client URLs, so no URL parsing.** The server generates every
+   new public_id; `image_filename` is server-written or migrated (all 213
+   match their URLs). Store Cloudinary's `secure_url` as `image_url` and
+   the generated public_id as `image_filename`; response shapes
+   unchanged. `validateRecipeImage` (`internal/handler/recipe_requests.go:318`)
+   is deleted with the request `image` field (piece 6). (Amended
+   2026-10-02 at piece 3: the parse/allowed-to-store rules were carried
+   over from the signed design and had no caller.)
 9. **Order of a save with a photo:**
    1. parse + validate the recipe and the file;
    2. pre-check permission outside the transaction — PATCH: the
@@ -182,8 +183,6 @@ bytes" decision, changes the recipe write contract `crockpot-react`
       `invalidate=true`; not when another recipe references it; never
       outside the folders the environment owns; a destroy failure still
       returns success.
-- [ ] Stored-URL parsing accepts all 213 migrated rows' shape and rejects
-      other clouds, other folders, and URLs with transformations.
 - [ ] 21st photo save in an hour by one user → 429 with `Retry-After`;
       saves without a photo are unaffected.
 - [ ] Every other route still rejects bodies over 1 MiB.
@@ -201,9 +200,10 @@ Each piece: failing tests first, stop at red, then green, then stop.
    `public_id=<folder>/<uuid>` (the path is the folder); no `folder` or
    `asset_folder` param.
 2. **Config** — four required vars. `config_test.go`. (logic)
-3. **URL parsing + folder rules** — pure functions: parse stored URL →
-   public_id; allowed-for-storage; destroyable-in-this-environment.
-   Table tests including the migrated shapes. (logic)
+3. **Destroy scope** — `handler.ImageScope{UploadFolder, Production}`
+   `.CanDestroy(publicID)`: true only under `UploadFolder/`, or under
+   `Crockpot/` / `recipes/` when `Production`. Table tests: dev vs prod,
+   legacy folders, prefix near-misses, empty. (logic)
 4. **Cloudinary client** (`ImageStore`): signed upload with decision 5's
    params, destroy with `invalidate`. Unit tests against an
    `httptest.Server` for the signature and form fields; then one real

@@ -297,8 +297,7 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   a `c_limit,w_1600,h_1600` incoming transformation, then saves. The
   client never sends an image URL. Old assets are destroyed after commit
   on replace/remove/delete unless another recipe references them, only
-  under folders the environment owns. Stored URLs are parsed strictly to
-  this cloud's `/image/upload/v<n>/<public_id>.<ext>`. Delivery sizing
+  under folders the environment owns. Delivery sizing
   (`f_auto,q_auto,w_…`) is the frontend's. **Reverses** the earlier
   browser-direct design (unsigned preset rejected at `CROC-014`, signed
   direct upload chosen then): at this scale direct upload's offloading
