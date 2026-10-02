@@ -46,10 +46,11 @@ func (h *RecipeHandler) Create(c *gin.Context) {
 	}
 	role := c.GetString("role")
 
-	input, ok := parseCreateRecipeInput(c)
+	write, ok := parseRecipeWrite(c, false)
 	if !ok {
 		return
 	}
+	input := write.input
 
 	creatorID, err := uuid.Parse(userID)
 	if err != nil {
@@ -86,10 +87,11 @@ func (h *RecipeHandler) Update(c *gin.Context) {
 	if !parseID(c, id) {
 		return
 	}
-	input, ok := parseCreateRecipeInput(c)
+	write, ok := parseRecipeWrite(c, true)
 	if !ok {
 		return
 	}
+	input := write.input
 	isAdmin := c.GetString("role") == "ADMIN"
 
 	var detail *models.RecipeDetail
