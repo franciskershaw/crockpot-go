@@ -536,6 +536,7 @@ func TestUpdateRecipe_OwnerReplacesAllFieldsAndWholesaleIngredientsCategories(t 
 	require.NotNil(t, updated)
 
 	assert.Equal(t, update.Name, updated.Name)
+	assert.False(t, updated.Approved, "an owner's edit of a pending recipe stays pending")
 	require.NotNil(t, updated.Description)
 	assert.Equal(t, description, *updated.Description)
 	assert.Equal(t, 99, updated.TimeInMinutes)
@@ -555,7 +556,7 @@ func TestUpdateRecipe_OwnerReplacesAllFieldsAndWholesaleIngredientsCategories(t 
 		"old category link must be gone after wholesale replace")
 }
 
-func TestUpdateRecipe_OwnerEditingApprovedResetsToPending(t *testing.T) {
+func TestUpdateRecipe_OwnerEditingApproved_Locked(t *testing.T) {
 	ctx := context.Background()
 	userID := insertTestUser(t, "Cook")
 	catID := insertTestItemCategory(t, "repo-test-category-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
@@ -563,9 +564,12 @@ func TestUpdateRecipe_OwnerEditingApprovedResetsToPending(t *testing.T) {
 	recipeCatID := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
 	recipeID := insertTestRecipeRow(t, userID, true)
 
-	updated, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(userID, itemID, recipeCatID), userID.String(), false)
-	require.NoError(t, err)
-	assert.False(t, updated.Approved)
+	_, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(userID, itemID, recipeCatID), userID.String(), false)
+	assert.ErrorIs(t, err, models.ErrRecipeApprovedLocked)
+
+	assert.Equal(t, 1, rowCount(t, `SELECT count(*) FROM recipes WHERE id = $1 AND approved AND name = $2`, recipeID, "repo-test-recipe-"+recipeID.String()),
+		"a locked recipe keeps its name and approval")
+	assert.Equal(t, 0, rowCount(t, `SELECT count(*) FROM recipe_ingredients WHERE recipe_id = $1`, recipeID))
 }
 
 func TestUpdateRecipe_RejectsNonIngredientItem(t *testing.T) {
@@ -573,7 +577,7 @@ func TestUpdateRecipe_RejectsNonIngredientItem(t *testing.T) {
 	userID := insertTestUser(t, "Cook")
 	householdID := insertTestNonIngredientItem(t)
 	recipeCatID := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
-	recipeID := insertTestRecipeRow(t, userID, true)
+	recipeID := insertTestRecipeRow(t, userID, false)
 
 	txErr := transactor.WithinTx(ctx, func(ctx context.Context) error {
 		_, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(userID, householdID, recipeCatID), userID.String(), false)
@@ -744,6 +748,45 @@ func TestDeleteRecipe_NonexistentRecipe_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, models.ErrRecipeNotFound)
 }
 
+func TestDeleteRecipe_OwnerOnApproved_Locked(t *testing.T) {
+	ctx := context.Background()
+	userID := insertTestUser(t, "Cook")
+	recipeID := insertTestRecipeRow(t, userID, true)
+
+	_, err := recipeRepo.Delete(ctx, recipeID.String(), userID.String(), false)
+	assert.ErrorIs(t, err, models.ErrRecipeApprovedLocked)
+	assert.Equal(t, 1, rowCount(t, `SELECT count(*) FROM recipes WHERE id = $1`, recipeID))
+}
+
+func TestMenuUserIDs_ReturnsHoldersOrderedByID(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Owner")
+	first := insertTestUser(t, "First")
+	second := insertTestUser(t, "Second")
+	bystander := insertTestUser(t, "Bystander")
+	recipeID := insertTestRecipeRow(t, owner, true)
+	otherRecipeID := insertTestRecipeRow(t, owner, true)
+	require.NoError(t, menuRepo.UpsertEntry(ctx, first.String(), recipeID.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, second.String(), recipeID.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, bystander.String(), otherRecipeID.String(), 2, false))
+
+	users, err := recipeRepo.MenuUserIDs(ctx, recipeID.String())
+	require.NoError(t, err)
+
+	want := []string{first.String(), second.String()}
+	sort.Strings(want)
+	assert.Equal(t, want, users)
+}
+
+func TestMenuUserIDs_NoHolders_ReturnsEmpty(t *testing.T) {
+	owner := insertTestUser(t, "Owner")
+	recipeID := insertTestRecipeRow(t, owner, true)
+
+	users, err := recipeRepo.MenuUserIDs(context.Background(), recipeID.String())
+	require.NoError(t, err)
+	assert.Empty(t, users)
+}
+
 func TestDeleteRecipe_CascadesFavouriteRows(t *testing.T) {
 	ctx := context.Background()
 	owner := insertTestUser(t, "Owner")
@@ -752,7 +795,7 @@ func TestDeleteRecipe_CascadesFavouriteRows(t *testing.T) {
 	require.NoError(t, recipeRepo.AddFavourite(ctx, caller.String(), recipeID.String(), false))
 	require.Equal(t, 1, favouriteRowCount(t, caller, recipeID))
 
-	_, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), false)
+	_, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, favouriteRowCount(t, caller, recipeID), "ON DELETE CASCADE should remove the favourite row")
@@ -770,7 +813,7 @@ func TestDeleteRecipe_ReturnsUsersWhoseMenusHeldIt(t *testing.T) {
 	require.NoError(t, menuRepo.UpsertEntry(ctx, second.String(), recipeID.String(), 2, false))
 	require.NoError(t, menuRepo.UpsertEntry(ctx, bystander.String(), otherRecipeID.String(), 2, false))
 
-	users, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), false)
+	users, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true)
 	require.NoError(t, err)
 
 	want := []string{first.String(), second.String()}
@@ -783,7 +826,7 @@ func TestDeleteRecipe_OnNoMenus_ReturnsNoUsers(t *testing.T) {
 	owner := insertTestUser(t, "Owner")
 	recipeID := insertTestRecipeRow(t, owner, true)
 
-	users, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), false)
+	users, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true)
 	require.NoError(t, err)
 	assert.Empty(t, users)
 }
@@ -843,7 +886,7 @@ func TestDeleteRecipe_WaitsForInFlightMenuAddAndReturnsItsUser(t *testing.T) {
 		var users []string
 		err := transactor.WithinTx(ctx, func(ctx context.Context) error {
 			var err error
-			users, err = recipeRepo.Delete(ctx, recipeID.String(), owner.String(), false)
+			users, err = recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true)
 			return err
 		})
 		deleted <- deleteResult{users, err}
@@ -871,7 +914,7 @@ func TestUpsertEntry_RecipeDeletedWhileWaiting_ReturnsNotFound(t *testing.T) {
 	deleteErr := make(chan error, 1)
 	go func() {
 		deleteErr <- transactor.WithinTx(ctx, func(ctx context.Context) error {
-			if _, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), false); err != nil {
+			if _, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true); err != nil {
 				return err
 			}
 			close(deletedUncommitted)
