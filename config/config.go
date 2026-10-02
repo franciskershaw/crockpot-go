@@ -27,6 +27,11 @@ type Config struct {
 	TrustedProxies      []string
 	ResendAPIKey        string
 	EmailFrom           string
+
+	CloudinaryCloudName    string
+	CloudinaryAPIKey       string
+	CloudinaryAPISecret    string
+	CloudinaryUploadFolder string
 }
 
 func Load() (*Config, error) {
@@ -54,6 +59,11 @@ func loadFromEnv() *Config {
 		TrustedProxies:      getEnvAsSlice("TRUSTED_PROXIES"),
 		ResendAPIKey:        os.Getenv("RESEND_API_KEY"),
 		EmailFrom:           os.Getenv("EMAIL_FROM"),
+
+		CloudinaryCloudName:    os.Getenv("CLOUDINARY_CLOUD_NAME"),
+		CloudinaryAPIKey:       os.Getenv("CLOUDINARY_API_KEY"),
+		CloudinaryAPISecret:    os.Getenv("CLOUDINARY_API_SECRET"),
+		CloudinaryUploadFolder: os.Getenv("CLOUDINARY_UPLOAD_FOLDER"),
 	}
 }
 
@@ -72,6 +82,10 @@ func validate(cfg *Config) error {
 		{"FRONTEND_URL", cfg.FrontendURL},
 		{"RESEND_API_KEY", cfg.ResendAPIKey},
 		{"EMAIL_FROM", cfg.EmailFrom},
+		{"CLOUDINARY_CLOUD_NAME", cfg.CloudinaryCloudName},
+		{"CLOUDINARY_API_KEY", cfg.CloudinaryAPIKey},
+		{"CLOUDINARY_API_SECRET", cfg.CloudinaryAPISecret},
+		{"CLOUDINARY_UPLOAD_FOLDER", cfg.CloudinaryUploadFolder},
 	}
 
 	var missing []string
