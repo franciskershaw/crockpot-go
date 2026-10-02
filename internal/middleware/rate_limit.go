@@ -24,13 +24,18 @@ func (m *RateLimitMiddleware) Handler() gin.HandlerFunc {
 
 	return mgin.NewMiddleware(instance,
 		mgin.WithLimitReachedHandler(func(c *gin.Context) {
-			c.Header("Retry-After", strconv.FormatInt(m.retryAfterSeconds(c), 10))
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "rate_limit_exceeded"})
+			RespondRateLimited(c, m.retryAfterSeconds(c))
 		}),
 		mgin.WithErrorHandler(func(c *gin.Context, err error) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
 		}),
 	)
+}
+
+// RespondRateLimited writes the 429 every rate limit in this API returns.
+func RespondRateLimited(c *gin.Context, retryAfterSeconds int64) {
+	c.Header("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
+	c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate_limit_exceeded"})
 }
 
 // retryAfterSeconds reads the X-RateLimit-Reset header mgin's middleware already set (a Unix timestamp) for the non-negative seconds actually remaining, falling back to the full period if it's missing or unparseable.

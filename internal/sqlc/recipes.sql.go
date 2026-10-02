@@ -90,6 +90,34 @@ func (q *Queries) CountRecipesByCreator(ctx context.Context, createdByID pgtype.
 	return count, err
 }
 
+const countRecipesUsingImage = `-- name: CountRecipesUsingImage :one
+SELECT count(*) FROM recipes
+WHERE image_filename = $1 AND id <> $2
+`
+
+type CountRecipesUsingImageParams struct {
+	ImageFilename pgtype.Text
+	ExcludeID     pgtype.UUID
+}
+
+func (q *Queries) CountRecipesUsingImage(ctx context.Context, arg CountRecipesUsingImageParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecipesUsingImage, arg.ImageFilename, arg.ExcludeID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countRecipesWithImage = `-- name: CountRecipesWithImage :one
+SELECT count(*) FROM recipes WHERE image_filename = $1
+`
+
+func (q *Queries) CountRecipesWithImage(ctx context.Context, imageFilename pgtype.Text) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecipesWithImage, imageFilename)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createRecipe = `-- name: CreateRecipe :one
 INSERT INTO recipes (
     name,
@@ -272,23 +300,31 @@ func (q *Queries) GetRecipeForReader(ctx context.Context, arg GetRecipeForReader
 }
 
 const getRecipeForWrite = `-- name: GetRecipeForWrite :one
-SELECT id, created_by_id, approved
+SELECT id, created_by_id, approved, image_url, image_filename
 FROM recipes
 WHERE id = $1
 FOR UPDATE
 `
 
 type GetRecipeForWriteRow struct {
-	ID          pgtype.UUID
-	CreatedByID pgtype.UUID
-	Approved    bool
+	ID            pgtype.UUID
+	CreatedByID   pgtype.UUID
+	Approved      bool
+	ImageUrl      pgtype.Text
+	ImageFilename pgtype.Text
 }
 
 // FOR UPDATE makes a concurrent menu add (its FK check takes KEY SHARE) finish before Delete reads who holds the recipe.
 func (q *Queries) GetRecipeForWrite(ctx context.Context, id pgtype.UUID) (GetRecipeForWriteRow, error) {
 	row := q.db.QueryRow(ctx, getRecipeForWrite, id)
 	var i GetRecipeForWriteRow
-	err := row.Scan(&i.ID, &i.CreatedByID, &i.Approved)
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedByID,
+		&i.Approved,
+		&i.ImageUrl,
+		&i.ImageFilename,
+	)
 	return i, err
 }
 
@@ -631,6 +667,16 @@ func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]Lis
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockImage = `-- name: LockImage :exec
+SELECT pg_advisory_xact_lock(hashtext($1::text))
+`
+
+// Serialises concurrent drops of one shared image so the last one sees the others gone and reports it orphaned.
+func (q *Queries) LockImage(ctx context.Context, imageFilename string) error {
+	_, err := q.db.Exec(ctx, lockImage, imageFilename)
+	return err
 }
 
 const updateRecipe = `-- name: UpdateRecipe :one

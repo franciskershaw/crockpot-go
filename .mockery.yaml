@@ -25,3 +25,4 @@ packages:
       MenuRepository:
       ShoppingListRegenerator:
       ShoppingListRepository:
+      ImageStore:

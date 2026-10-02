@@ -1,7 +1,10 @@
 package handler
 
 import (
-	"net/url"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -19,7 +22,7 @@ type createRecipeRequest struct {
 	Notes         []string                  `json:"notes"`
 	CategoryIDs   []string                  `json:"categoryIds"`
 	Ingredients   []createIngredientRequest `json:"ingredients"`
-	Image         *recipeImageRequest       `json:"image"`
+	RemoveImage   bool                      `json:"removeImage"`
 }
 
 type createIngredientRequest struct {
@@ -28,17 +31,102 @@ type createIngredientRequest struct {
 	Quantity *float64 `json:"quantity"`
 }
 
-type recipeImageRequest struct {
-	URL      string `json:"url"`
-	Filename string `json:"filename"`
+const maxPhotoBytes = 5 << 20
+
+// multipartMemoryBytes keeps a whole capped recipe write in memory rather than spilling the photo to a temp file.
+const multipartMemoryBytes = 8 << 20
+
+var allowedPhotoTypes = map[string]bool{"image/jpeg": true, "image/png": true, "image/webp": true}
+
+// recipeWrite is a parsed recipe create/update: photo is nil when none was sent.
+type recipeWrite struct {
+	input       models.CreateRecipeInput
+	photo       []byte
+	removeImage bool
 }
 
-// parseCreateRecipeInput validates the body into a CreateRecipeInput (CreatedByID/Approved left for the handler); writes the error response and returns false on failure.
-func parseCreateRecipeInput(c *gin.Context) (models.CreateRecipeInput, bool) {
-	var req createRecipeRequest
-	if !bindJSON(c, &req) {
-		return models.CreateRecipeInput{}, false
+// parseRecipeWrite reads the multipart body (a "recipe" JSON part plus an optional "photo"); writes the error response and returns false on failure.
+func parseRecipeWrite(c *gin.Context, isUpdate bool) (recipeWrite, bool) {
+	if c.ContentType() != "multipart/form-data" {
+		badRequest(c, "invalid_request")
+		return recipeWrite{}, false
 	}
+	if err := c.Request.ParseMultipartForm(multipartMemoryBytes); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request_too_large"})
+		} else {
+			badRequest(c, "invalid_request")
+		}
+		return recipeWrite{}, false
+	}
+	raw, ok := c.GetPostForm("recipe")
+	if !ok {
+		badRequest(c, "invalid_request")
+		return recipeWrite{}, false
+	}
+	var req createRecipeRequest
+	if err := json.Unmarshal([]byte(raw), &req); err != nil {
+		badRequest(c, "invalid_request")
+		return recipeWrite{}, false
+	}
+	input, ok := validateRecipeRequest(c, req)
+	if !ok {
+		return recipeWrite{}, false
+	}
+	if req.RemoveImage && !isUpdate {
+		badRequest(c, "invalid_image")
+		return recipeWrite{}, false
+	}
+	photo, ok := readRecipePhoto(c)
+	if !ok {
+		return recipeWrite{}, false
+	}
+	if photo != nil && req.RemoveImage {
+		badRequest(c, "invalid_image")
+		return recipeWrite{}, false
+	}
+	return recipeWrite{input: input, photo: photo, removeImage: req.RemoveImage}, true
+}
+
+// readRecipePhoto returns the "photo" part's bytes, nil if absent; the type is sniffed from content, never the declared header.
+func readRecipePhoto(c *gin.Context) ([]byte, bool) {
+	fh, err := c.FormFile("photo")
+	if errors.Is(err, http.ErrMissingFile) {
+		return nil, true
+	}
+	if err != nil {
+		badRequest(c, "invalid_request")
+		return nil, false
+	}
+	if fh.Size > maxPhotoBytes {
+		badRequest(c, "image_too_large")
+		return nil, false
+	}
+	f, err := fh.Open()
+	if err != nil {
+		badRequest(c, "invalid_request")
+		return nil, false
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxPhotoBytes+1))
+	if err != nil {
+		badRequest(c, "invalid_request")
+		return nil, false
+	}
+	if len(data) > maxPhotoBytes {
+		badRequest(c, "image_too_large")
+		return nil, false
+	}
+	if !allowedPhotoTypes[http.DetectContentType(data)] {
+		badRequest(c, "invalid_image")
+		return nil, false
+	}
+	return data, true
+}
+
+// validateRecipeRequest validates the decoded body into a CreateRecipeInput (CreatedByID/Approved left for the handler).
+func validateRecipeRequest(c *gin.Context, req createRecipeRequest) (models.CreateRecipeInput, bool) {
 
 	name, ok := validateRecipeName(c, req.Name)
 	if !ok {
@@ -72,11 +160,6 @@ func parseCreateRecipeInput(c *gin.Context) (models.CreateRecipeInput, bool) {
 	if !ok {
 		return models.CreateRecipeInput{}, false
 	}
-	imageURL, imageFilename, ok := validateRecipeImage(c, req.Image)
-	if !ok {
-		return models.CreateRecipeInput{}, false
-	}
-
 	return models.CreateRecipeInput{
 		Name:          name,
 		Description:   description,
@@ -86,8 +169,6 @@ func parseCreateRecipeInput(c *gin.Context) (models.CreateRecipeInput, bool) {
 		Notes:         notes,
 		CategoryIDs:   categoryIDs,
 		Ingredients:   ingredients,
-		ImageURL:      imageURL,
-		ImageFilename: imageFilename,
 	}, true
 }
 
@@ -313,22 +394,4 @@ func clampInt(v, lo, hi int) int {
 		return hi
 	}
 	return v
-}
-
-func validateRecipeImage(c *gin.Context, img *recipeImageRequest) (*string, *string, bool) {
-	if img == nil {
-		return nil, nil, true
-	}
-	imageURL := strings.TrimSpace(img.URL)
-	filename := strings.TrimSpace(img.Filename)
-	if imageURL == "" || filename == "" {
-		badRequest(c, "invalid_image")
-		return nil, nil, false
-	}
-	parsed, err := url.Parse(imageURL)
-	if err != nil || parsed.Scheme != "https" || parsed.Host != "res.cloudinary.com" {
-		badRequest(c, "invalid_image")
-		return nil, nil, false
-	}
-	return &imageURL, &filename, true
 }
