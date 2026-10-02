@@ -634,6 +634,16 @@ session.*
   other filter lists newest first instead of the browse shuffle; filtered
   own-recipe lists keep their existing order. Unblocks `crockpot-react`
   `CFE-008`'s ordering.
+- **CROC-062** — Decide whether owners may delete their own recipes once
+  approved. Today `DELETE /recipes/:id` is owner-or-admin regardless of
+  `approved` (`canWriteRecipe`, `internal/repository/recipe.go`), so an
+  owner can pull a public recipe off everyone's menus and favourites.
+  Open questions: block owner deletes of approved recipes (admin-only),
+  or offer an "unpublish" (back to pending) instead — editing already
+  resets `approved` (`CROC-016`); how an owner gets an approved recipe
+  removed if blocked. Needs a paired `crockpot-react` ticket to hide or
+  explain the delete action. Raised while grilling `CROC-058`
+  (2026-10-02), not grilled.
 
 ### Epic 5: Meal Planning
 - **CROC-019** — Menu read/upsert-entry (`GET /menu`, `POST /menu/entries`,
@@ -741,6 +751,39 @@ session.*
   on delete, so no client change is needed once this lands.
 
 ### Epic 7: Roles & Tier Gating
+  **Grilled** (2026-10-02), cheap to undo, AI-driven, no handoff doc:
+  - `RecipeRepository.Delete` returns `([]string, error)`: the user IDs
+    whose menus held the recipe, read in the same transaction before
+    `DeleteRecipe` (the cascade erases them), `ORDER BY user_id` so
+    concurrent deletes lock shopping lists in one order (no deadlock).
+  - `RecipeHandler` takes a `ShoppingListRegenerator` (as `MenuHandler`
+    does) and calls `Regenerate` per returned user inside its `WithinTx`;
+    a failed resync rolls back the delete. No repo-calls-repo.
+  - `GetRecipeForWrite` gains `FOR UPDATE` (callers: `Update`, `Delete`),
+    so a concurrent menu add either lands before the user read or waits
+    and hits a FK violation; `UpsertEntry` maps `23503` to
+    `ErrRecipeNotFound` (404, not 500).
+  - **Acceptance criteria:**
+    - [ ] Deleting a recipe on other users' menus removes its ingredients
+          from each of their shopping lists; users without it untouched.
+    - [ ] `Delete` returns exactly the affected users (none → empty).
+    - [ ] A menu add racing a delete never leaves a stale list: the add
+          gets `ErrRecipeNotFound` or the adder is in the returned set
+          (`-race` test, seen red before `FOR UPDATE` lands).
+    - [ ] Handler calls `Regenerate` once per returned user; a failing
+          `Regenerate` gives 500; a failing `Delete` skips it.
+    - [ ] `DELETE /recipes/:id` codes unchanged (204/403/404).
+  - **Non-goals:** restricting deletion of approved recipes (`CROC-062`);
+    what happens to a manual amount merged into a deleted recipe's row
+    (same as menu removal today, `CROC-055`).
+  - **Verification:** piece 1 repository (logic, Neon):
+    `./scripts/test-repo.sh`, incl. the `-race` concurrency test. Piece 2
+    handler + wiring (logic, mocks): `go test ./internal/handler/...`.
+    Piece 3 (API boundary): `requests/recipes.http` — second user adds
+    the recipe to their menu, `GET /shopping-list` shows its
+    ingredients, owner deletes it, `GET /shopping-list` no longer does;
+    run top to bottom against a local server. Repo piece first, own
+    commit.
 - **CROC-023** — **Delivered by CROC-014** (`docs/handoffs/CROC-014.md`
   decision 1). The recipe-cap limit helper: a `role`-keyed limit lookup
   (`{"FREE": 5}`, absence = uncapped) + owned-recipe count
