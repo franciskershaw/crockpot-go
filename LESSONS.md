@@ -625,3 +625,8 @@ implementation quality until CROC-001 lands.
 
 - No rework in code. The lock test was made deterministic (hold one tx, poll `pg_stat_activity` for a lock wait) and seen failing 5/5 before `FOR UPDATE`. Branch-review caught the grill block written under the next epic heading: the recording script's "next ticket" boundary crossed a `###`.
 - **Pattern**: when editing the spec by script, bound an entry by the next bullet *or heading*, and eyeball the diff's placement.
+
+## 2026-10-02 — CROC-062 — Approved recipes locked to admins, edits resync lists; clean
+
+- No rework in code. The grill took three reframes (keep owner delete → un-hide pending for holders → remove on reset) before the founder's actual rule — approved recipes belong to the community — made all three moot. Folding the follow-up (edit resync) into this ticket saved a grill.
+- **Pattern**: when a product question keeps spawning edge cases, ask what the founder thinks the object *is* (whose it is, once published) before designing around each case.
