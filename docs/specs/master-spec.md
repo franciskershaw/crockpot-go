@@ -984,6 +984,30 @@ tickets once decided.*
   Create/Update/Delete. No behavior change; existing handler and real-DB
   favourite tests green unmodified. Finding 4.
 
+*From the third whole-codebase tech-debt pass, 2026-10-02. Full detail:
+`docs/findings/2026-10-02-tech-debt.md`.*
+- **CROC-063** — Shopping-list aggregation finds base units by name
+  (`'grams'`/`'milliliters'`); renaming either unit silently multiplies
+  kg/litre quantities by 1000 on every list. Key on `dimension` +
+  `base_factor = 1`, guarded by a partial unique index. Medium. Open.
+  Finding 1.
+- **CROC-064** — Ingredient/shopping-list quantity validation: add an
+  upper bound and a ≥ 0.01 floor, and map NUMERIC overflow to a 400
+  instead of a 500. Align the shopping list's error codes with the
+  recipe/item spellings (`invalid_item_id`, `invalid_unit_id`,
+  `unit_not_allowed_for_item`). The ceiling value is a grill decision.
+  Open. Findings 2–3.
+- **CROC-065** — Recipe query drift: the visibility predicate is
+  hand-copied in 4 queries and the List/Count filters are duplicated in
+  different forms. Centralise the predicate and/or lock List/Count with
+  a total-equals-rows test. Also delete the dead `ListRecipeIngredients`
+  query. Open. Findings 4–5.
+- **CROC-066** — Deploy readiness: explicit pgxpool `MaxConns` plus a
+  server-side `statement_timeout`, and run the token sweeper once at
+  startup. Open, *time-coupled: do alongside the deploy-pipeline ticket
+  (not yet numbered), once the droplet's CPU count and Neon plan are
+  known.* Findings 6–7.
+
 *Parked 2026-08-31 — a loosely-scoped idea, not sequenced into a
 priority epic yet. Numbered out of physical order deliberately: this
 sits conceptually in Epic 6 (Shopping Lists), but the founder wants it

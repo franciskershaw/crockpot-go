@@ -630,3 +630,9 @@ implementation quality until CROC-001 lands.
 
 - No rework in code. The grill took three reframes (keep owner delete → un-hide pending for holders → remove on reset) before the founder's actual rule — approved recipes belong to the community — made all three moot. Folding the follow-up (edit resync) into this ticket saved a grill.
 - **Pattern**: when a product question keeps spawning edge cases, ask what the founder thinks the object *is* (whose it is, once published) before designing around each case.
+
+## 2026-10-02 — Third whole-codebase tech-debt pass
+
+- Covered `internal/`, `db/migrations/`, `config/`, `main.go`, `lifecycle.go` (`cmd/migrate-data` excluded). Auth/token code was unchanged since the last pass, so it got a spot-check only. 7 findings across 4 tickets (`CROC-063`–`066`), full detail in `docs/findings/2026-10-02-tech-debt.md`. The recipe-cap TOCTOU was reconciled as already accepted at CROC-014, not re-filed.
+- The real find: shopping-list unit merging looks base units up by admin-editable *name*, so a rename silently corrupts every list ×1000. Otherwise: unbounded quantities overflow `NUMERIC(10,2)` into 500s, and the visibility predicate is hand-copied in 4 queries.
+- **Pattern**: a SQL lookup that keys on a mutable display field (name) instead of the structural columns a migration set is a latent bug. Grep queries for `name = '` literals.
