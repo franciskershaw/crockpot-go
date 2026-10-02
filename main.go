@@ -31,6 +31,9 @@ const shutdownGracePeriod = 20 * time.Second
 
 const maxRequestBodyBytes = 1 << 20 // 1 MiB
 
+// recipeWriteBodyBytes fits a ≤5 MB photo plus the recipe JSON part.
+const recipeWriteBodyBytes = 6 << 20
+
 var globalRateLimit = limiter.Rate{Period: time.Minute, Limit: 120}
 var authRateLimit = limiter.Rate{Period: time.Minute, Limit: 10}
 var authRefreshRateLimit = limiter.Rate{Period: time.Minute, Limit: 30}
@@ -97,7 +100,10 @@ func main() {
 	}
 	// CORS before the rate limiter so preflight OPTIONS aren't charged against the global bucket.
 	server.Use(middleware.CORS(cfg.FrontendURL))
-	server.Use(middleware.BodySizeLimit(maxRequestBodyBytes))
+	server.Use(middleware.BodySizeLimit(maxRequestBodyBytes, map[string]int64{
+		"POST /recipes":      recipeWriteBodyBytes,
+		"PATCH /recipes/:id": recipeWriteBodyBytes,
+	}))
 	server.Use(middleware.NewRateLimitMiddleware(memory.NewStore(), globalRateLimit).Handler())
 
 	server.GET("/health", func(c *gin.Context) {
