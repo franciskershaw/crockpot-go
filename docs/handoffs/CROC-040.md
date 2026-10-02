@@ -239,3 +239,8 @@ Each piece: failing tests first, stop at red, then green, then stop.
 Commands: `go test ./internal/handler/...`, `./scripts/test-repo.sh`,
 `golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`,
 then `branch-review` before close-out.
+
+Completed 2026-10-02. The piece 8 curl walkthrough predates the review
+fixes (advisory lock, upload-folder guard, explicit multipart parse,
+CORS `Expose-Headers`); those are covered by tests and were not re-run
+against the real server.

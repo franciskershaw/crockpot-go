@@ -630,3 +630,10 @@ implementation quality until CROC-001 lands.
 
 - No rework in code. The grill took three reframes (keep owner delete → un-hide pending for holders → remove on reset) before the founder's actual rule — approved recipes belong to the community — made all three moot. Folding the follow-up (edit resync) into this ticket saved a grill.
 - **Pattern**: when a product question keeps spawning edge cases, ask what the founder thinks the object *is* (whose it is, once published) before designing around each case.
+
+## 2026-10-02 — CROC-040 — Recipe photos via proxied upload; the grill flipped the architecture mid-way
+
+- No rework inside pieces. Design rework: signed direct upload became a proxied save mid-grill, and decision 8 (URL parsing) survived the flip with no caller until piece 3. Review found a misconfigured dev folder could destroy prod photos (now a config guard); the frontend session found `Retry-After` hidden by CORS. The first curl run hit an older build already on :8080.
+- **Pattern**: when a grill answer changes the architecture, re-check every earlier decision against it and drop those with no caller.
+- **Pattern**: a response header the frontend reads is part of the contract — check CORS exposes it.
+- **Pattern**: check the port is free (`lsof -iTCP:<port> -sTCP:LISTEN`) before starting a local server; another session may be running an older build.

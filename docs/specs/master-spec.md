@@ -307,7 +307,12 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   hop (~0.3–0.8 s) and a 6 MiB body cap on the two recipe write routes.
   Revisit if uploads become heavy (many photos per recipe, video, many
   users) — the multipart contract can stay while transport moves to
-  direct upload. Full rationale: `docs/handoffs/CROC-040.md`.
+  direct upload. Full rationale: `docs/handoffs/CROC-040.md`. Uploads
+  use Cloudinary's public delivery type, so a photo on an unapproved
+  recipe is readable by anyone holding its URL; accepted at `CROC-040`'s
+  review (the public_id is a random UUID). Revisit if photos ever need
+  to stay private — authenticated delivery means signed URLs on every
+  render.
 - **Email**: Resend, for verification and password-reset emails (matching
   the old app's provider choice).
 - **API error response shape**: locked in at `CROC-005` (previously
@@ -541,13 +546,9 @@ session.*
   `/items` API. Grill properly before building — the approve-vs-merge
   UX and near-duplicate handling are open.
 - **CROC-040** — Recipe photos: proxied multipart upload to Cloudinary
-  plus cleanup of replaced/removed/deleted assets (see the Images
-  architecture decision). **Grilled** (2026-10-02), see
-  `docs/handoffs/CROC-040.md`. New required config:
-  `CLOUDINARY_CLOUD_NAME`, `_API_KEY`, `_API_SECRET`, `_UPLOAD_FOLDER`.
-  **Dependency of** `crockpot-react` `CFE-049`; merging breaks
-  `CFE-010`'s JSON saves locally until `CFE-049`'s first piece lands.
-  Deploy needs nginx `client_max_body_size` ≥6 MB.
+  plus cleanup of replaced/removed/deleted assets. **Done** (2026-10-02,
+  `docs/handoffs/CROC-040.md`). Deploy needs nginx
+  `client_max_body_size` ≥6 MB and `CLOUDINARY_UPLOAD_FOLDER=recipes`.
 - **CROC-042** — **Done** (2026-09-06, `docs/handoffs/CROC-042.md`).
   Coverage-based scoring (ingredients: matched/total on the recipe;
   categories: matched/selected), combined via a selection-count-weighted
