@@ -818,6 +818,39 @@ func TestUpdateRecipe_InvalidItemID(t *testing.T) {
 	assert.ErrorIs(t, err, models.ErrRecipeInvalidItem)
 }
 
+func TestCheckWritable(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Owner")
+	other := insertTestUser(t, "Other")
+	unapproved := insertTestRecipeRow(t, owner, false)
+	approved := insertTestRecipeRow(t, owner, true)
+
+	cases := []struct {
+		name     string
+		recipeID string
+		caller   uuid.UUID
+		isAdmin  bool
+		wantErr  error
+	}{
+		{"owner on own unapproved", unapproved.String(), owner, false, nil},
+		{"owner on own approved is locked", approved.String(), owner, false, models.ErrRecipeApprovedLocked},
+		{"non-owner on approved is forbidden", approved.String(), other, false, models.ErrRecipeForbidden},
+		{"non-owner on unapproved is hidden", unapproved.String(), other, false, models.ErrRecipeNotFound},
+		{"admin on another's approved", approved.String(), other, true, nil},
+		{"nonexistent recipe", uuid.NewString(), owner, false, models.ErrRecipeNotFound},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := recipeRepo.CheckWritable(ctx, tc.recipeID, tc.caller.String(), tc.isAdmin)
+			if tc.wantErr == nil {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorIs(t, err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestDeleteRecipe_OwnerSucceeds(t *testing.T) {
 	ctx := context.Background()
 	userID := insertTestUser(t, "Cook")

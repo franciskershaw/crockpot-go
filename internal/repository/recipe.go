@@ -531,6 +531,29 @@ func orphanedImage(ctx context.Context, q *sqlc.Queries, publicID pgtype.Text, r
 	return textPtr(publicID), nil
 }
 
+// CheckWritable applies the write rule outside a transaction, so a refused photo save never uploads; Update and Delete re-check under the row lock.
+func (r *PostgresRecipeRepository) CheckWritable(ctx context.Context, id string, callerID string, callerIsAdmin bool) error {
+	q := queriesFor(ctx, r.db)
+
+	recipeID, err := uuidParam(id)
+	if err != nil {
+		return fmt.Errorf("invalid recipe id: %w", err)
+	}
+	cid, err := uuidParam(callerID)
+	if err != nil {
+		return fmt.Errorf("invalid caller id: %w", err)
+	}
+
+	existing, err := q.GetRecipeForWrite(ctx, recipeID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.ErrRecipeNotFound
+		}
+		return fmt.Errorf("failed to get recipe: %w", err)
+	}
+	return recipeWriteError(existing, cid, callerIsAdmin)
+}
+
 func (r *PostgresRecipeRepository) MenuUserIDs(ctx context.Context, id string) ([]string, error) {
 	recipeID, err := uuidParam(id)
 	if err != nil {

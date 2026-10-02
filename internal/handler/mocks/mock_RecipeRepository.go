@@ -72,6 +72,55 @@ func (_c *MockRecipeRepository_AddFavourite_Call) RunAndReturn(run func(context.
 	return _c
 }
 
+// CheckWritable provides a mock function with given fields: ctx, id, callerID, callerIsAdmin
+func (_m *MockRecipeRepository) CheckWritable(ctx context.Context, id string, callerID string, callerIsAdmin bool) error {
+	ret := _m.Called(ctx, id, callerID, callerIsAdmin)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CheckWritable")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, bool) error); ok {
+		r0 = rf(ctx, id, callerID, callerIsAdmin)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockRecipeRepository_CheckWritable_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CheckWritable'
+type MockRecipeRepository_CheckWritable_Call struct {
+	*mock.Call
+}
+
+// CheckWritable is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - callerID string
+//   - callerIsAdmin bool
+func (_e *MockRecipeRepository_Expecter) CheckWritable(ctx interface{}, id interface{}, callerID interface{}, callerIsAdmin interface{}) *MockRecipeRepository_CheckWritable_Call {
+	return &MockRecipeRepository_CheckWritable_Call{Call: _e.mock.On("CheckWritable", ctx, id, callerID, callerIsAdmin)}
+}
+
+func (_c *MockRecipeRepository_CheckWritable_Call) Run(run func(ctx context.Context, id string, callerID string, callerIsAdmin bool)) *MockRecipeRepository_CheckWritable_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(bool))
+	})
+	return _c
+}
+
+func (_c *MockRecipeRepository_CheckWritable_Call) Return(_a0 error) *MockRecipeRepository_CheckWritable_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockRecipeRepository_CheckWritable_Call) RunAndReturn(run func(context.Context, string, string, bool) error) *MockRecipeRepository_CheckWritable_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CountByCreator provides a mock function with given fields: ctx, userID
 func (_m *MockRecipeRepository) CountByCreator(ctx context.Context, userID string) (int, error) {
 	ret := _m.Called(ctx, userID)
