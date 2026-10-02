@@ -196,7 +196,10 @@ Each piece: failing tests first, stop at red, then green, then stop.
 
 1. **Folder-mode check** — one real Admin API call with the dev
    credentials; record the mode here before piece 4 relies on it.
-   (API boundary)
+   (API boundary) **Done 2026-10-02:** `GET /config?settings=true` →
+   cloud `dqdjr1d4f`, `folder_mode: fixed`. Uploads send only
+   `public_id=<folder>/<uuid>` (the path is the folder); no `folder` or
+   `asset_folder` param.
 2. **Config** — four required vars. `config_test.go`. (logic)
 3. **URL parsing + folder rules** — pure functions: parse stored URL →
    public_id; allowed-for-storage; destroyable-in-this-environment.
