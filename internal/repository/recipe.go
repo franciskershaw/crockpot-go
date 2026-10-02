@@ -325,6 +325,9 @@ func (r *PostgresRecipeRepository) Create(ctx context.Context, input models.Crea
 	if err := checkAllowedUnits(ctx, q, input.Ingredients); err != nil {
 		return nil, err
 	}
+	if err := checkIngredientItems(ctx, q, input.Ingredients); err != nil {
+		return nil, err
+	}
 
 	created, err := q.CreateRecipe(ctx, sqlc.CreateRecipeParams{
 		Name:          input.Name,
@@ -379,6 +382,9 @@ func (r *PostgresRecipeRepository) Update(ctx context.Context, id string, input 
 	}
 
 	if err := checkAllowedUnits(ctx, q, input.Ingredients); err != nil {
+		return nil, err
+	}
+	if err := checkIngredientItems(ctx, q, input.Ingredients); err != nil {
 		return nil, err
 	}
 
@@ -497,6 +503,22 @@ func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, caller
 // canWriteRecipe reports whether callerID may update/delete a recipe: its owner, or any admin.
 func canWriteRecipe(existing sqlc.GetRecipeForWriteRow, callerID pgtype.UUID, callerIsAdmin bool) bool {
 	return callerIsAdmin || existing.CreatedByID == callerID
+}
+
+// checkIngredientItems rejects an ingredient whose item's category isn't a recipe ingredient (e.g. House). Recipe-only: the shopping list shares checkAllowedUnits, not this.
+func checkIngredientItems(ctx context.Context, q *sqlc.Queries, ingredients []models.Ingredient) error {
+	itemIDs := make([]pgtype.UUID, 0, len(ingredients))
+	for _, ing := range ingredients {
+		itemIDs = append(itemIDs, pgUUID(ing.ItemID))
+	}
+	rejected, err := q.ListNonIngredientItemIDs(ctx, itemIDs)
+	if err != nil {
+		return fmt.Errorf("failed to check ingredient items: %w", err)
+	}
+	if len(rejected) > 0 {
+		return models.ErrRecipeNonIngredientItem
+	}
+	return nil
 }
 
 // checkAllowedUnits rejects an ingredient unit absent from its item's allowed set; an empty set means unconstrained, a nil unit always passes.

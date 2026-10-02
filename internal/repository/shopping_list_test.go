@@ -635,6 +635,17 @@ func TestAddManualItem_UnitNotAllowedForItem_ReturnsError(t *testing.T) {
 	assert.Empty(t, items, "a rejected add must not leave a row behind")
 }
 
+func TestAddManualItem_NonIngredientItemStillAllowed(t *testing.T) {
+	userID := insertTestUser(t, "Manual Add Household Cook")
+	itemID := insertTestNonIngredientItem(t)
+	registerShoppingListCascadeCleanup(t, userID)
+
+	err := shoppingListRepo.AddManualItem(context.Background(), userID.String(), itemID.String(), nil, 1)
+	require.NoError(t, err)
+
+	assert.Len(t, getShoppingListItemsByUser(t, userID), 1)
+}
+
 func boolPtr(b bool) *bool { return &b }
 
 func floatPtr(f float64) *float64 { return &f }

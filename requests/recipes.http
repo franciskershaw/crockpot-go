@@ -33,10 +33,11 @@
 # {{recipeId}} using the ADMIN token, then a separate auth/validation
 # section for the 401/400/404 cases.
 #
-# Fixtures below create two throwaway `items` rows (the catalog is empty
+# Fixtures below create three throwaway `items` rows (the catalog is empty
 # until CROC-024): one unconstrained, one constrained to a single unit,
 # so both the invalid_unit_id and unit_not_allowed_for_item paths can be
-# exercised.
+# exercised, and one in the House category for item_not_ingredient
+# (CROC-061).
 #
 # PATCH/DELETE /recipes/:id — CROC-016. Full-replace update (same
 # validators as POST) and hard delete, owner-or-admin only. This file's
@@ -86,6 +87,7 @@ GET http://localhost:{{$dotenv PORT}}/item-categories
 ###
 
 @itemCategoryId = {{itemCategory.response.body.$[0].id}}
+@houseCategoryId = {{itemCategory.response.body.$[?(@.name=='House')].id}}
 
 ### Real seeded units.
 # @name units
@@ -135,6 +137,21 @@ Content-Type: application/json
 ###
 
 @itemIdConstrained = {{itemConstrained.response.body.id}}
+
+### Throwaway item — in the non-ingredient House category.
+# @name itemHousehold
+POST http://localhost:{{$dotenv PORT}}/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-recipe-item-household",
+  "categoryId": "{{houseCategoryId}}"
+}
+
+###
+
+@itemIdHousehold = {{itemHousehold.response.body.id}}
 
 
 # ══════════════════════════════════════════
@@ -426,6 +443,25 @@ Content-Type: application/json
   "categoryIds": ["{{recipeCategoryId1}}"],
   "ingredients": [
     { "itemId": "{{itemIdConstrained}}", "unitId": "{{unitId2}}", "quantity": 1 }
+  ]
+}
+
+###
+
+### 🚫 400 item_not_ingredient — a House item alongside a real ingredient
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test household item",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [
+    { "itemId": "{{itemId}}", "quantity": 1 },
+    { "itemId": "{{itemIdHousehold}}", "quantity": 1 }
   ]
 }
 
@@ -727,6 +763,22 @@ Content-Type: application/json
 
 ###
 
+### 🚫 400 item_not_ingredient — the update path rejects a House item too
+PATCH http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test household update",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemIdHousehold}}", "quantity": 1 }]
+}
+
+###
+
 ### 🚫 400 name_required — same validators as POST /recipes; reused
 ### wholesale, not re-tested exhaustively here (see the POST section above).
 PATCH http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
@@ -872,6 +924,12 @@ Authorization: Bearer {{authToken}}
 
 ### ✅ 204 — the unit-constrained item.
 DELETE http://localhost:{{$dotenv PORT}}/items/{{itemIdConstrained}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 204 — the House item. Never made it into a recipe, so nothing blocks it.
+DELETE http://localhost:{{$dotenv PORT}}/items/{{itemIdHousehold}}
 Authorization: Bearer {{authToken}}
 
 ###

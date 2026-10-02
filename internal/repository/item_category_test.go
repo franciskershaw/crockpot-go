@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/franciskershaw/crockpot-go/db"
@@ -37,6 +38,16 @@ func TestCreateItemCategory_CreatesNewCategory(t *testing.T) {
 	assert.NotEqual(t, uuid.Nil, category.ID)
 	assert.Equal(t, name, category.Name)
 	assert.Equal(t, icon, category.Icon)
+}
+
+func TestCreateItemCategory_DefaultsToIngredient(t *testing.T) {
+	ctx := context.Background()
+
+	category, err := itemCategoryRepo.Create(ctx, "repo-test-category-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM item_categories WHERE id = $1`, category.ID)
+
+	assert.True(t, category.IsIngredient)
 }
 
 func TestCreateItemCategory_DuplicateName(t *testing.T) {
@@ -76,6 +87,23 @@ func TestListItemCategories_OrderedByName(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{prefix + "Alpha", prefix + "Mid", prefix + "Zed"}, gotNames)
+}
+
+func TestListItemCategories_OnlyHouseIsNotIngredient(t *testing.T) {
+	categories, err := itemCategoryRepo.List(context.Background())
+	require.NoError(t, err)
+
+	sawHouse := false
+	for _, c := range categories {
+		if strings.HasPrefix(c.Name, "repo-test-") {
+			continue
+		}
+		if c.Name == "House" {
+			sawHouse = true
+		}
+		assert.Equal(t, c.Name != "House", c.IsIngredient, "category %q", c.Name)
+	}
+	assert.True(t, sawHouse, "seeded House category missing")
 }
 
 func TestUpdateItemCategory_PartialName(t *testing.T) {

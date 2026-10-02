@@ -14,7 +14,7 @@ import (
 const createItemCategory = `-- name: CreateItemCategory :one
 INSERT INTO item_categories (name, icon)
 VALUES ($1, $2)
-RETURNING id, name, icon, created_at, updated_at
+RETURNING id, name, icon, created_at, updated_at, is_ingredient
 `
 
 type CreateItemCategoryParams struct {
@@ -31,6 +31,7 @@ func (q *Queries) CreateItemCategory(ctx context.Context, arg CreateItemCategory
 		&i.Icon,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsIngredient,
 	)
 	return i, err
 }
@@ -49,7 +50,7 @@ func (q *Queries) DeleteItemCategory(ctx context.Context, id pgtype.UUID) (pgtyp
 }
 
 const listItemCategories = `-- name: ListItemCategories :many
-SELECT id, name, icon, created_at, updated_at FROM item_categories
+SELECT id, name, icon, created_at, updated_at, is_ingredient FROM item_categories
 ORDER BY name
 `
 
@@ -68,6 +69,7 @@ func (q *Queries) ListItemCategories(ctx context.Context) ([]ItemCategory, error
 			&i.Icon,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.IsIngredient,
 		); err != nil {
 			return nil, err
 		}
@@ -85,7 +87,7 @@ SET name = COALESCE(NULLIF($1::text, ''), name),
     icon = COALESCE(NULLIF($2::text, ''), icon),
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $3
-RETURNING id, name, icon, created_at, updated_at
+RETURNING id, name, icon, created_at, updated_at, is_ingredient
 `
 
 type UpdateItemCategoryParams struct {
@@ -103,6 +105,7 @@ func (q *Queries) UpdateItemCategory(ctx context.Context, arg UpdateItemCategory
 		&i.Icon,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsIngredient,
 	)
 	return i, err
 }

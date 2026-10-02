@@ -32,11 +32,12 @@ type ItemAllowedUnit struct {
 }
 
 type ItemCategory struct {
-	ID        pgtype.UUID
-	Name      string
-	Icon      string
-	CreatedAt pgtype.Timestamptz
-	UpdatedAt pgtype.Timestamptz
+	ID           pgtype.UUID
+	Name         string
+	Icon         string
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+	IsIngredient bool
 }
 
 // Frozen per-recipe aggregates migrated from the old app; never written by the API. times_added_to_menu is an upper bound: the old app counted serves-only changes as adds.

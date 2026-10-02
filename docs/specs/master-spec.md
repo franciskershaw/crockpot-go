@@ -483,6 +483,9 @@ session.*
   `handler.Transactor`. **Done.** See `docs/handoffs/CROC-012.md`.
 - **CROC-013** — Recipe categories CRUD (admin-only writes, public reads).
   **Done.** See `docs/handoffs/CROC-013.md`.
+- **CROC-061** — Mark item categories that aren't recipe ingredients
+  (House: toilet paper, bin bags, dishwasher tablets…). **Done.** See
+  `docs/handoffs/CROC-061.md`.
 
 ### Epic 4: Recipes
 - **CROC-014** — Recipe creation (`POST /recipes`, any authenticated

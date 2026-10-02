@@ -156,6 +156,32 @@ func (q *Queries) ListItems(ctx context.Context) ([]Item, error) {
 	return items, nil
 }
 
+const listNonIngredientItemIDs = `-- name: ListNonIngredientItemIDs :many
+SELECT i.id FROM items i
+JOIN item_categories ic ON ic.id = i.category_id
+WHERE i.id = ANY($1::uuid[]) AND NOT ic.is_ingredient
+`
+
+func (q *Queries) ListNonIngredientItemIDs(ctx context.Context, itemIds []pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listNonIngredientItemIDs, itemIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateItem = `-- name: UpdateItem :one
 UPDATE items
 SET name = COALESCE(NULLIF($1::text, ''), name),

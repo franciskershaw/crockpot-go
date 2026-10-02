@@ -38,7 +38,9 @@ Content-Type: application/json
 #  GET /item-categories (public)
 # ══════════════════════════════════════════
 
-### ✅ 200 — no token needed, returns the seeded categories ordered by name
+### ✅ 200 — no token needed, returns the seeded categories ordered by name.
+### Each carries isIngredient (CROC-061): false for House only, true for the
+### rest. Set by migration 000013; POST/PATCH don't accept it.
 GET http://localhost:{{$dotenv PORT}}/item-categories
 
 ###
