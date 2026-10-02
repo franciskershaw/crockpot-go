@@ -33,6 +33,9 @@ type createIngredientRequest struct {
 
 const maxPhotoBytes = 5 << 20
 
+// multipartMemoryBytes keeps a whole capped recipe write in memory rather than spilling the photo to a temp file.
+const multipartMemoryBytes = 8 << 20
+
 var allowedPhotoTypes = map[string]bool{"image/jpeg": true, "image/png": true, "image/webp": true}
 
 // recipeWrite is a parsed recipe create/update: photo is nil when none was sent.
@@ -46,6 +49,15 @@ type recipeWrite struct {
 func parseRecipeWrite(c *gin.Context, isUpdate bool) (recipeWrite, bool) {
 	if c.ContentType() != "multipart/form-data" {
 		badRequest(c, "invalid_request")
+		return recipeWrite{}, false
+	}
+	if err := c.Request.ParseMultipartForm(multipartMemoryBytes); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request_too_large"})
+		} else {
+			badRequest(c, "invalid_request")
+		}
 		return recipeWrite{}, false
 	}
 	raw, ok := c.GetPostForm("recipe")

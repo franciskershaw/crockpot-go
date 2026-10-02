@@ -98,7 +98,7 @@ func (h *RecipeHandler) Create(c *gin.Context) {
 	})
 	if txErr != nil {
 		if uploaded != nil {
-			h.destroyImage(c, uploaded.PublicID)
+			h.destroyUnusedUpload(c, uploaded.PublicID)
 		}
 		writeRecipeWriteError(c, txErr)
 		return
@@ -155,7 +155,7 @@ func (h *RecipeHandler) Update(c *gin.Context) {
 	})
 	if txErr != nil {
 		if uploaded != nil {
-			h.destroyImage(c, uploaded.PublicID)
+			h.destroyUnusedUpload(c, uploaded.PublicID)
 		}
 		writeRecipeWriteError(c, txErr)
 		return

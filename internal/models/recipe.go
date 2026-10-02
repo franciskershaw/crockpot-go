@@ -96,7 +96,6 @@ type RecipeListFilter struct {
 	Limit              int
 }
 
-// CreateRecipeInput is the validated payload the handler hands the repository, kept in models so neither package imports the other.
 // ImageUpdate is what a recipe update does to the stored image; the zero value keeps it.
 type ImageUpdate int
 
@@ -106,6 +105,7 @@ const (
 	ImageRemove
 )
 
+// CreateRecipeInput is the validated payload the handler hands the repository, kept in models so neither package imports the other.
 type CreateRecipeInput struct {
 	Name          string
 	Description   *string

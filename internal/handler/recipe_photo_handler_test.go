@@ -5,12 +5,15 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"testing"
 
 	"github.com/franciskershaw/crockpot-go/internal/cloudinary"
+	"github.com/franciskershaw/crockpot-go/internal/middleware"
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/testutil"
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -78,6 +81,7 @@ func TestRecipeCreate_Photo_SaveFails_DestroysNewUpload(t *testing.T) {
 	m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
 	expectUploadSucceeds(m, "dev/recipes/id-1")
 	m.repo.EXPECT().Create(mock.Anything, mock.Anything).Return(nil, models.ErrRecipeInvalidItem)
+	m.repo.EXPECT().ImageInUse(mock.Anything, "dev/recipes/id-1").Return(false, nil).Once()
 	m.images.EXPECT().Destroy(mock.Anything, "dev/recipes/id-1").Return(nil).Once()
 
 	w := doRecipeWrite(t, m.router, http.MethodPost, "/recipes", validRecipeBody(), jpegBytes, recipeAuth(t, "FREE"))
@@ -192,6 +196,7 @@ func TestRecipeUpdate_Photo_SaveFails_DestroysNewUpload(t *testing.T) {
 	expectUploadSucceeds(m, "dev/recipes/id-1")
 	m.repo.EXPECT().Update(mock.Anything, id, mock.Anything, recipeUserID.String(), false).
 		Return(nil, nil, models.ErrRecipeForbidden)
+	m.repo.EXPECT().ImageInUse(mock.Anything, "dev/recipes/id-1").Return(false, nil).Once()
 	m.images.EXPECT().Destroy(mock.Anything, "dev/recipes/id-1").Return(nil).Once()
 
 	w := doRecipeWrite(t, m.router, http.MethodPatch, "/recipes/"+id, validRecipeBody(), jpegBytes, recipeAuth(t, "FREE"))
@@ -292,4 +297,59 @@ func TestRecipeWrite_PhotoLimitIgnoresSavesWithoutPhoto(t *testing.T) {
 	}
 	w := doRecipeWrite(t, m.router, http.MethodPost, "/recipes", validRecipeBody(), jpegBytes, recipeAuth(t, "FREE"))
 	assert.Equal(t, http.StatusCreated, w.Code, "saves without a photo don't use up the photo limit")
+}
+
+// A commit can report an error after it actually succeeded; the new upload is then only destroyed when no recipe points at it.
+func TestRecipeWrite_SaveFails_KeepsUploadThatARecipeUses(t *testing.T) {
+	cases := []struct {
+		name     string
+		inUse    bool
+		inUseErr error
+		isUpdate bool
+	}{
+		{"create: a recipe uses it", true, nil, false},
+		{"create: can't tell, keep it", false, errors.New("db down"), false},
+		{"update: a recipe uses it", true, nil, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newRecipeMocks(t)
+			commitErr := errors.New("conn closed during commit")
+			path := "/recipes"
+			method := http.MethodPost
+			if tc.isUpdate {
+				id := uuid.NewString()
+				path, method = "/recipes/"+id, http.MethodPatch
+				m.repo.EXPECT().CheckWritable(mock.Anything, id, recipeUserID.String(), false).Return(nil).Once()
+				m.repo.EXPECT().Update(mock.Anything, id, mock.Anything, recipeUserID.String(), false).Return(nil, nil, commitErr)
+			} else {
+				m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
+				m.repo.EXPECT().Create(mock.Anything, mock.Anything).Return(nil, commitErr)
+			}
+			expectUploadSucceeds(m, "dev/recipes/id-1")
+			m.repo.EXPECT().ImageInUse(mock.Anything, "dev/recipes/id-1").Return(tc.inUse, tc.inUseErr).Once()
+
+			w := doRecipeWrite(t, m.router, method, path, validRecipeBody(), jpegBytes, recipeAuth(t, "FREE"))
+
+			assert.Equal(t, http.StatusInternalServerError, w.Code)
+		})
+	}
+}
+
+func TestRecipeWrite_OversizeChunkedBody_413(t *testing.T) {
+	m := newRecipeMocks(t)
+	r := gin.New()
+	r.Use(middleware.BodySizeLimit(1024, nil), middleware.AuthMiddleware(testutil.TestAccessSecret))
+	r.POST("/recipes", m.handler.Create)
+
+	buf, contentType := recipeMultipart(t, validRecipeBody(), append(append([]byte{}, jpegBytes...), make([]byte, 4096)...))
+	req := httptest.NewRequest(http.MethodPost, "/recipes", buf)
+	req.ContentLength = -1
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Authorization", recipeAuth(t, "FREE"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+	assert.Equal(t, "request_too_large", recipeErr(t, w))
 }

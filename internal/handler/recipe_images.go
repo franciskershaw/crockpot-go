@@ -72,6 +72,18 @@ func (h *RecipeHandler) destroyImage(c *gin.Context, publicID string) {
 	}
 }
 
+// destroyUnusedUpload undoes a failed save's upload, unless a recipe points at it: a commit can report an error after it succeeded.
+func (h *RecipeHandler) destroyUnusedUpload(c *gin.Context, publicID string) {
+	inUse, err := h.repo.ImageInUse(context.WithoutCancel(c.Request.Context()), publicID)
+	if err != nil {
+		_ = c.Error(fmt.Errorf("failed to check image %s before destroying it: %w", publicID, err))
+		return
+	}
+	if !inUse {
+		h.destroyImage(c, publicID)
+	}
+}
+
 func (h *RecipeHandler) destroyOrphan(c *gin.Context, publicID *string) {
 	if publicID != nil && h.images.Scope.CanDestroy(*publicID) {
 		h.destroyImage(c, *publicID)

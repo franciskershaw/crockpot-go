@@ -66,6 +66,7 @@ type recipeMocks struct {
 	transactor    *genmocks.MockTransactor
 	images        *genmocks.MockImageStore
 	committed     bool // set once a WithinTx callback returns nil
+	handler       *handler.RecipeHandler
 	router        *gin.Engine
 }
 
@@ -99,6 +100,7 @@ func newRecipeMocksWithPhotoLimit(t *testing.T, photoLimit int64) *recipeMocks {
 			return fmt.Sprintf("id-%d", ids)
 		},
 	})
+	m.handler = h
 	m.router = gin.New()
 	authed := m.router.Group("/")
 	authed.Use(middleware.AuthMiddleware(testutil.TestAccessSecret))

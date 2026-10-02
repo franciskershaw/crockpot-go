@@ -21,6 +21,8 @@ func CORS(allowedOrigin string) gin.HandlerFunc {
 
 		c.Header("Access-Control-Allow-Origin", origin)
 		c.Header("Access-Control-Allow-Credentials", "true")
+		// Retry-After isn't CORS-safelisted; without this the browser hides it from a 429.
+		c.Header("Access-Control-Expose-Headers", "Retry-After")
 
 		if c.Request.Method == http.MethodOptions {
 			c.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")

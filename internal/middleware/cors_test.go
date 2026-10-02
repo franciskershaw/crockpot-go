@@ -92,3 +92,17 @@ func TestCORS_HandlesPreflightWithoutCallingHandler(t *testing.T) {
 		t.Errorf("expected Vary=Origin on preflight response, got %q", got)
 	}
 }
+
+func TestCORS_ExposesRetryAfterToTheAllowedOrigin(t *testing.T) {
+	var called bool
+	r := newCORSRouter("http://localhost:5173", &called)
+
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if got := w.Header().Get("Access-Control-Expose-Headers"); got != "Retry-After" {
+		t.Errorf("expected Access-Control-Expose-Headers=Retry-After, got %q", got)
+	}
+}

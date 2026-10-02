@@ -78,8 +78,10 @@ bytes" decision, changes the recipe write contract `crockpot-react`
 4. **File checks:** type sniffed from content (`http.DetectContentType`),
    jpeg/png/webp only → else 400 `invalid_image`; >5 MB → 400
    `image_too_large`. Recipe create/update get a 6 MiB body cap; every
-   other route keeps 1 MiB (the global middleware moves off those two
-   routes). Over the cap → existing 413 `request_too_large`.
+   other route keeps 1 MiB (one global middleware with per-route
+   overrides keyed on method + route pattern, so a new route stays
+   capped by default). Over the cap → existing 413 `request_too_large`,
+   chunked bodies included.
 5. **Upload params (server-side):** public_id `<folder>/<uuid>`,
    `overwrite=false`, `allowed_formats=jpg,jpeg,png,webp`, incoming
    transformation `c_limit,w_1600,h_1600`. Folder vs `asset_folder`
