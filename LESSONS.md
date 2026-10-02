@@ -616,3 +616,7 @@ implementation quality until CROC-001 lands.
 
 - No rework. The ticket named both the cause and the fix, and both checked out against source. Branch-review only turned up two wording nits.
 - **Pattern**: when the red state is a random shuffle, use enough rows that it can't match the expected order by chance (5 rows, 1 in 120).
+
+## 2026-10-02 — CROC-061 — Non-ingredient item categories; clean
+
+- No rework. Branch-review caught one fragile test: it asserted over every row in the shared DB, so a leftover fixture would fail it forever. Fixed by skipping `repo-test-` rows, as the neighbouring prefix-scoped test already does.

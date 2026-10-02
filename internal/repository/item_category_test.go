@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/franciskershaw/crockpot-go/db"
@@ -94,6 +95,9 @@ func TestListItemCategories_OnlyHouseIsNotIngredient(t *testing.T) {
 
 	sawHouse := false
 	for _, c := range categories {
+		if strings.HasPrefix(c.Name, "repo-test-") {
+			continue
+		}
 		if c.Name == "House" {
 			sawHouse = true
 		}
