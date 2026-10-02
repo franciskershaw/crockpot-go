@@ -28,12 +28,13 @@ type RecipeRepository interface {
 }
 
 type RecipeHandler struct {
-	repo       RecipeRepository
-	transactor Transactor
+	repo          RecipeRepository
+	shoppingLists ShoppingListRegenerator
+	transactor    Transactor
 }
 
-func NewRecipeHandler(repo RecipeRepository, transactor Transactor) *RecipeHandler {
-	return &RecipeHandler{repo: repo, transactor: transactor}
+func NewRecipeHandler(repo RecipeRepository, shoppingLists ShoppingListRegenerator, transactor Transactor) *RecipeHandler {
+	return &RecipeHandler{repo: repo, shoppingLists: shoppingLists, transactor: transactor}
 }
 
 func (h *RecipeHandler) Create(c *gin.Context) {
@@ -116,8 +117,16 @@ func (h *RecipeHandler) Delete(c *gin.Context) {
 	isAdmin := c.GetString("role") == "ADMIN"
 
 	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
-		_, err := h.repo.Delete(ctx, id, userID, isAdmin)
-		return err
+		affected, err := h.repo.Delete(ctx, id, userID, isAdmin)
+		if err != nil {
+			return err
+		}
+		for _, uid := range affected {
+			if err := h.shoppingLists.Regenerate(ctx, uid); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if txErr != nil {
 		writeRecipeWriteError(c, txErr)

@@ -84,7 +84,7 @@ func main() {
 	unitHandler := handler.NewUnitHandler(unitRepo)
 	itemHandler := handler.NewItemHandler(itemRepo, transactor)
 	recipeCategoryHandler := handler.NewRecipeCategoryHandler(recipeCategoryRepo)
-	recipeHandler := handler.NewRecipeHandler(recipeRepo, transactor)
+	recipeHandler := handler.NewRecipeHandler(recipeRepo, shoppingListRepo, transactor)
 	menuHandler := handler.NewMenuHandler(menuRepo, shoppingListRepo, transactor)
 	shoppingListHandler := handler.NewShoppingListHandler(shoppingListRepo, transactor)
 
