@@ -223,6 +223,16 @@ Each piece: failing tests first, stop at red, then green, then stop.
    each asset appears/disappears in `dev/recipes/` in the console;
    21st-photo 429; time one real save with a photo. (API boundary +
    limits)
+   **Done 2026-10-02** (curl against a local build on :8090 + real
+   Cloudinary, checked via the Admin API): create with photo 201 in
+   1.39 s, stored `dev/recipes/<uuid>` at 1600×1067 / 21 KB from a
+   2400×1600 fixture; keep / replace (old asset 404) / remove (asset 404)
+   / delete (asset 404); text-as-photo 400 `invalid_image`; >5 MiB 400
+   `image_too_large`; >6 MiB 413; JSON body 400 `invalid_request`;
+   1.1 MiB to `/items` 413; 20 photo saves then 429 (`Retry-After`
+   3564 s), photo-less save still 200; no leftovers in `dev/recipes/`.
+   `requests/recipes.http` is multipart throughout; `image_too_large`,
+   413 and 429 are curl-only (they need generated files or 20 uploads).
 
 Commands: `go test ./internal/handler/...`, `./scripts/test-repo.sh`,
 `golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`,

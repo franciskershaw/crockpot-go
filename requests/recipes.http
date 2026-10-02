@@ -19,6 +19,11 @@
 # are covered at the handler layer with mocked claims
 # (internal/handler/recipe_handler_test.go).
 #
+# Since CROC-040, POST /recipes and PATCH /recipes/:id take
+# multipart/form-data: a `recipe` JSON part plus an optional `photo` file
+# (fixtures in requests/fixtures/). A JSON body is rejected. Photo
+# behaviour has its own section near the end.
+#
 # Focus: the wiring — a create that persists recipe + ingredients +
 # categories, and the 400 validation / invalid-reference translations.
 #
@@ -160,10 +165,14 @@ Content-Type: application/json
 # ══════════════════════════════════════════
 
 ### ✅ 201 — full recipe (ADMIN account → approved: true), one ingredient
-### with a unit + one without, two categories, an image.
+### with a unit + one without, two categories (photos: see the Photos section).
 # @name create
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -176,12 +185,9 @@ Content-Type: application/json
   "ingredients": [
     { "itemId": "{{itemId}}", "unitId": "{{unitId1}}", "quantity": 800 },
     { "itemId": "{{itemIdConstrained}}", "unitId": "{{unitId1}}", "quantity": 2 }
-  ],
-  "image": {
-    "url": "https://res.cloudinary.com/demo/image/upload/v1/beef-stew.jpg",
-    "filename": "beef-stew"
-  }
+  ]
 }
+--CrockpotBoundary--
 
 ###
 
@@ -191,6 +197,10 @@ Content-Type: application/json
 # @name createMinimal
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -203,6 +213,7 @@ Content-Type: application/json
     { "itemId": "{{itemId}}", "quantity": 3 }
   ]
 }
+--CrockpotBoundary--
 
 ###
 
@@ -215,6 +226,10 @@ Content-Type: application/json
 
 ### 🚫 401 — no token
 POST http://localhost:{{$dotenv PORT}}/recipes
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -225,12 +240,17 @@ Content-Type: application/json
   "categoryIds": ["{{recipeCategoryId1}}"],
   "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 400 name_too_short
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -241,12 +261,17 @@ Content-Type: application/json
   "categoryIds": ["{{recipeCategoryId1}}"],
   "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 400 invalid_time
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -257,12 +282,17 @@ Content-Type: application/json
   "categoryIds": ["{{recipeCategoryId1}}"],
   "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 400 invalid_serves
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -273,12 +303,17 @@ Content-Type: application/json
   "categoryIds": ["{{recipeCategoryId1}}"],
   "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 400 instructions_required
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -289,12 +324,17 @@ Content-Type: application/json
   "categoryIds": ["{{recipeCategoryId1}}"],
   "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 400 categories_required
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -305,12 +345,17 @@ Content-Type: application/json
   "categoryIds": [],
   "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 400 duplicate_category
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -321,12 +366,17 @@ Content-Type: application/json
   "categoryIds": ["{{recipeCategoryId1}}", "{{recipeCategoryId1}}"],
   "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 400 ingredients_required
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -337,12 +387,17 @@ Content-Type: application/json
   "categoryIds": ["{{recipeCategoryId1}}"],
   "ingredients": []
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 400 invalid_quantity
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -353,12 +408,17 @@ Content-Type: application/json
   "categoryIds": ["{{recipeCategoryId1}}"],
   "ingredients": [{ "itemId": "{{itemId}}", "quantity": 0 }]
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 400 duplicate_ingredient
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -372,26 +432,9 @@ Content-Type: application/json
     { "itemId": "{{itemId}}", "quantity": 2 }
   ]
 }
+--CrockpotBoundary--
 
 ###
-
-### 🚫 400 invalid_image — well-formed URL, not a res.cloudinary.com host
-POST http://localhost:{{$dotenv PORT}}/recipes
-Authorization: Bearer {{authToken}}
-Content-Type: application/json
-
-{
-  "name": "http-test bad image",
-  "timeInMinutes": 30,
-  "serves": 2,
-  "instructions": ["x"],
-  "categoryIds": ["{{recipeCategoryId1}}"],
-  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }],
-  "image": { "url": "https://example.com/pic.jpg", "filename": "pic" }
-}
-
-###
-
 
 # ══════════════════════════════════════════
 #  POST /recipes — invalid references (repo-side translations)
@@ -400,6 +443,10 @@ Content-Type: application/json
 ### 🚫 400 invalid_item_id — well-formed but nonexistent item
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -410,12 +457,17 @@ Content-Type: application/json
   "categoryIds": ["{{recipeCategoryId1}}"],
   "ingredients": [{ "itemId": "00000000-0000-0000-0000-000000000000", "quantity": 1 }]
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 400 invalid_unit_id — unconstrained item, nonexistent unit
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -428,12 +480,17 @@ Content-Type: application/json
     { "itemId": "{{itemId}}", "unitId": "00000000-0000-0000-0000-000000000000", "quantity": 1 }
   ]
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 400 unit_not_allowed_for_item — constrained item, real but disallowed unit
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -446,12 +503,17 @@ Content-Type: application/json
     { "itemId": "{{itemIdConstrained}}", "unitId": "{{unitId2}}", "quantity": 1 }
   ]
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 400 item_not_ingredient — a House item alongside a real ingredient
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -465,12 +527,17 @@ Content-Type: application/json
     { "itemId": "{{itemIdHousehold}}", "quantity": 1 }
   ]
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 400 invalid_category_id — well-formed but nonexistent category
 POST http://localhost:{{$dotenv PORT}}/recipes
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -481,6 +548,7 @@ Content-Type: application/json
   "categoryIds": ["00000000-0000-0000-0000-000000000000"],
   "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
 }
+--CrockpotBoundary--
 
 ###
 
@@ -726,6 +794,10 @@ Authorization: Bearer {{authToken}}
 ### an admin edit keeps approved: true.
 PATCH http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -740,6 +812,7 @@ Content-Type: application/json
     { "itemId": "{{itemIdConstrained}}", "unitId": "{{unitId1}}", "quantity": 500 }
   ]
 }
+--CrockpotBoundary--
 
 ###
 
@@ -759,6 +832,10 @@ Authorization: Bearer {{authToken}}
 
 ### 🚫 401 — no token.
 PATCH http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -769,12 +846,17 @@ Content-Type: application/json
   "categoryIds": ["{{recipeCategoryId1}}"],
   "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 400 invalid_request — malformed id.
 PATCH http://localhost:{{$dotenv PORT}}/recipes/not-a-uuid
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -785,12 +867,17 @@ Content-Type: application/json
   "categoryIds": ["{{recipeCategoryId1}}"],
   "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 400 item_not_ingredient — the update path rejects a House item too
 PATCH http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -801,6 +888,7 @@ Content-Type: application/json
   "categoryIds": ["{{recipeCategoryId1}}"],
   "ingredients": [{ "itemId": "{{itemIdHousehold}}", "quantity": 1 }]
 }
+--CrockpotBoundary--
 
 ###
 
@@ -808,6 +896,10 @@ Content-Type: application/json
 ### wholesale, not re-tested exhaustively here (see the POST section above).
 PATCH http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -818,12 +910,17 @@ Content-Type: application/json
   "categoryIds": ["{{recipeCategoryId1}}"],
   "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
 }
+--CrockpotBoundary--
 
 ###
 
 ### 🚫 404 not_found — well-formed but nonexistent id.
 PATCH http://localhost:{{$dotenv PORT}}/recipes/00000000-0000-0000-0000-000000000000
 Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
 Content-Type: application/json
 
 {
@@ -834,6 +931,7 @@ Content-Type: application/json
   "categoryIds": ["{{recipeCategoryId1}}"],
   "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
 }
+--CrockpotBoundary--
 
 ###
 
@@ -954,6 +1052,233 @@ Authorization: Bearer {{authToken}}
 
 ###
 
+# ══════════════════════════════════════════
+#  Photos — CROC-040
+# ══════════════════════════════════════════
+# The API uploads the `photo` part to Cloudinary under
+# CLOUDINARY_UPLOAD_FOLDER (dev/recipes locally). Check each ✅ step in the
+# Cloudinary Media Library. fixtures/recipe-photo.jpg is a synthetic
+# 2400×1600 gradient; it's stored at ≤1600 px. Not reachable from this file
+# (each needs a generated file or 20 repeated uploads): 400 image_too_large
+# (>5 MiB), 413 (>6 MiB) and the 20-per-hour photo limit (429) — see
+# docs/handoffs/CROC-040.md, piece 8.
+
+### ✅ 201 — create with a photo: imageFilename is dev/recipes/<uuid>.
+# @name createPhoto
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
+Content-Type: application/json
+
+{
+  "name": "http-test Photo Recipe",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+--CrockpotBoundary
+Content-Disposition: form-data; name="photo"; filename="recipe-photo.jpg"
+Content-Type: image/jpeg
+
+< ./fixtures/recipe-photo.jpg
+--CrockpotBoundary--
+
+###
+
+@photoRecipeId = {{createPhoto.response.body.id}}
+
+### ✅ 200 — edit without a photo keeps the image (same imageFilename).
+PATCH http://localhost:{{$dotenv PORT}}/recipes/{{photoRecipeId}}
+Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
+Content-Type: application/json
+
+{
+  "name": "http-test Photo Recipe",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+--CrockpotBoundary--
+
+###
+
+### ✅ 200 — edit with a new photo replaces it; the previous asset is
+### destroyed (gone from the Media Library).
+PATCH http://localhost:{{$dotenv PORT}}/recipes/{{photoRecipeId}}
+Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
+Content-Type: application/json
+
+{
+  "name": "http-test Photo Recipe",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+--CrockpotBoundary
+Content-Disposition: form-data; name="photo"; filename="recipe-photo.jpg"
+Content-Type: image/jpeg
+
+< ./fixtures/recipe-photo.jpg
+--CrockpotBoundary--
+
+###
+
+### ✅ 200 — removeImage clears it (imageUrl null); that asset is destroyed.
+PATCH http://localhost:{{$dotenv PORT}}/recipes/{{photoRecipeId}}
+Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
+Content-Type: application/json
+
+{
+  "name": "http-test Photo Recipe",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }],
+  "removeImage": true
+}
+--CrockpotBoundary--
+
+###
+
+### ✅ 200 — a photo again, so Cleanup's delete has one to destroy.
+PATCH http://localhost:{{$dotenv PORT}}/recipes/{{photoRecipeId}}
+Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
+Content-Type: application/json
+
+{
+  "name": "http-test Photo Recipe",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+--CrockpotBoundary
+Content-Disposition: form-data; name="photo"; filename="recipe-photo.jpg"
+Content-Type: image/jpeg
+
+< ./fixtures/recipe-photo.jpg
+--CrockpotBoundary--
+
+###
+
+### 🚫 400 invalid_image — photo and removeImage together.
+PATCH http://localhost:{{$dotenv PORT}}/recipes/{{photoRecipeId}}
+Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
+Content-Type: application/json
+
+{
+  "name": "http-test Photo Recipe",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }],
+  "removeImage": true
+}
+--CrockpotBoundary
+Content-Disposition: form-data; name="photo"; filename="recipe-photo.jpg"
+Content-Type: image/jpeg
+
+< ./fixtures/recipe-photo.jpg
+--CrockpotBoundary--
+
+###
+
+### 🚫 400 invalid_image — a text file sent as the photo (the type is
+### sniffed from the bytes, not the declared Content-Type).
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
+Content-Type: application/json
+
+{
+  "name": "http-test bad photo",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+--CrockpotBoundary
+Content-Disposition: form-data; name="photo"; filename="not-an-image.txt"
+Content-Type: image/jpeg
+
+< ./fixtures/not-an-image.txt
+--CrockpotBoundary--
+
+###
+
+### 🚫 400 invalid_image — removeImage on create.
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
+Content-Type: application/json
+
+{
+  "name": "http-test remove on create",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }],
+  "removeImage": true
+}
+--CrockpotBoundary--
+
+###
+
+### 🚫 400 invalid_request — a JSON body (the pre-CROC-040 contract).
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test json body",
+  "timeInMinutes": 30,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+
+###
 
 # ══════════════════════════════════════════
 #  Cleanup
@@ -962,6 +1287,13 @@ Authorization: Bearer {{authToken}}
 ### ✅ 204 — delete the seeded stew via the real endpoint (the minimal
 ### recipe was already deleted in the DELETE section above).
 DELETE http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 204 — delete the photo recipe; its photo is destroyed (gone from
+### the Media Library).
+DELETE http://localhost:{{$dotenv PORT}}/recipes/{{photoRecipeId}}
 Authorization: Bearer {{authToken}}
 
 ###
