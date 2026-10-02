@@ -28,9 +28,11 @@ VALUES (
 RETURNING *;
 
 -- name: GetRecipeForWrite :one
+-- FOR UPDATE makes a concurrent menu add (its FK check takes KEY SHARE) finish before Delete reads who holds the recipe.
 SELECT id, created_by_id, approved
 FROM recipes
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id)
+FOR UPDATE;
 
 -- name: UpdateRecipe :one
 UPDATE recipes SET

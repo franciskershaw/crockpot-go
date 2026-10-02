@@ -16,7 +16,7 @@ var recipeLimits = map[string]int{"FREE": 5}
 type RecipeRepository interface {
 	Create(ctx context.Context, input models.CreateRecipeInput) (*models.RecipeDetail, error)
 	Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (*models.RecipeDetail, error)
-	Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) error
+	Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) ([]string, error)
 	CountByCreator(ctx context.Context, userID string) (int, error)
 	List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error)
 	GetByID(ctx context.Context, id string, callerID *string, callerIsAdmin bool) (*models.RecipeDetail, error)
@@ -116,7 +116,8 @@ func (h *RecipeHandler) Delete(c *gin.Context) {
 	isAdmin := c.GetString("role") == "ADMIN"
 
 	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
-		return h.repo.Delete(ctx, id, userID, isAdmin)
+		_, err := h.repo.Delete(ctx, id, userID, isAdmin)
+		return err
 	})
 	if txErr != nil {
 		writeRecipeWriteError(c, txErr)

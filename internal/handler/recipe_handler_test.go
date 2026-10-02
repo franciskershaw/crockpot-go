@@ -1138,7 +1138,7 @@ func TestRecipeDelete_InvalidID_400(t *testing.T) {
 func TestRecipeDelete_NotFound_404(t *testing.T) {
 	m := newRecipeMocks(t)
 	m.repo.EXPECT().Delete(mock.Anything, recipeID.String(), recipeUserID.String(), false).
-		Return(models.ErrRecipeNotFound)
+		Return(nil, models.ErrRecipeNotFound)
 
 	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
 
@@ -1149,7 +1149,7 @@ func TestRecipeDelete_NotFound_404(t *testing.T) {
 func TestRecipeDelete_Forbidden_403(t *testing.T) {
 	m := newRecipeMocks(t)
 	m.repo.EXPECT().Delete(mock.Anything, recipeID.String(), recipeUserID.String(), false).
-		Return(models.ErrRecipeForbidden)
+		Return(nil, models.ErrRecipeForbidden)
 
 	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
 
@@ -1160,7 +1160,7 @@ func TestRecipeDelete_Forbidden_403(t *testing.T) {
 func TestRecipeDelete_Success_204(t *testing.T) {
 	m := newRecipeMocks(t)
 	m.repo.EXPECT().Delete(mock.Anything, recipeID.String(), recipeUserID.String(), false).
-		Return(nil)
+		Return(nil, nil)
 
 	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
 

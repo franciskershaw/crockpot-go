@@ -275,6 +275,7 @@ const getRecipeForWrite = `-- name: GetRecipeForWrite :one
 SELECT id, created_by_id, approved
 FROM recipes
 WHERE id = $1
+FOR UPDATE
 `
 
 type GetRecipeForWriteRow struct {
@@ -283,6 +284,7 @@ type GetRecipeForWriteRow struct {
 	Approved    bool
 }
 
+// FOR UPDATE makes a concurrent menu add (its FK check takes KEY SHARE) finish before Delete reads who holds the recipe.
 func (q *Queries) GetRecipeForWrite(ctx context.Context, id pgtype.UUID) (GetRecipeForWriteRow, error) {
 	row := q.db.QueryRow(ctx, getRecipeForWrite, id)
 	var i GetRecipeForWriteRow

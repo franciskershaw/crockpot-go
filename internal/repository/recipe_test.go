@@ -2,7 +2,9 @@ package repository_test
 
 import (
 	"context"
+	"sort"
 	"testing"
+	"time"
 
 	"github.com/franciskershaw/crockpot-go/db"
 	"github.com/franciskershaw/crockpot-go/internal/models"
@@ -696,7 +698,8 @@ func TestDeleteRecipe_OwnerSucceeds(t *testing.T) {
 	userID := insertTestUser(t, "Cook")
 	recipeID := insertTestRecipeRow(t, userID, false)
 
-	require.NoError(t, recipeRepo.Delete(ctx, recipeID.String(), userID.String(), false))
+	_, err := recipeRepo.Delete(ctx, recipeID.String(), userID.String(), false)
+	require.NoError(t, err)
 	assert.Equal(t, 0, rowCount(t, `SELECT count(*) FROM recipes WHERE id = $1`, recipeID))
 }
 
@@ -706,7 +709,8 @@ func TestDeleteRecipe_AdminSucceedsOnAnothers(t *testing.T) {
 	admin := insertTestUser(t, "Admin")
 	recipeID := insertTestRecipeRow(t, owner, true)
 
-	require.NoError(t, recipeRepo.Delete(ctx, recipeID.String(), admin.String(), true))
+	_, err := recipeRepo.Delete(ctx, recipeID.String(), admin.String(), true)
+	require.NoError(t, err)
 	assert.Equal(t, 0, rowCount(t, `SELECT count(*) FROM recipes WHERE id = $1`, recipeID))
 }
 
@@ -716,7 +720,7 @@ func TestDeleteRecipe_NonOwnerNonAdminOnApproved_Forbidden(t *testing.T) {
 	other := insertTestUser(t, "Other")
 	recipeID := insertTestRecipeRow(t, owner, true)
 
-	err := recipeRepo.Delete(ctx, recipeID.String(), other.String(), false)
+	_, err := recipeRepo.Delete(ctx, recipeID.String(), other.String(), false)
 	assert.ErrorIs(t, err, models.ErrRecipeForbidden)
 	assert.Equal(t, 1, rowCount(t, `SELECT count(*) FROM recipes WHERE id = $1`, recipeID))
 }
@@ -727,7 +731,7 @@ func TestDeleteRecipe_NonOwnerNonAdminOnUnapproved_NotFound(t *testing.T) {
 	other := insertTestUser(t, "Other")
 	recipeID := insertTestRecipeRow(t, owner, false)
 
-	err := recipeRepo.Delete(ctx, recipeID.String(), other.String(), false)
+	_, err := recipeRepo.Delete(ctx, recipeID.String(), other.String(), false)
 	assert.ErrorIs(t, err, models.ErrRecipeNotFound)
 	assert.Equal(t, 1, rowCount(t, `SELECT count(*) FROM recipes WHERE id = $1`, recipeID))
 }
@@ -736,7 +740,7 @@ func TestDeleteRecipe_NonexistentRecipe_NotFound(t *testing.T) {
 	ctx := context.Background()
 	userID := insertTestUser(t, "Cook")
 
-	err := recipeRepo.Delete(ctx, uuid.NewString(), userID.String(), false)
+	_, err := recipeRepo.Delete(ctx, uuid.NewString(), userID.String(), false)
 	assert.ErrorIs(t, err, models.ErrRecipeNotFound)
 }
 
@@ -748,7 +752,150 @@ func TestDeleteRecipe_CascadesFavouriteRows(t *testing.T) {
 	require.NoError(t, recipeRepo.AddFavourite(ctx, caller.String(), recipeID.String(), false))
 	require.Equal(t, 1, favouriteRowCount(t, caller, recipeID))
 
-	require.NoError(t, recipeRepo.Delete(ctx, recipeID.String(), owner.String(), false))
+	_, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), false)
+	require.NoError(t, err)
 
 	assert.Equal(t, 0, favouriteRowCount(t, caller, recipeID), "ON DELETE CASCADE should remove the favourite row")
+}
+
+func TestDeleteRecipe_ReturnsUsersWhoseMenusHeldIt(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Owner")
+	first := insertTestUser(t, "First")
+	second := insertTestUser(t, "Second")
+	bystander := insertTestUser(t, "Bystander")
+	recipeID := insertTestRecipeRow(t, owner, true)
+	otherRecipeID := insertTestRecipeRow(t, owner, true)
+	require.NoError(t, menuRepo.UpsertEntry(ctx, first.String(), recipeID.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, second.String(), recipeID.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, bystander.String(), otherRecipeID.String(), 2, false))
+
+	users, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), false)
+	require.NoError(t, err)
+
+	want := []string{first.String(), second.String()}
+	sort.Strings(want)
+	assert.Equal(t, want, users, "affected users, ordered by id so concurrent deletes lock shopping lists in one order")
+}
+
+func TestDeleteRecipe_OnNoMenus_ReturnsNoUsers(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Owner")
+	recipeID := insertTestRecipeRow(t, owner, true)
+
+	users, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), false)
+	require.NoError(t, err)
+	assert.Empty(t, users)
+}
+
+func releaseOnce(release chan struct{}) {
+	select {
+	case <-release:
+	default:
+		close(release)
+	}
+}
+
+// waitForLockWait blocks until some session in this database is waiting on a row lock.
+func waitForLockWait(t *testing.T) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		var n int
+		err := db.DB.QueryRow(context.Background(),
+			`SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()`,
+		).Scan(&n)
+		return err == nil && n > 0
+	}, 15*time.Second, 20*time.Millisecond, "no session ever blocked on a lock")
+}
+
+func TestDeleteRecipe_WaitsForInFlightMenuAddAndReturnsItsUser(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Owner")
+	adder := insertTestUser(t, "Adder")
+	recipeID := insertTestRecipeRow(t, owner, true)
+
+	added := make(chan struct{})
+	release := make(chan struct{})
+	t.Cleanup(func() { releaseOnce(release) })
+	addErr := make(chan error, 1)
+	go func() {
+		addErr <- transactor.WithinTx(ctx, func(ctx context.Context) error {
+			if err := menuRepo.UpsertEntry(ctx, adder.String(), recipeID.String(), 2, false); err != nil {
+				return err
+			}
+			close(added)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-added:
+	case err := <-addErr:
+		t.Fatalf("menu add failed before holding its transaction open: %v", err)
+	}
+
+	type deleteResult struct {
+		users []string
+		err   error
+	}
+	deleted := make(chan deleteResult, 1)
+	go func() {
+		var users []string
+		err := transactor.WithinTx(ctx, func(ctx context.Context) error {
+			var err error
+			users, err = recipeRepo.Delete(ctx, recipeID.String(), owner.String(), false)
+			return err
+		})
+		deleted <- deleteResult{users, err}
+	}()
+
+	waitForLockWait(t)
+	releaseOnce(release)
+
+	require.NoError(t, <-addErr)
+	res := <-deleted
+	require.NoError(t, res.err)
+	assert.Equal(t, []string{adder.String()}, res.users,
+		"a menu add committed while the delete waited must be in the affected users, or its shopping list goes stale")
+}
+
+func TestUpsertEntry_RecipeDeletedWhileWaiting_ReturnsNotFound(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Owner")
+	adder := insertTestUser(t, "Adder")
+	recipeID := insertTestRecipeRow(t, owner, true)
+
+	deletedUncommitted := make(chan struct{})
+	release := make(chan struct{})
+	t.Cleanup(func() { releaseOnce(release) })
+	deleteErr := make(chan error, 1)
+	go func() {
+		deleteErr <- transactor.WithinTx(ctx, func(ctx context.Context) error {
+			if _, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), false); err != nil {
+				return err
+			}
+			close(deletedUncommitted)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-deletedUncommitted:
+	case err := <-deleteErr:
+		t.Fatalf("delete failed before holding its transaction open: %v", err)
+	}
+
+	addErr := make(chan error, 1)
+	go func() {
+		addErr <- transactor.WithinTx(ctx, func(ctx context.Context) error {
+			return menuRepo.UpsertEntry(ctx, adder.String(), recipeID.String(), 2, false)
+		})
+	}()
+
+	waitForLockWait(t)
+	releaseOnce(release)
+
+	require.NoError(t, <-deleteErr)
+	assert.ErrorIs(t, <-addErr, models.ErrRecipeNotFound, "the recipe is gone by the time the add's FK check runs")
+	assert.Equal(t, 0, menuEntryRowCount(t, adder, recipeID))
 }

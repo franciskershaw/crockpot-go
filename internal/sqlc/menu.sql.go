@@ -112,6 +112,34 @@ func (q *Queries) ListMenuEntries(ctx context.Context, recipeMenuID pgtype.UUID)
 	return items, nil
 }
 
+const listMenuUserIDsForRecipe = `-- name: ListMenuUserIDsForRecipe :many
+SELECT rm.user_id
+FROM recipe_menu_entries rme
+JOIN recipe_menus rm ON rm.id = rme.recipe_menu_id
+WHERE rme.recipe_id = $1
+ORDER BY rm.user_id
+`
+
+func (q *Queries) ListMenuUserIDsForRecipe(ctx context.Context, recipeID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listMenuUserIDsForRecipe, recipeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var user_id pgtype.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const removeMenuEntry = `-- name: RemoveMenuEntry :exec
 WITH removed AS (
     DELETE FROM recipe_menu_entries
