@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +24,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/ulule/limiter/v3"
+	"github.com/ulule/limiter/v3/drivers/store/memory"
 )
 
 var (
@@ -61,19 +64,41 @@ type recipeMocks struct {
 	repo          *genmocks.MockRecipeRepository
 	shoppingLists *genmocks.MockShoppingListRegenerator
 	transactor    *genmocks.MockTransactor
+	images        *genmocks.MockImageStore
+	committed     bool // set once a WithinTx callback returns nil
 	router        *gin.Engine
 }
 
 func newRecipeMocks(t *testing.T) *recipeMocks {
+	return newRecipeMocksWithPhotoLimit(t, 20)
+}
+
+func newRecipeMocksWithPhotoLimit(t *testing.T, photoLimit int64) *recipeMocks {
 	m := &recipeMocks{
 		repo:          genmocks.NewMockRecipeRepository(t),
 		shoppingLists: genmocks.NewMockShoppingListRegenerator(t),
 		transactor:    genmocks.NewMockTransactor(t),
+		images:        genmocks.NewMockImageStore(t),
 	}
 	m.transactor.EXPECT().WithinTx(mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) }).
+		RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+			err := fn(ctx)
+			if err == nil {
+				m.committed = true
+			}
+			return err
+		}).
 		Maybe()
-	h := handler.NewRecipeHandler(m.repo, m.shoppingLists, m.transactor)
+	ids := 0
+	h := handler.NewRecipeHandler(m.repo, m.shoppingLists, m.transactor, handler.RecipeImages{
+		Store:        m.images,
+		Scope:        handler.ImageScope{UploadFolder: "dev/recipes"},
+		PhotoLimiter: limiter.New(memory.NewStore(), limiter.Rate{Period: time.Hour, Limit: photoLimit}),
+		NewID: func() string {
+			ids++
+			return fmt.Sprintf("id-%d", ids)
+		},
+	})
 	m.router = gin.New()
 	authed := m.router.Group("/")
 	authed.Use(middleware.AuthMiddleware(testutil.TestAccessSecret))
@@ -409,6 +434,7 @@ func TestRecipeCreate_AcceptsImagePhotos(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			m := newRecipeMocks(t)
 			expectCreateSucceeds(m)
+			expectUploadSucceeds(m, "dev/recipes/id-1")
 
 			w := doRecipeWrite(t, m.router, http.MethodPost, "/recipes", validRecipeBody(), photo, recipeAuth(t, "FREE"))
 

@@ -15,11 +15,13 @@ import (
 	"github.com/franciskershaw/crockpot-go/config"
 	"github.com/franciskershaw/crockpot-go/db"
 	"github.com/franciskershaw/crockpot-go/internal/auth"
+	"github.com/franciskershaw/crockpot-go/internal/cloudinary"
 	"github.com/franciskershaw/crockpot-go/internal/email"
 	"github.com/franciskershaw/crockpot-go/internal/handler"
 	"github.com/franciskershaw/crockpot-go/internal/middleware"
 	"github.com/franciskershaw/crockpot-go/internal/repository"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/ulule/limiter/v3"
 	"github.com/ulule/limiter/v3/drivers/store/memory"
 
@@ -37,6 +39,9 @@ const recipeWriteBodyBytes = 6 << 20
 var globalRateLimit = limiter.Rate{Period: time.Minute, Limit: 120}
 var authRateLimit = limiter.Rate{Period: time.Minute, Limit: 10}
 var authRefreshRateLimit = limiter.Rate{Period: time.Minute, Limit: 30}
+
+// photoRateLimit is per user, counting only recipe saves that upload a photo.
+var photoRateLimit = limiter.Rate{Period: time.Hour, Limit: 20}
 
 func main() {
 	// Match Gin's own default writer (os.Stdout) so log output interleaves in order.
@@ -87,7 +92,12 @@ func main() {
 	unitHandler := handler.NewUnitHandler(unitRepo)
 	itemHandler := handler.NewItemHandler(itemRepo, transactor)
 	recipeCategoryHandler := handler.NewRecipeCategoryHandler(recipeCategoryRepo)
-	recipeHandler := handler.NewRecipeHandler(recipeRepo, shoppingListRepo, transactor)
+	recipeHandler := handler.NewRecipeHandler(recipeRepo, shoppingListRepo, transactor, handler.RecipeImages{
+		Store:        cloudinary.NewClient(cfg.CloudinaryCloudName, cfg.CloudinaryAPIKey, cfg.CloudinaryAPISecret),
+		Scope:        handler.ImageScope{UploadFolder: cfg.CloudinaryUploadFolder, Production: cfg.Environment == config.EnvProduction},
+		PhotoLimiter: limiter.New(memory.NewStore(), photoRateLimit),
+		NewID:        uuid.NewString,
+	})
 	menuHandler := handler.NewMenuHandler(menuRepo, shoppingListRepo, transactor)
 	shoppingListHandler := handler.NewShoppingListHandler(shoppingListRepo, transactor)
 
