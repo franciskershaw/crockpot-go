@@ -637,3 +637,9 @@ implementation quality until CROC-001 lands.
 - **Pattern**: when a grill answer changes the architecture, re-check every earlier decision against it and drop those with no caller.
 - **Pattern**: a response header the frontend reads is part of the contract — check CORS exposes it.
 - **Pattern**: check the port is free (`lsof -iTCP:<port> -sTCP:LISTEN`) before starting a local server; another session may be running an older build.
+
+## 2026-10-02 — Third whole-codebase tech-debt pass
+
+- Covered `internal/`, `db/migrations/`, `config/`, `main.go`, `lifecycle.go` (`cmd/migrate-data` excluded). Auth/token code was unchanged since the last pass, so it got a spot-check only. 7 findings across 4 tickets (`CROC-063`–`066`), full detail in `docs/findings/2026-10-02-tech-debt.md`. The recipe-cap TOCTOU was reconciled as already accepted at CROC-014, not re-filed.
+- The real find: shopping-list unit merging looks base units up by admin-editable *name*, so a rename silently corrupts every list ×1000. Otherwise: unbounded quantities overflow `NUMERIC(10,2)` into 500s, and the visibility predicate is hand-copied in 4 queries.
+- **Pattern**: a SQL lookup that keys on a mutable display field (name) instead of the structural columns a migration set is a latent bug. Grep queries for `name = '` literals.
