@@ -521,6 +521,9 @@ func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, caller
 
 // orphanedImage returns publicID when no recipe other than recipeID still uses it.
 func orphanedImage(ctx context.Context, q *sqlc.Queries, publicID pgtype.Text, recipeID pgtype.UUID) (*string, error) {
+	if err := q.LockImage(ctx, publicID.String); err != nil {
+		return nil, fmt.Errorf("failed to lock image: %w", err)
+	}
 	n, err := q.CountRecipesUsingImage(ctx, sqlc.CountRecipesUsingImageParams{ImageFilename: publicID, ExcludeID: recipeID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to count recipes using image: %w", err)
@@ -529,6 +532,15 @@ func orphanedImage(ctx context.Context, q *sqlc.Queries, publicID pgtype.Text, r
 		return nil, nil
 	}
 	return textPtr(publicID), nil
+}
+
+// ImageInUse reports whether any recipe still points at publicID.
+func (r *PostgresRecipeRepository) ImageInUse(ctx context.Context, publicID string) (bool, error) {
+	n, err := queriesFor(ctx, r.db).CountRecipesWithImage(ctx, pgtype.Text{String: publicID, Valid: true})
+	if err != nil {
+		return false, fmt.Errorf("failed to count recipes with image: %w", err)
+	}
+	return n > 0, nil
 }
 
 // CheckWritable applies the write rule outside a transaction, so a refused photo save never uploads; Update and Delete re-check under the row lock.

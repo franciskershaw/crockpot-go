@@ -107,6 +107,17 @@ func (q *Queries) CountRecipesUsingImage(ctx context.Context, arg CountRecipesUs
 	return count, err
 }
 
+const countRecipesWithImage = `-- name: CountRecipesWithImage :one
+SELECT count(*) FROM recipes WHERE image_filename = $1
+`
+
+func (q *Queries) CountRecipesWithImage(ctx context.Context, imageFilename pgtype.Text) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecipesWithImage, imageFilename)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createRecipe = `-- name: CreateRecipe :one
 INSERT INTO recipes (
     name,
@@ -656,6 +667,16 @@ func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]Lis
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockImage = `-- name: LockImage :exec
+SELECT pg_advisory_xact_lock(hashtext($1::text))
+`
+
+// Serialises concurrent drops of one shared image so the last one sees the others gone and reports it orphaned.
+func (q *Queries) LockImage(ctx context.Context, imageFilename string) error {
+	_, err := q.db.Exec(ctx, lockImage, imageFilename)
+	return err
 }
 
 const updateRecipe = `-- name: UpdateRecipe :one

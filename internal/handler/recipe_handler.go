@@ -21,6 +21,7 @@ type RecipeRepository interface {
 	Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (detail *models.RecipeDetail, orphanedImage *string, err error)
 	Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) (menuUserIDs []string, orphanedImage *string, err error)
 	CheckWritable(ctx context.Context, id string, callerID string, callerIsAdmin bool) error
+	ImageInUse(ctx context.Context, publicID string) (bool, error)
 	MenuUserIDs(ctx context.Context, id string) ([]string, error)
 	CountByCreator(ctx context.Context, userID string) (int, error)
 	List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error)

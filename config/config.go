@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -12,6 +13,9 @@ const (
 	EnvDevelopment Environment = "development"
 	EnvProduction  Environment = "production"
 )
+
+// LegacyImageFolders hold the migrated recipes' photos (production's upload folder is one of them); only production may destroy in them.
+var LegacyImageFolders = []string{"Crockpot", "recipes"}
 
 type Config struct {
 	Port                string
@@ -97,6 +101,18 @@ func validate(cfg *Config) error {
 
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
+	}
+
+	return validateUploadFolder(cfg.CloudinaryUploadFolder, cfg.Environment)
+}
+
+// validateUploadFolder keeps a non-production environment from uploading into, and so destroying in, production's folders.
+func validateUploadFolder(folder string, env Environment) error {
+	if strings.HasPrefix(folder, "/") || strings.HasSuffix(folder, "/") || strings.Contains(folder, "//") {
+		return fmt.Errorf("CLOUDINARY_UPLOAD_FOLDER %q must not start or end with / or contain //", folder)
+	}
+	if env != EnvProduction && slices.Contains(LegacyImageFolders, folder) {
+		return fmt.Errorf("CLOUDINARY_UPLOAD_FOLDER %q is a production folder; use e.g. dev/recipes outside production", folder)
 	}
 
 	return nil

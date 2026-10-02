@@ -818,6 +818,78 @@ func TestUpdateRecipe_InvalidItemID(t *testing.T) {
 	assert.ErrorIs(t, err, models.ErrRecipeInvalidItem)
 }
 
+func TestImageInUse(t *testing.T) {
+	f := newImageFixture(t)
+	used := testImageID()
+	f.createWithImage(t, used)
+
+	inUse, err := recipeRepo.ImageInUse(context.Background(), used)
+	require.NoError(t, err)
+	assert.True(t, inUse)
+
+	inUse, err = recipeRepo.ImageInUse(context.Background(), testImageID())
+	require.NoError(t, err)
+	assert.False(t, inUse)
+}
+
+func TestDeleteRecipe_SharedImageDroppedConcurrently_LastOneReportsOrphan(t *testing.T) {
+	ctx := context.Background()
+	f := newImageFixture(t)
+	shared := testImageID()
+	first := f.createWithImage(t, shared)
+	second := f.createWithImage(t, shared)
+
+	held := make(chan struct{})
+	release := make(chan struct{})
+	t.Cleanup(func() { releaseOnce(release) })
+	type result struct {
+		orphan *string
+		err    error
+	}
+	firstDone := make(chan result, 1)
+	go func() {
+		var orphan *string
+		err := transactor.WithinTx(ctx, func(ctx context.Context) error {
+			var err error
+			_, orphan, err = recipeRepo.Delete(ctx, first.ID.String(), f.userID.String(), false)
+			if err != nil {
+				return err
+			}
+			close(held)
+			<-release
+			return nil
+		})
+		firstDone <- result{orphan, err}
+	}()
+	select {
+	case <-held:
+	case r := <-firstDone:
+		t.Fatalf("first delete finished before holding its transaction open: %v", r.err)
+	}
+
+	secondDone := make(chan result, 1)
+	go func() {
+		var orphan *string
+		err := transactor.WithinTx(ctx, func(ctx context.Context) error {
+			var err error
+			_, orphan, err = recipeRepo.Delete(ctx, second.ID.String(), f.userID.String(), false)
+			return err
+		})
+		secondDone <- result{orphan, err}
+	}()
+
+	waitForLockWait(t)
+	releaseOnce(release)
+
+	r1 := <-firstDone
+	require.NoError(t, r1.err)
+	assert.Nil(t, r1.orphan, "the second recipe still used the image when the first was deleted")
+	r2 := <-secondDone
+	require.NoError(t, r2.err)
+	require.NotNil(t, r2.orphan, "the last recipe to drop a shared image must report it, or it leaks")
+	assert.Equal(t, shared, *r2.orphan)
+}
+
 func TestCheckWritable(t *testing.T) {
 	ctx := context.Background()
 	owner := insertTestUser(t, "Owner")

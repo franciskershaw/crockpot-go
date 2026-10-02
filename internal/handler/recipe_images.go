@@ -8,13 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/franciskershaw/crockpot-go/config"
 	"github.com/franciskershaw/crockpot-go/internal/cloudinary"
 	"github.com/franciskershaw/crockpot-go/internal/middleware"
 	"github.com/gin-gonic/gin"
 )
-
-// legacyImageFolders hold the migrated recipes' photos; only production may destroy them.
-var legacyImageFolders = []string{"Crockpot", "recipes"}
 
 // ImageScope is which Cloudinary folders this environment may destroy assets in: dev and prod share one account and the same migrated rows.
 type ImageScope struct {
@@ -29,7 +27,7 @@ func (s ImageScope) CanDestroy(publicID string) bool {
 	if !s.Production {
 		return false
 	}
-	for _, folder := range legacyImageFolders {
+	for _, folder := range config.LegacyImageFolders {
 		if inImageFolder(publicID, folder) {
 			return true
 		}

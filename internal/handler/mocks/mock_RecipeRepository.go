@@ -426,6 +426,63 @@ func (_c *MockRecipeRepository_GetTimeRange_Call) RunAndReturn(run func(context.
 	return _c
 }
 
+// ImageInUse provides a mock function with given fields: ctx, publicID
+func (_m *MockRecipeRepository) ImageInUse(ctx context.Context, publicID string) (bool, error) {
+	ret := _m.Called(ctx, publicID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ImageInUse")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (bool, error)); ok {
+		return rf(ctx, publicID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) bool); ok {
+		r0 = rf(ctx, publicID)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, publicID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockRecipeRepository_ImageInUse_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ImageInUse'
+type MockRecipeRepository_ImageInUse_Call struct {
+	*mock.Call
+}
+
+// ImageInUse is a helper method to define mock.On call
+//   - ctx context.Context
+//   - publicID string
+func (_e *MockRecipeRepository_Expecter) ImageInUse(ctx interface{}, publicID interface{}) *MockRecipeRepository_ImageInUse_Call {
+	return &MockRecipeRepository_ImageInUse_Call{Call: _e.mock.On("ImageInUse", ctx, publicID)}
+}
+
+func (_c *MockRecipeRepository_ImageInUse_Call) Run(run func(ctx context.Context, publicID string)) *MockRecipeRepository_ImageInUse_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockRecipeRepository_ImageInUse_Call) Return(_a0 bool, _a1 error) *MockRecipeRepository_ImageInUse_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockRecipeRepository_ImageInUse_Call) RunAndReturn(run func(context.Context, string) (bool, error)) *MockRecipeRepository_ImageInUse_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // List provides a mock function with given fields: ctx, filter
 func (_m *MockRecipeRepository) List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error) {
 	ret := _m.Called(ctx, filter)

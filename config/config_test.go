@@ -214,3 +214,36 @@ func TestLoad_ReadsCloudinaryFields(t *testing.T) {
 		t.Errorf("CloudinaryUploadFolder = %q, want %q", cfg.CloudinaryUploadFolder, "dev/recipes")
 	}
 }
+
+func TestLoad_UploadFolderRules(t *testing.T) {
+	tests := []struct {
+		name    string
+		appEnv  string
+		folder  string
+		wantErr bool
+	}{
+		{"dev: its own folder", "development", "dev/recipes", false},
+		{"dev: production's folder", "development", "recipes", true},
+		{"dev: the legacy folder", "development", "Crockpot", true},
+		{"prod: recipes", "production", "recipes", false},
+		{"trailing slash", "development", "dev/recipes/", true},
+		{"leading slash", "development", "/dev/recipes", true},
+		{"doubled slash", "development", "dev//recipes", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("APP_ENV", tt.appEnv)
+			t.Setenv("CLOUDINARY_UPLOAD_FOLDER", tt.folder)
+
+			_, err := Load()
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "CLOUDINARY_UPLOAD_FOLDER") {
+					t.Errorf("Load() error = %v, want one naming CLOUDINARY_UPLOAD_FOLDER", err)
+				}
+			} else if err != nil {
+				t.Errorf("Load() unexpected error: %v", err)
+			}
+		})
+	}
+}
