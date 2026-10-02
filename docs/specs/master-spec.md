@@ -634,16 +634,48 @@ session.*
   other filter lists newest first instead of the browse shuffle; filtered
   own-recipe lists keep their existing order. Unblocks `crockpot-react`
   `CFE-008`'s ordering.
-- **CROC-062** — Decide whether owners may delete their own recipes once
-  approved. Today `DELETE /recipes/:id` is owner-or-admin regardless of
-  `approved` (`canWriteRecipe`, `internal/repository/recipe.go`), so an
-  owner can pull a public recipe off everyone's menus and favourites.
-  Open questions: block owner deletes of approved recipes (admin-only),
-  or offer an "unpublish" (back to pending) instead — editing already
-  resets `approved` (`CROC-016`); how an owner gets an approved recipe
-  removed if blocked. Needs a paired `crockpot-react` ticket to hide or
-  explain the delete action. Raised while grilling `CROC-058`
-  (2026-10-02), not grilled.
+- **CROC-062** — Approved recipes belong to the community; recipe edits
+  resync shopping lists. **Grilled** (2026-10-02), cheap to undo,
+  AI-driven, no handoff doc:
+  - **Approved = admin-only writes.** A non-admin owner editing or
+    deleting their approved recipe gets 403 `recipe_approved_locked`
+    (`ErrRecipeApprovedLocked`), checked after the existing owner-or-admin
+    check (non-owners keep the 403/404 split). Pending recipes stay
+    owner-editable/deletable. `Update` keeps `approved` as-is, replacing
+    the owner-edit reset to pending, which the lock makes unreachable.
+    All approved recipes today are admin-owned (`CROC-024`), so no data
+    is affected.
+  - **Edit resync.** New `RecipeRepository.MenuUserIDs` (reuses
+    `ListMenuUserIDsForRecipe`); `RecipeHandler.Update` calls `Update`,
+    then `MenuUserIDs`, then `Regenerate` per user in its `WithinTx`.
+    `GetRecipeForWrite`'s `FOR UPDATE` (`CROC-058`) already orders a
+    racing menu add; no new concurrency test.
+  - **Rejected:** keeping owner delete (approved recipes are community
+    property once others rely on them); un-hiding pending recipes for
+    users who hold them, and removing them from others on reset (moot
+    once owners can't edit approved recipes).
+  - **Acceptance criteria:**
+    - [ ] Non-admin owner `PATCH`/`DELETE` of own approved recipe → 403
+          `recipe_approved_locked`; nothing written.
+    - [ ] Admin can still edit/delete approved recipes; admin edit keeps
+          `approved`. Owner edit of a pending recipe works, stays pending.
+    - [ ] Editing a recipe resyncs the shopping list of every user whose
+          menu holds it; a failed resync rolls the edit back (500).
+    - [ ] `MenuUserIDs` returns holders ordered by id; none → empty.
+  - **Non-goals:** a contact/removal-request flow (admin deletes on
+    request, if the site grows); approval endpoint (`CROC-017`).
+  - **Frontend pairing:** `crockpot-react` hides edit/delete on approved
+    recipes for non-admins and handles 403 `recipe_approved_locked`.
+  - **Verification:** piece 1 repository (logic, Neon):
+    `./scripts/test-repo.sh` — lock on update/delete, admin paths,
+    pending owner edit, `MenuUserIDs`; the old reset-to-pending test is
+    replaced. Piece 2 handler (logic, mocks): `go test
+    ./internal/handler/...` — code mapping on both routes, `Regenerate`
+    per holder, 500 on resync/`MenuUserIDs` failure, nothing after a
+    failed `Update`. Piece 3 (API boundary): `requests/recipes.http` —
+    stew on the admin's menu, `PATCH` an ingredient quantity,
+    `GET /shopping-list` shows the new quantity; header's CROC-016
+    reset note corrected. Repo piece first, own commit.
 
 ### Epic 5: Meal Planning
 - **CROC-019** — Menu read/upsert-entry (`GET /menu`, `POST /menu/entries`,
