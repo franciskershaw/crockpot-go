@@ -825,8 +825,35 @@ Content-Type: application/json
 #  DELETE /recipes/:id — delete (CROC-016)
 # ══════════════════════════════════════════
 
+### Setup for the shopping-list resync check (CROC-058): put the minimal
+### recipe on this account's menu, so deleting it has a list to resync.
+POST http://localhost:{{$dotenv PORT}}/menu/entries
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "recipeId": "{{minimalRecipeId}}",
+  "serves": 2
+}
+
+###
+
+### ✅ 200 — the shopping list now has http-test-recipe-item × 3.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
 ### ✅ 204 — delete the minimal recipe (ADMIN, own recipe). No body.
 DELETE http://localhost:{{$dotenv PORT}}/recipes/{{minimalRecipeId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — http-test-recipe-item is gone: the delete resynced the list of
+### every user whose menu held the recipe. Other users' lists are covered
+### at internal/repository/recipe_test.go (needs a second account).
+GET http://localhost:{{$dotenv PORT}}/shopping-list
 Authorization: Bearer {{authToken}}
 
 ###

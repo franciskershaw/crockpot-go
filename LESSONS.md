@@ -620,3 +620,8 @@ implementation quality until CROC-001 lands.
 ## 2026-10-02 — CROC-061 — Non-ingredient item categories; clean
 
 - No rework. Branch-review caught one fragile test: it asserted over every row in the shared DB, so a leftover fixture would fail it forever. Fixed by skipping `repo-test-` rows, as the neighbouring prefix-scoped test already does.
+
+## 2026-10-02 — CROC-058 — Recipe delete resyncs shopping lists; clean build, one doc slip
+
+- No rework in code. The lock test was made deterministic (hold one tx, poll `pg_stat_activity` for a lock wait) and seen failing 5/5 before `FOR UPDATE`. Branch-review caught the grill block written under the next epic heading: the recording script's "next ticket" boundary crossed a `###`.
+- **Pattern**: when editing the spec by script, bound an entry by the next bullet *or heading*, and eyeball the diff's placement.

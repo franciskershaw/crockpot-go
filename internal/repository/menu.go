@@ -11,6 +11,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+var menuEntryConstraintErrors = map[string]error{
+	"recipe_menu_entries_recipe_id_fkey": models.ErrRecipeNotFound,
+}
+
 type PostgresMenuRepository struct {
 	db sqlc.DBTX
 }
@@ -122,6 +126,10 @@ func (r *PostgresMenuRepository) UpsertEntry(ctx context.Context, userID, recipe
 		RecipeID:     rid,
 		Serves:       int32(serves),
 	}); err != nil {
+		// The recipe was deleted after the visibility check, while this insert waited on its row lock.
+		if constraintErr := pgConstraintError(err, menuEntryConstraintErrors); constraintErr != nil {
+			return constraintErr
+		}
 		return fmt.Errorf("failed to upsert menu entry: %w", err)
 	}
 	return nil

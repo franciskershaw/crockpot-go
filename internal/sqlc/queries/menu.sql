@@ -46,3 +46,10 @@ FROM recipe_menu_entries rme
 JOIN recipes r ON r.id = rme.recipe_id
 WHERE rme.recipe_menu_id = $1
 ORDER BY rme.created_at DESC;
+
+-- name: ListMenuUserIDsForRecipe :many
+SELECT rm.user_id
+FROM recipe_menu_entries rme
+JOIN recipe_menus rm ON rm.id = rme.recipe_menu_id
+WHERE rme.recipe_id = $1
+ORDER BY rm.user_id;

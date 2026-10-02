@@ -56,20 +56,22 @@ func fakeCreatedRecipe() *models.RecipeDetail {
 }
 
 type recipeMocks struct {
-	repo       *genmocks.MockRecipeRepository
-	transactor *genmocks.MockTransactor
-	router     *gin.Engine
+	repo          *genmocks.MockRecipeRepository
+	shoppingLists *genmocks.MockShoppingListRegenerator
+	transactor    *genmocks.MockTransactor
+	router        *gin.Engine
 }
 
 func newRecipeMocks(t *testing.T) *recipeMocks {
 	m := &recipeMocks{
-		repo:       genmocks.NewMockRecipeRepository(t),
-		transactor: genmocks.NewMockTransactor(t),
+		repo:          genmocks.NewMockRecipeRepository(t),
+		shoppingLists: genmocks.NewMockShoppingListRegenerator(t),
+		transactor:    genmocks.NewMockTransactor(t),
 	}
 	m.transactor.EXPECT().WithinTx(mock.Anything, mock.Anything).
 		RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) }).
 		Maybe()
-	h := handler.NewRecipeHandler(m.repo, m.transactor)
+	h := handler.NewRecipeHandler(m.repo, m.shoppingLists, m.transactor)
 	m.router = gin.New()
 	authed := m.router.Group("/")
 	authed.Use(middleware.AuthMiddleware(testutil.TestAccessSecret))
@@ -1138,7 +1140,7 @@ func TestRecipeDelete_InvalidID_400(t *testing.T) {
 func TestRecipeDelete_NotFound_404(t *testing.T) {
 	m := newRecipeMocks(t)
 	m.repo.EXPECT().Delete(mock.Anything, recipeID.String(), recipeUserID.String(), false).
-		Return(models.ErrRecipeNotFound)
+		Return(nil, models.ErrRecipeNotFound)
 
 	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
 
@@ -1149,7 +1151,7 @@ func TestRecipeDelete_NotFound_404(t *testing.T) {
 func TestRecipeDelete_Forbidden_403(t *testing.T) {
 	m := newRecipeMocks(t)
 	m.repo.EXPECT().Delete(mock.Anything, recipeID.String(), recipeUserID.String(), false).
-		Return(models.ErrRecipeForbidden)
+		Return(nil, models.ErrRecipeForbidden)
 
 	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
 
@@ -1160,9 +1162,35 @@ func TestRecipeDelete_Forbidden_403(t *testing.T) {
 func TestRecipeDelete_Success_204(t *testing.T) {
 	m := newRecipeMocks(t)
 	m.repo.EXPECT().Delete(mock.Anything, recipeID.String(), recipeUserID.String(), false).
-		Return(nil)
+		Return(nil, nil)
 
 	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestRecipeDelete_RegeneratesEachAffectedUsersShoppingList(t *testing.T) {
+	m := newRecipeMocks(t)
+	first, second := uuid.NewString(), uuid.NewString()
+	m.repo.EXPECT().Delete(mock.Anything, recipeID.String(), recipeUserID.String(), false).
+		Return([]string{first, second}, nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, first).Return(nil).Once()
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, second).Return(nil).Once()
+
+	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestRecipeDelete_RegenerateFails_500(t *testing.T) {
+	m := newRecipeMocks(t)
+	affected := uuid.NewString()
+	m.repo.EXPECT().Delete(mock.Anything, recipeID.String(), recipeUserID.String(), false).
+		Return([]string{affected, uuid.NewString()}, nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, affected).Return(errors.New("db down")).Once()
+
+	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, "server_error", recipeErr(t, w))
 }

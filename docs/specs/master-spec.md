@@ -634,6 +634,16 @@ session.*
   other filter lists newest first instead of the browse shuffle; filtered
   own-recipe lists keep their existing order. Unblocks `crockpot-react`
   `CFE-008`'s ordering.
+- **CROC-062** — Decide whether owners may delete their own recipes once
+  approved. Today `DELETE /recipes/:id` is owner-or-admin regardless of
+  `approved` (`canWriteRecipe`, `internal/repository/recipe.go`), so an
+  owner can pull a public recipe off everyone's menus and favourites.
+  Open questions: block owner deletes of approved recipes (admin-only),
+  or offer an "unpublish" (back to pending) instead — editing already
+  resets `approved` (`CROC-016`); how an owner gets an approved recipe
+  removed if blocked. Needs a paired `crockpot-react` ticket to hide or
+  explain the delete action. Raised while grilling `CROC-058`
+  (2026-10-02), not grilled.
 
 ### Epic 5: Meal Planning
 - **CROC-019** — Menu read/upsert-entry (`GET /menu`, `POST /menu/entries`,
@@ -728,17 +738,10 @@ session.*
   the caller's real `isFavourite`, via a `markFavourites` helper shared
   with `GET /recipes`. Fixes the Menu tab's hearts always loading
   unfavourited (`crockpot-react` `CFE-006`).
-- **CROC-058** — Deleting a recipe leaves its ingredients on every shopping
-  list built from it. `DELETE /recipes/:id` (`internal/repository/recipe.go`
-  `Delete`) only runs `DeleteRecipe`; the `recipe_menu_entries` cascade
-  takes the recipe off each menu that held it, but none of those users'
-  shopping lists resync, unlike `CROC-021`'s menu-write endpoints, which
-  regenerate transactionally. Affects every user with the recipe on their
-  menu, not just the owner. Fix direction (not grilled): in the same
-  transaction, find the affected menus before the delete and run the
-  existing resync for each. Surfaced at `crockpot-react` `CFE-041`'s grill
-  (2026-09-27); the frontend already invalidates its shopping-list cache
-  on delete, so no client change is needed once this lands.
+- **CROC-058** — **Done** (2026-10-02). Deleting a recipe resyncs the
+  shopping list of every user whose menu held it, in the delete's
+  transaction; the recipe row is locked `FOR UPDATE` so a concurrent menu
+  add either lands first or gets 404.
 
 ### Epic 7: Roles & Tier Gating
 - **CROC-023** — **Delivered by CROC-014** (`docs/handoffs/CROC-014.md`

@@ -468,36 +468,47 @@ func linkRecipeCategories(ctx context.Context, q *sqlc.Queries, recipeID pgtype.
 	return nil
 }
 
-func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) error {
+func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) ([]string, error) {
 	q := queriesFor(ctx, r.db)
 
 	recipeID, err := uuidParam(id)
 	if err != nil {
-		return fmt.Errorf("invalid recipe id: %w", err)
+		return nil, fmt.Errorf("invalid recipe id: %w", err)
 	}
 	cid, err := uuidParam(callerID)
 	if err != nil {
-		return fmt.Errorf("invalid caller id: %w", err)
+		return nil, fmt.Errorf("invalid caller id: %w", err)
 	}
 
 	existing, err := q.GetRecipeForWrite(ctx, recipeID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return models.ErrRecipeNotFound
+			return nil, models.ErrRecipeNotFound
 		}
-		return fmt.Errorf("failed to get recipe: %w", err)
+		return nil, fmt.Errorf("failed to get recipe: %w", err)
 	}
 	if !canWriteRecipe(existing, cid, callerIsAdmin) {
 		if !existing.Approved {
-			return models.ErrRecipeNotFound
+			return nil, models.ErrRecipeNotFound
 		}
-		return models.ErrRecipeForbidden
+		return nil, models.ErrRecipeForbidden
+	}
+
+	// Read before the delete: the cascade removes the menu entries that say who held it.
+	menuUserIDs, err := q.ListMenuUserIDsForRecipe(ctx, recipeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list menus holding recipe: %w", err)
 	}
 
 	if err := q.DeleteRecipe(ctx, recipeID); err != nil {
-		return fmt.Errorf("failed to delete recipe: %w", err)
+		return nil, fmt.Errorf("failed to delete recipe: %w", err)
 	}
-	return nil
+
+	affected := make([]string, len(menuUserIDs))
+	for i, id := range menuUserIDs {
+		affected[i] = uuidValue(id).String()
+	}
+	return affected, nil
 }
 
 // canWriteRecipe reports whether callerID may update/delete a recipe: its owner, or any admin.
