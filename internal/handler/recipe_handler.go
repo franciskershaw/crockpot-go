@@ -17,6 +17,7 @@ type RecipeRepository interface {
 	Create(ctx context.Context, input models.CreateRecipeInput) (*models.RecipeDetail, error)
 	Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (*models.RecipeDetail, error)
 	Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) ([]string, error)
+	MenuUserIDs(ctx context.Context, id string) ([]string, error)
 	CountByCreator(ctx context.Context, userID string) (int, error)
 	List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error)
 	GetByID(ctx context.Context, id string, callerID *string, callerIsAdmin bool) (*models.RecipeDetail, error)
@@ -95,7 +96,14 @@ func (h *RecipeHandler) Update(c *gin.Context) {
 	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
 		var err error
 		detail, err = h.repo.Update(ctx, id, input, userID, isAdmin)
-		return err
+		if err != nil {
+			return err
+		}
+		holders, err := h.repo.MenuUserIDs(ctx, id)
+		if err != nil {
+			return err
+		}
+		return h.regenerateShoppingLists(ctx, holders)
 	})
 	if txErr != nil {
 		writeRecipeWriteError(c, txErr)
@@ -121,18 +129,22 @@ func (h *RecipeHandler) Delete(c *gin.Context) {
 		if err != nil {
 			return err
 		}
-		for _, uid := range affected {
-			if err := h.shoppingLists.Regenerate(ctx, uid); err != nil {
-				return err
-			}
-		}
-		return nil
+		return h.regenerateShoppingLists(ctx, affected)
 	})
 	if txErr != nil {
 		writeRecipeWriteError(c, txErr)
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+func (h *RecipeHandler) regenerateShoppingLists(ctx context.Context, userIDs []string) error {
+	for _, uid := range userIDs {
+		if err := h.shoppingLists.Regenerate(ctx, uid); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *RecipeHandler) List(c *gin.Context) {
@@ -322,6 +334,8 @@ func writeRecipeWriteError(c *gin.Context, err error) {
 		notFound(c, "not_found")
 	case errors.Is(err, models.ErrRecipeForbidden):
 		forbidden(c, "forbidden")
+	case errors.Is(err, models.ErrRecipeApprovedLocked):
+		forbidden(c, "recipe_approved_locked")
 	default:
 		internalError(c, "failed to write recipe", err)
 	}
