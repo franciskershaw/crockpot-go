@@ -531,7 +531,7 @@ func TestUpdateRecipe_OwnerReplacesAllFieldsAndWholesaleIngredientsCategories(t 
 		Ingredients:   []models.Ingredient{{ItemID: newItem, Quantity: 5}},
 	}
 
-	updated, err := recipeRepo.Update(ctx, created.ID.String(), update, userID.String(), false)
+	updated, _, err := recipeRepo.Update(ctx, created.ID.String(), update, userID.String(), false)
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 
@@ -564,7 +564,7 @@ func TestUpdateRecipe_OwnerEditingApproved_Locked(t *testing.T) {
 	recipeCatID := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
 	recipeID := insertTestRecipeRow(t, userID, true)
 
-	_, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(userID, itemID, recipeCatID), userID.String(), false)
+	_, _, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(userID, itemID, recipeCatID), userID.String(), false)
 	assert.ErrorIs(t, err, models.ErrRecipeApprovedLocked)
 
 	assert.Equal(t, 1, rowCount(t, `SELECT count(*) FROM recipes WHERE id = $1 AND approved AND name = $2`, recipeID, "repo-test-recipe-"+recipeID.String()),
@@ -580,7 +580,7 @@ func TestUpdateRecipe_RejectsNonIngredientItem(t *testing.T) {
 	recipeID := insertTestRecipeRow(t, userID, false)
 
 	txErr := transactor.WithinTx(ctx, func(ctx context.Context) error {
-		_, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(userID, householdID, recipeCatID), userID.String(), false)
+		_, _, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(userID, householdID, recipeCatID), userID.String(), false)
 		return err
 	})
 	assert.ErrorIs(t, txErr, models.ErrRecipeNonIngredientItem)
@@ -598,7 +598,7 @@ func TestUpdateRecipe_AdminEditingAnothersApprovedStaysApproved(t *testing.T) {
 	recipeCatID := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
 	recipeID := insertTestRecipeRow(t, owner, true)
 
-	updated, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(owner, itemID, recipeCatID), admin.String(), true)
+	updated, _, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(owner, itemID, recipeCatID), admin.String(), true)
 	require.NoError(t, err)
 	assert.True(t, updated.Approved)
 }
@@ -612,7 +612,7 @@ func TestUpdateRecipe_AdminEditingAnothersUnapprovedStaysUnapproved(t *testing.T
 	recipeCatID := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
 	recipeID := insertTestRecipeRow(t, owner, false)
 
-	updated, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(owner, itemID, recipeCatID), admin.String(), true)
+	updated, _, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(owner, itemID, recipeCatID), admin.String(), true)
 	require.NoError(t, err)
 	assert.False(t, updated.Approved)
 }
@@ -626,7 +626,7 @@ func TestUpdateRecipe_NonOwnerNonAdminOnApproved_Forbidden(t *testing.T) {
 	recipeCatID := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
 	recipeID := insertTestRecipeRow(t, owner, true)
 
-	_, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(owner, itemID, recipeCatID), other.String(), false)
+	_, _, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(owner, itemID, recipeCatID), other.String(), false)
 	assert.ErrorIs(t, err, models.ErrRecipeForbidden)
 }
 
@@ -639,7 +639,7 @@ func TestUpdateRecipe_NonOwnerNonAdminOnUnapproved_NotFound(t *testing.T) {
 	recipeCatID := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
 	recipeID := insertTestRecipeRow(t, owner, false)
 
-	_, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(owner, itemID, recipeCatID), other.String(), false)
+	_, _, err := recipeRepo.Update(ctx, recipeID.String(), baseRecipeInput(owner, itemID, recipeCatID), other.String(), false)
 	assert.ErrorIs(t, err, models.ErrRecipeNotFound)
 }
 
@@ -650,31 +650,152 @@ func TestUpdateRecipe_NonexistentRecipe_NotFound(t *testing.T) {
 	itemID := insertTestItem(t, "repo-test-item-"+uuid.NewString(), catID)
 	recipeCatID := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
 
-	_, err := recipeRepo.Update(ctx, uuid.NewString(), baseRecipeInput(userID, itemID, recipeCatID), userID.String(), false)
+	_, _, err := recipeRepo.Update(ctx, uuid.NewString(), baseRecipeInput(userID, itemID, recipeCatID), userID.String(), false)
 	assert.ErrorIs(t, err, models.ErrRecipeNotFound)
 }
 
-func TestUpdateRecipe_ClearsImageWhenImageOmitted(t *testing.T) {
-	ctx := context.Background()
-	userID := insertTestUser(t, "Cook")
-	catID := insertTestItemCategory(t, "repo-test-category-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
-	itemID := insertTestItem(t, "repo-test-item-"+uuid.NewString(), catID)
-	recipeCatID := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
+type imageFixture struct {
+	userID, itemID, recipeCatID uuid.UUID
+}
 
-	url := "https://cdn.example.com/pic.jpg"
-	filename := "pic"
-	createInput := baseRecipeInput(userID, itemID, recipeCatID)
-	createInput.ImageURL = &url
-	createInput.ImageFilename = &filename
-	created, err := recipeRepo.Create(ctx, createInput)
+func newImageFixture(t *testing.T) imageFixture {
+	t.Helper()
+	catID := insertTestItemCategory(t, "repo-test-category-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	return imageFixture{
+		userID:      insertTestUser(t, "Cook"),
+		itemID:      insertTestItem(t, "repo-test-item-"+uuid.NewString(), catID),
+		recipeCatID: insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString()),
+	}
+}
+
+// createWithImage creates a recipe whose image public id is publicID ("" for no image).
+func (f imageFixture) createWithImage(t *testing.T, publicID string) *models.RecipeDetail {
+	t.Helper()
+	input := baseRecipeInput(f.userID, f.itemID, f.recipeCatID)
+	if publicID != "" {
+		url := "https://res.cloudinary.com/test/image/upload/v1/" + publicID + ".jpg"
+		input.ImageURL = &url
+		input.ImageFilename = &publicID
+	}
+	created, err := recipeRepo.Create(context.Background(), input)
 	require.NoError(t, err)
 	cleanupExec(t, `DELETE FROM recipes WHERE id = $1`, created.ID)
-	require.NotNil(t, created.ImageURL)
+	return created
+}
 
-	updated, err := recipeRepo.Update(ctx, created.ID.String(), baseRecipeInput(userID, itemID, recipeCatID), userID.String(), false)
+func (f imageFixture) input(image models.ImageUpdate, publicID string) models.CreateRecipeInput {
+	input := baseRecipeInput(f.userID, f.itemID, f.recipeCatID)
+	input.Image = image
+	if publicID != "" {
+		url := "https://res.cloudinary.com/test/image/upload/v1/" + publicID + ".jpg"
+		input.ImageURL = &url
+		input.ImageFilename = &publicID
+	}
+	return input
+}
+
+func testImageID() string { return "repo-test-img/" + uuid.NewString() }
+
+func TestUpdateRecipe_ImageKeptByDefault(t *testing.T) {
+	f := newImageFixture(t)
+	old := testImageID()
+	created := f.createWithImage(t, old)
+
+	updated, orphan, err := recipeRepo.Update(context.Background(), created.ID.String(), f.input(models.ImageKeep, ""), f.userID.String(), false)
+	require.NoError(t, err)
+	require.NotNil(t, updated.ImageFilename)
+	assert.Equal(t, old, *updated.ImageFilename)
+	assert.Equal(t, created.ImageURL, updated.ImageURL)
+	assert.Nil(t, orphan)
+}
+
+func TestUpdateRecipe_ImageReplaceReturnsOldForCleanup(t *testing.T) {
+	f := newImageFixture(t)
+	old, replacement := testImageID(), testImageID()
+	created := f.createWithImage(t, old)
+
+	updated, orphan, err := recipeRepo.Update(context.Background(), created.ID.String(), f.input(models.ImageReplace, replacement), f.userID.String(), false)
+	require.NoError(t, err)
+	require.NotNil(t, updated.ImageFilename)
+	assert.Equal(t, replacement, *updated.ImageFilename)
+	require.NotNil(t, orphan)
+	assert.Equal(t, old, *orphan)
+}
+
+func TestUpdateRecipe_ImageRemoveReturnsOldForCleanup(t *testing.T) {
+	f := newImageFixture(t)
+	old := testImageID()
+	created := f.createWithImage(t, old)
+
+	updated, orphan, err := recipeRepo.Update(context.Background(), created.ID.String(), f.input(models.ImageRemove, ""), f.userID.String(), false)
 	require.NoError(t, err)
 	assert.Nil(t, updated.ImageURL)
 	assert.Nil(t, updated.ImageFilename)
+	require.NotNil(t, orphan)
+	assert.Equal(t, old, *orphan)
+}
+
+func TestUpdateRecipe_ImageReplaceWithNoPreviousImage_NoOrphan(t *testing.T) {
+	f := newImageFixture(t)
+	created := f.createWithImage(t, "")
+	replacement := testImageID()
+
+	updated, orphan, err := recipeRepo.Update(context.Background(), created.ID.String(), f.input(models.ImageReplace, replacement), f.userID.String(), false)
+	require.NoError(t, err)
+	require.NotNil(t, updated.ImageFilename)
+	assert.Equal(t, replacement, *updated.ImageFilename)
+	assert.Nil(t, orphan)
+}
+
+func TestUpdateRecipe_ImageReplaceKeepsOldStillUsedElsewhere(t *testing.T) {
+	f := newImageFixture(t)
+	shared := testImageID()
+	created := f.createWithImage(t, shared)
+	f.createWithImage(t, shared)
+
+	_, orphan, err := recipeRepo.Update(context.Background(), created.ID.String(), f.input(models.ImageReplace, testImageID()), f.userID.String(), false)
+	require.NoError(t, err)
+	assert.Nil(t, orphan)
+}
+
+func TestUpdateRecipe_ImageRemoveWithNoImage_NoOrphan(t *testing.T) {
+	f := newImageFixture(t)
+	created := f.createWithImage(t, "")
+
+	_, orphan, err := recipeRepo.Update(context.Background(), created.ID.String(), f.input(models.ImageRemove, ""), f.userID.String(), false)
+	require.NoError(t, err)
+	assert.Nil(t, orphan)
+}
+
+func TestDeleteRecipe_ReturnsImageForCleanup(t *testing.T) {
+	f := newImageFixture(t)
+	old := testImageID()
+	created := f.createWithImage(t, old)
+
+	_, orphan, err := recipeRepo.Delete(context.Background(), created.ID.String(), f.userID.String(), false)
+	require.NoError(t, err)
+	require.NotNil(t, orphan)
+	assert.Equal(t, old, *orphan)
+}
+
+func TestDeleteRecipe_NoImage_NoOrphan(t *testing.T) {
+	f := newImageFixture(t)
+	created := f.createWithImage(t, "")
+
+	_, orphan, err := recipeRepo.Delete(context.Background(), created.ID.String(), f.userID.String(), false)
+	require.NoError(t, err)
+	assert.Nil(t, orphan)
+}
+
+func TestDeleteRecipe_ImageStillUsedElsewhere_NoOrphan(t *testing.T) {
+	f := newImageFixture(t)
+	shared := testImageID()
+	created := f.createWithImage(t, shared)
+	f.createWithImage(t, shared)
+
+	_, orphan, err := recipeRepo.Delete(context.Background(), created.ID.String(), f.userID.String(), false)
+	require.NoError(t, err)
+	assert.Nil(t, orphan)
 }
 
 func TestUpdateRecipe_InvalidItemID(t *testing.T) {
@@ -693,7 +814,7 @@ func TestUpdateRecipe_InvalidItemID(t *testing.T) {
 		Ingredients:   []models.Ingredient{{ItemID: uuid.New(), Quantity: 1}},
 	}
 
-	_, err := recipeRepo.Update(ctx, recipeID.String(), input, userID.String(), false)
+	_, _, err := recipeRepo.Update(ctx, recipeID.String(), input, userID.String(), false)
 	assert.ErrorIs(t, err, models.ErrRecipeInvalidItem)
 }
 
@@ -702,7 +823,7 @@ func TestDeleteRecipe_OwnerSucceeds(t *testing.T) {
 	userID := insertTestUser(t, "Cook")
 	recipeID := insertTestRecipeRow(t, userID, false)
 
-	_, err := recipeRepo.Delete(ctx, recipeID.String(), userID.String(), false)
+	_, _, err := recipeRepo.Delete(ctx, recipeID.String(), userID.String(), false)
 	require.NoError(t, err)
 	assert.Equal(t, 0, rowCount(t, `SELECT count(*) FROM recipes WHERE id = $1`, recipeID))
 }
@@ -713,7 +834,7 @@ func TestDeleteRecipe_AdminSucceedsOnAnothers(t *testing.T) {
 	admin := insertTestUser(t, "Admin")
 	recipeID := insertTestRecipeRow(t, owner, true)
 
-	_, err := recipeRepo.Delete(ctx, recipeID.String(), admin.String(), true)
+	_, _, err := recipeRepo.Delete(ctx, recipeID.String(), admin.String(), true)
 	require.NoError(t, err)
 	assert.Equal(t, 0, rowCount(t, `SELECT count(*) FROM recipes WHERE id = $1`, recipeID))
 }
@@ -724,7 +845,7 @@ func TestDeleteRecipe_NonOwnerNonAdminOnApproved_Forbidden(t *testing.T) {
 	other := insertTestUser(t, "Other")
 	recipeID := insertTestRecipeRow(t, owner, true)
 
-	_, err := recipeRepo.Delete(ctx, recipeID.String(), other.String(), false)
+	_, _, err := recipeRepo.Delete(ctx, recipeID.String(), other.String(), false)
 	assert.ErrorIs(t, err, models.ErrRecipeForbidden)
 	assert.Equal(t, 1, rowCount(t, `SELECT count(*) FROM recipes WHERE id = $1`, recipeID))
 }
@@ -735,7 +856,7 @@ func TestDeleteRecipe_NonOwnerNonAdminOnUnapproved_NotFound(t *testing.T) {
 	other := insertTestUser(t, "Other")
 	recipeID := insertTestRecipeRow(t, owner, false)
 
-	_, err := recipeRepo.Delete(ctx, recipeID.String(), other.String(), false)
+	_, _, err := recipeRepo.Delete(ctx, recipeID.String(), other.String(), false)
 	assert.ErrorIs(t, err, models.ErrRecipeNotFound)
 	assert.Equal(t, 1, rowCount(t, `SELECT count(*) FROM recipes WHERE id = $1`, recipeID))
 }
@@ -744,7 +865,7 @@ func TestDeleteRecipe_NonexistentRecipe_NotFound(t *testing.T) {
 	ctx := context.Background()
 	userID := insertTestUser(t, "Cook")
 
-	_, err := recipeRepo.Delete(ctx, uuid.NewString(), userID.String(), false)
+	_, _, err := recipeRepo.Delete(ctx, uuid.NewString(), userID.String(), false)
 	assert.ErrorIs(t, err, models.ErrRecipeNotFound)
 }
 
@@ -753,7 +874,7 @@ func TestDeleteRecipe_OwnerOnApproved_Locked(t *testing.T) {
 	userID := insertTestUser(t, "Cook")
 	recipeID := insertTestRecipeRow(t, userID, true)
 
-	_, err := recipeRepo.Delete(ctx, recipeID.String(), userID.String(), false)
+	_, _, err := recipeRepo.Delete(ctx, recipeID.String(), userID.String(), false)
 	assert.ErrorIs(t, err, models.ErrRecipeApprovedLocked)
 	assert.Equal(t, 1, rowCount(t, `SELECT count(*) FROM recipes WHERE id = $1`, recipeID))
 }
@@ -795,7 +916,7 @@ func TestDeleteRecipe_CascadesFavouriteRows(t *testing.T) {
 	require.NoError(t, recipeRepo.AddFavourite(ctx, caller.String(), recipeID.String(), false))
 	require.Equal(t, 1, favouriteRowCount(t, caller, recipeID))
 
-	_, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true)
+	_, _, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, favouriteRowCount(t, caller, recipeID), "ON DELETE CASCADE should remove the favourite row")
@@ -813,7 +934,7 @@ func TestDeleteRecipe_ReturnsUsersWhoseMenusHeldIt(t *testing.T) {
 	require.NoError(t, menuRepo.UpsertEntry(ctx, second.String(), recipeID.String(), 2, false))
 	require.NoError(t, menuRepo.UpsertEntry(ctx, bystander.String(), otherRecipeID.String(), 2, false))
 
-	users, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true)
+	users, _, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true)
 	require.NoError(t, err)
 
 	want := []string{first.String(), second.String()}
@@ -826,7 +947,7 @@ func TestDeleteRecipe_OnNoMenus_ReturnsNoUsers(t *testing.T) {
 	owner := insertTestUser(t, "Owner")
 	recipeID := insertTestRecipeRow(t, owner, true)
 
-	users, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true)
+	users, _, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true)
 	require.NoError(t, err)
 	assert.Empty(t, users)
 }
@@ -886,7 +1007,7 @@ func TestDeleteRecipe_WaitsForInFlightMenuAddAndReturnsItsUser(t *testing.T) {
 		var users []string
 		err := transactor.WithinTx(ctx, func(ctx context.Context) error {
 			var err error
-			users, err = recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true)
+			users, _, err = recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true)
 			return err
 		})
 		deleted <- deleteResult{users, err}
@@ -914,7 +1035,7 @@ func TestUpsertEntry_RecipeDeletedWhileWaiting_ReturnsNotFound(t *testing.T) {
 	deleteErr := make(chan error, 1)
 	go func() {
 		deleteErr <- transactor.WithinTx(ctx, func(ctx context.Context) error {
-			if _, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true); err != nil {
+			if _, _, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true); err != nil {
 				return err
 			}
 			close(deletedUncommitted)

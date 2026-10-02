@@ -189,7 +189,7 @@ func (_c *MockRecipeRepository_Create_Call) RunAndReturn(run func(context.Contex
 }
 
 // Delete provides a mock function with given fields: ctx, id, callerID, callerIsAdmin
-func (_m *MockRecipeRepository) Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) ([]string, error) {
+func (_m *MockRecipeRepository) Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) ([]string, *string, error) {
 	ret := _m.Called(ctx, id, callerID, callerIsAdmin)
 
 	if len(ret) == 0 {
@@ -197,8 +197,9 @@ func (_m *MockRecipeRepository) Delete(ctx context.Context, id string, callerID 
 	}
 
 	var r0 []string
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, bool) ([]string, error)); ok {
+	var r1 *string
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, bool) ([]string, *string, error)); ok {
 		return rf(ctx, id, callerID, callerIsAdmin)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, string, bool) []string); ok {
@@ -209,13 +210,21 @@ func (_m *MockRecipeRepository) Delete(ctx context.Context, id string, callerID 
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, bool) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, bool) *string); ok {
 		r1 = rf(ctx, id, callerID, callerIsAdmin)
 	} else {
-		r1 = ret.Error(1)
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*string)
+		}
 	}
 
-	return r0, r1
+	if rf, ok := ret.Get(2).(func(context.Context, string, string, bool) error); ok {
+		r2 = rf(ctx, id, callerID, callerIsAdmin)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
 }
 
 // MockRecipeRepository_Delete_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Delete'
@@ -239,12 +248,12 @@ func (_c *MockRecipeRepository_Delete_Call) Run(run func(ctx context.Context, id
 	return _c
 }
 
-func (_c *MockRecipeRepository_Delete_Call) Return(_a0 []string, _a1 error) *MockRecipeRepository_Delete_Call {
-	_c.Call.Return(_a0, _a1)
+func (_c *MockRecipeRepository_Delete_Call) Return(menuUserIDs []string, orphanedImage *string, err error) *MockRecipeRepository_Delete_Call {
+	_c.Call.Return(menuUserIDs, orphanedImage, err)
 	return _c
 }
 
-func (_c *MockRecipeRepository_Delete_Call) RunAndReturn(run func(context.Context, string, string, bool) ([]string, error)) *MockRecipeRepository_Delete_Call {
+func (_c *MockRecipeRepository_Delete_Call) RunAndReturn(run func(context.Context, string, string, bool) ([]string, *string, error)) *MockRecipeRepository_Delete_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -610,7 +619,7 @@ func (_c *MockRecipeRepository_RemoveFavourite_Call) RunAndReturn(run func(conte
 }
 
 // Update provides a mock function with given fields: ctx, id, input, callerID, callerIsAdmin
-func (_m *MockRecipeRepository) Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (*models.RecipeDetail, error) {
+func (_m *MockRecipeRepository) Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (*models.RecipeDetail, *string, error) {
 	ret := _m.Called(ctx, id, input, callerID, callerIsAdmin)
 
 	if len(ret) == 0 {
@@ -618,8 +627,9 @@ func (_m *MockRecipeRepository) Update(ctx context.Context, id string, input mod
 	}
 
 	var r0 *models.RecipeDetail
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, models.CreateRecipeInput, string, bool) (*models.RecipeDetail, error)); ok {
+	var r1 *string
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, models.CreateRecipeInput, string, bool) (*models.RecipeDetail, *string, error)); ok {
 		return rf(ctx, id, input, callerID, callerIsAdmin)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, models.CreateRecipeInput, string, bool) *models.RecipeDetail); ok {
@@ -630,13 +640,21 @@ func (_m *MockRecipeRepository) Update(ctx context.Context, id string, input mod
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, models.CreateRecipeInput, string, bool) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, string, models.CreateRecipeInput, string, bool) *string); ok {
 		r1 = rf(ctx, id, input, callerID, callerIsAdmin)
 	} else {
-		r1 = ret.Error(1)
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*string)
+		}
 	}
 
-	return r0, r1
+	if rf, ok := ret.Get(2).(func(context.Context, string, models.CreateRecipeInput, string, bool) error); ok {
+		r2 = rf(ctx, id, input, callerID, callerIsAdmin)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
 }
 
 // MockRecipeRepository_Update_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Update'
@@ -661,12 +679,12 @@ func (_c *MockRecipeRepository_Update_Call) Run(run func(ctx context.Context, id
 	return _c
 }
 
-func (_c *MockRecipeRepository_Update_Call) Return(_a0 *models.RecipeDetail, _a1 error) *MockRecipeRepository_Update_Call {
-	_c.Call.Return(_a0, _a1)
+func (_c *MockRecipeRepository_Update_Call) Return(detail *models.RecipeDetail, orphanedImage *string, err error) *MockRecipeRepository_Update_Call {
+	_c.Call.Return(detail, orphanedImage, err)
 	return _c
 }
 
-func (_c *MockRecipeRepository_Update_Call) RunAndReturn(run func(context.Context, string, models.CreateRecipeInput, string, bool) (*models.RecipeDetail, error)) *MockRecipeRepository_Update_Call {
+func (_c *MockRecipeRepository_Update_Call) RunAndReturn(run func(context.Context, string, models.CreateRecipeInput, string, bool) (*models.RecipeDetail, *string, error)) *MockRecipeRepository_Update_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -15,8 +15,8 @@ var recipeLimits = map[string]int{"FREE": 5}
 
 type RecipeRepository interface {
 	Create(ctx context.Context, input models.CreateRecipeInput) (*models.RecipeDetail, error)
-	Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (*models.RecipeDetail, error)
-	Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) ([]string, error)
+	Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (detail *models.RecipeDetail, orphanedImage *string, err error)
+	Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) (menuUserIDs []string, orphanedImage *string, err error)
 	MenuUserIDs(ctx context.Context, id string) ([]string, error)
 	CountByCreator(ctx context.Context, userID string) (int, error)
 	List(ctx context.Context, filter models.RecipeListFilter) ([]*models.RecipeCard, int, error)
@@ -97,7 +97,7 @@ func (h *RecipeHandler) Update(c *gin.Context) {
 	var detail *models.RecipeDetail
 	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
 		var err error
-		detail, err = h.repo.Update(ctx, id, input, userID, isAdmin)
+		detail, _, err = h.repo.Update(ctx, id, input, userID, isAdmin)
 		if err != nil {
 			return err
 		}
@@ -127,7 +127,7 @@ func (h *RecipeHandler) Delete(c *gin.Context) {
 	isAdmin := c.GetString("role") == "ADMIN"
 
 	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
-		affected, err := h.repo.Delete(ctx, id, userID, isAdmin)
+		affected, _, err := h.repo.Delete(ctx, id, userID, isAdmin)
 		if err != nil {
 			return err
 		}
