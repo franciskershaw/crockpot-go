@@ -634,16 +634,12 @@ session.*
   other filter lists newest first instead of the browse shuffle; filtered
   own-recipe lists keep their existing order. Unblocks `crockpot-react`
   `CFE-008`'s ordering.
-- **CROC-062** — Decide whether owners may delete their own recipes once
-  approved. Today `DELETE /recipes/:id` is owner-or-admin regardless of
-  `approved` (`canWriteRecipe`, `internal/repository/recipe.go`), so an
-  owner can pull a public recipe off everyone's menus and favourites.
-  Open questions: block owner deletes of approved recipes (admin-only),
-  or offer an "unpublish" (back to pending) instead — editing already
-  resets `approved` (`CROC-016`); how an owner gets an approved recipe
-  removed if blocked. Needs a paired `crockpot-react` ticket to hide or
-  explain the delete action. Raised while grilling `CROC-058`
-  (2026-10-02), not grilled.
+- **CROC-062** — **Done** (2026-10-02). Approved recipes are admin-only
+  writes: a non-admin owner editing or deleting one gets 403
+  `recipe_approved_locked`; pending recipes stay owner-editable. Recipe
+  edits resync the shopping list of every user whose menu holds the
+  recipe. Needs a paired `crockpot-react` ticket to hide edit/delete on
+  approved recipes for non-admins.
 
 ### Epic 5: Meal Planning
 - **CROC-019** — Menu read/upsert-entry (`GET /menu`, `POST /menu/entries`,

@@ -1081,6 +1081,57 @@ func TestRecipeUpdate_Forbidden_403(t *testing.T) {
 	assert.Equal(t, "forbidden", recipeErr(t, w))
 }
 
+func TestRecipeUpdate_ApprovedLocked_403(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().Update(mock.Anything, recipeID.String(), mock.Anything, recipeUserID.String(), false).
+		Return(nil, models.ErrRecipeApprovedLocked)
+
+	w := doRecipeUpdate(m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Equal(t, "recipe_approved_locked", recipeErr(t, w))
+}
+
+func TestRecipeUpdate_RegeneratesEachHoldersShoppingList(t *testing.T) {
+	m := newRecipeMocks(t)
+	first, second := uuid.NewString(), uuid.NewString()
+	m.repo.EXPECT().Update(mock.Anything, recipeID.String(), mock.Anything, recipeUserID.String(), false).
+		Return(fakeCreatedRecipe(), nil)
+	m.repo.EXPECT().MenuUserIDs(mock.Anything, recipeID.String()).Return([]string{first, second}, nil).Once()
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, first).Return(nil).Once()
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, second).Return(nil).Once()
+
+	w := doRecipeUpdate(m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRecipeUpdate_MenuUserIDsFails_500(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().Update(mock.Anything, recipeID.String(), mock.Anything, recipeUserID.String(), false).
+		Return(fakeCreatedRecipe(), nil)
+	m.repo.EXPECT().MenuUserIDs(mock.Anything, recipeID.String()).Return(nil, errors.New("db down")).Once()
+
+	w := doRecipeUpdate(m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, "server_error", recipeErr(t, w))
+}
+
+func TestRecipeUpdate_RegenerateFails_500(t *testing.T) {
+	m := newRecipeMocks(t)
+	holder := uuid.NewString()
+	m.repo.EXPECT().Update(mock.Anything, recipeID.String(), mock.Anything, recipeUserID.String(), false).
+		Return(fakeCreatedRecipe(), nil)
+	m.repo.EXPECT().MenuUserIDs(mock.Anything, recipeID.String()).Return([]string{holder, uuid.NewString()}, nil).Once()
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, holder).Return(errors.New("db down")).Once()
+
+	w := doRecipeUpdate(m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, "server_error", recipeErr(t, w))
+}
+
 func TestRecipeUpdate_InvalidItemID_400(t *testing.T) {
 	m := newRecipeMocks(t)
 	m.repo.EXPECT().Update(mock.Anything, recipeID.String(), mock.Anything, recipeUserID.String(), false).
@@ -1096,6 +1147,7 @@ func TestRecipeUpdate_Success_200_ReturnsDetail(t *testing.T) {
 	m := newRecipeMocks(t)
 	m.repo.EXPECT().Update(mock.Anything, recipeID.String(), mock.Anything, recipeUserID.String(), false).
 		Return(fakeCreatedRecipe(), nil)
+	m.repo.EXPECT().MenuUserIDs(mock.Anything, recipeID.String()).Return(nil, nil).Maybe()
 
 	w := doRecipeUpdate(m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
 
@@ -1116,6 +1168,7 @@ func TestRecipeUpdate_PassesIDAndCallerToRepo(t *testing.T) {
 			capturedAdmin = isAdmin
 			return fakeCreatedRecipe(), nil
 		})
+	m.repo.EXPECT().MenuUserIDs(mock.Anything, recipeID.String()).Return(nil, nil).Maybe()
 
 	w := doRecipeUpdate(m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "ADMIN"))
 
@@ -1157,6 +1210,17 @@ func TestRecipeDelete_Forbidden_403(t *testing.T) {
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	assert.Equal(t, "forbidden", recipeErr(t, w))
+}
+
+func TestRecipeDelete_ApprovedLocked_403(t *testing.T) {
+	m := newRecipeMocks(t)
+	m.repo.EXPECT().Delete(mock.Anything, recipeID.String(), recipeUserID.String(), false).
+		Return(nil, models.ErrRecipeApprovedLocked)
+
+	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Equal(t, "recipe_approved_locked", recipeErr(t, w))
 }
 
 func TestRecipeDelete_Success_204(t *testing.T) {

@@ -374,11 +374,8 @@ func (r *PostgresRecipeRepository) Update(ctx context.Context, id string, input 
 		}
 		return nil, fmt.Errorf("failed to get recipe: %w", err)
 	}
-	if !canWriteRecipe(existing, cid, callerIsAdmin) {
-		if !existing.Approved {
-			return nil, models.ErrRecipeNotFound
-		}
-		return nil, models.ErrRecipeForbidden
+	if err := recipeWriteError(existing, cid, callerIsAdmin); err != nil {
+		return nil, err
 	}
 
 	if err := checkAllowedUnits(ctx, q, input.Ingredients); err != nil {
@@ -386,11 +383,6 @@ func (r *PostgresRecipeRepository) Update(ctx context.Context, id string, input 
 	}
 	if err := checkIngredientItems(ctx, q, input.Ingredients); err != nil {
 		return nil, err
-	}
-
-	approved := existing.Approved
-	if !callerIsAdmin {
-		approved = false
 	}
 
 	updated, err := q.UpdateRecipe(ctx, sqlc.UpdateRecipeParams{
@@ -403,7 +395,7 @@ func (r *PostgresRecipeRepository) Update(ctx context.Context, id string, input 
 		Notes:         input.Notes,
 		ImageUrl:      textPtrParam(input.ImageURL),
 		ImageFilename: textPtrParam(input.ImageFilename),
-		Approved:      approved,
+		Approved:      existing.Approved,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to update recipe: %w", err)
@@ -487,11 +479,8 @@ func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, caller
 		}
 		return nil, fmt.Errorf("failed to get recipe: %w", err)
 	}
-	if !canWriteRecipe(existing, cid, callerIsAdmin) {
-		if !existing.Approved {
-			return nil, models.ErrRecipeNotFound
-		}
-		return nil, models.ErrRecipeForbidden
+	if err := recipeWriteError(existing, cid, callerIsAdmin); err != nil {
+		return nil, err
 	}
 
 	// Read before the delete: the cascade removes the menu entries that say who held it.
@@ -503,17 +492,34 @@ func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, caller
 	if err := q.DeleteRecipe(ctx, recipeID); err != nil {
 		return nil, fmt.Errorf("failed to delete recipe: %w", err)
 	}
-
-	affected := make([]string, len(menuUserIDs))
-	for i, id := range menuUserIDs {
-		affected[i] = uuidValue(id).String()
-	}
-	return affected, nil
+	return uuidStrings(menuUserIDs), nil
 }
 
-// canWriteRecipe reports whether callerID may update/delete a recipe: its owner, or any admin.
-func canWriteRecipe(existing sqlc.GetRecipeForWriteRow, callerID pgtype.UUID, callerIsAdmin bool) bool {
-	return callerIsAdmin || existing.CreatedByID == callerID
+func (r *PostgresRecipeRepository) MenuUserIDs(ctx context.Context, id string) ([]string, error) {
+	recipeID, err := uuidParam(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid recipe id: %w", err)
+	}
+	ids, err := queriesFor(ctx, r.db).ListMenuUserIDsForRecipe(ctx, recipeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list menus holding recipe: %w", err)
+	}
+	return uuidStrings(ids), nil
+}
+
+// recipeWriteError reports why callerID may not update/delete a recipe, or nil: admins may write any recipe, owners only while it's pending.
+func recipeWriteError(existing sqlc.GetRecipeForWriteRow, callerID pgtype.UUID, callerIsAdmin bool) error {
+	switch {
+	case callerIsAdmin:
+		return nil
+	case existing.CreatedByID != callerID && !existing.Approved:
+		return models.ErrRecipeNotFound
+	case existing.CreatedByID != callerID:
+		return models.ErrRecipeForbidden
+	case existing.Approved:
+		return models.ErrRecipeApprovedLocked
+	}
+	return nil
 }
 
 // checkIngredientItems rejects an ingredient whose item's category isn't a recipe ingredient (e.g. House). Recipe-only: the shopping list shares checkAllowedUnits, not this.

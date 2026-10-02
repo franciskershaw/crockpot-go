@@ -62,6 +62,8 @@ var ErrRecipeDuplicateIngredient = errors.New("recipe has a duplicate ingredient
 
 var ErrRecipeNotFound = errors.New("recipe not found")
 
+var ErrRecipeApprovedLocked = errors.New("approved recipe can only be changed by an admin")
+
 var ErrRecipeForbidden = errors.New("recipe not owned by caller")
 
 var ErrMenuEntryNotFound = errors.New("menu entry not found")

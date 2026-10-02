@@ -40,13 +40,14 @@
 # (CROC-061).
 #
 # PATCH/DELETE /recipes/:id — CROC-016. Full-replace update (same
-# validators as POST) and hard delete, owner-or-admin only. This file's
-# single ADMIN token can only exercise the "admin editing/deleting stays
-# approved / succeeds" paths; the creator-edit-resets-to-pending rule and
-# the 403 forbidden (non-owner, non-admin, on an approved recipe) both
-# need a second non-admin user, so they're covered at the repository/
-# handler layers instead (internal/repository/recipe_test.go,
-# internal/handler/recipe_handler_test.go).
+# validators as POST) and hard delete. Pending recipes: owner or admin.
+# Approved recipes: admin only (CROC-062) — an owner gets 403
+# recipe_approved_locked, a non-owner 403 forbidden. This file's single
+# ADMIN token can only exercise the admin paths; both 403s need a second
+# non-admin user, so they're covered at the repository/handler layers
+# instead (internal/repository/recipe_test.go,
+# internal/handler/recipe_handler_test.go). Edits and deletes resync the
+# shopping list of every user whose menu holds the recipe.
 #
 # GET /recipes — relevance ranking (CROC-042). Scored ordering (ingredients
 # and/or categories selected) vs. seeded-random (no filters at all) vs. the
@@ -700,13 +701,29 @@ Authorization: Bearer {{authToken}}
 #  PATCH /recipes/:id — update (CROC-016)
 # ══════════════════════════════════════════
 
+### Setup for the shopping-list resync check (CROC-062): put the stew on
+### this account's menu at serves 6 (the recipe serves 4, so ×1.5).
+POST http://localhost:{{$dotenv PORT}}/menu/entries
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "recipeId": "{{recipeId}}",
+  "serves": 6
+}
+
+###
+
+### ✅ 200 — before the edit: http-test-recipe-item × 1200 and
+### http-test-recipe-item-constrained × 3.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
 ### ✅ 200 — full replace on the seeded stew (ADMIN, own recipe): name,
 ### description, and the ingredient/category set all change wholesale;
-### admin editing stays approved (does not reset to pending — that only
-### happens when the recipe's own creator edits it, not reachable from
-### this single-ADMIN-token file; covered at
-### internal/repository/recipe_test.go's
-### TestUpdateRecipe_OwnerEditingApprovedResetsToPending).
+### an admin edit keeps approved: true.
 PATCH http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
 Authorization: Bearer {{authToken}}
 Content-Type: application/json
@@ -729,6 +746,14 @@ Content-Type: application/json
 ### ✅ 200 — GET confirms the wholesale replace: old category/ingredient
 ### gone, new ones present, description now set, still approved: true.
 GET http://localhost:{{$dotenv PORT}}/recipes/{{recipeId}}
+
+###
+
+### ✅ 200 — the edit resynced the list: http-test-recipe-item is gone and
+### http-test-recipe-item-constrained is now × 500 (recipe and menu both
+### serve 6). The stew stays on the menu until Cleanup deletes it.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
 
 ###
 

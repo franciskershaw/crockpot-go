@@ -81,3 +81,11 @@ func pgUUIDs(ids []uuid.UUID) []pgtype.UUID {
 	}
 	return out
 }
+
+func uuidStrings(ids []pgtype.UUID) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = uuidValue(id).String()
+	}
+	return out
+}

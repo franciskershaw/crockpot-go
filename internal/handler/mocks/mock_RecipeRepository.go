@@ -502,6 +502,65 @@ func (_c *MockRecipeRepository_ListFavourites_Call) RunAndReturn(run func(contex
 	return _c
 }
 
+// MenuUserIDs provides a mock function with given fields: ctx, id
+func (_m *MockRecipeRepository) MenuUserIDs(ctx context.Context, id string) ([]string, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MenuUserIDs")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]string, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []string); ok {
+		r0 = rf(ctx, id)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockRecipeRepository_MenuUserIDs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MenuUserIDs'
+type MockRecipeRepository_MenuUserIDs_Call struct {
+	*mock.Call
+}
+
+// MenuUserIDs is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+func (_e *MockRecipeRepository_Expecter) MenuUserIDs(ctx interface{}, id interface{}) *MockRecipeRepository_MenuUserIDs_Call {
+	return &MockRecipeRepository_MenuUserIDs_Call{Call: _e.mock.On("MenuUserIDs", ctx, id)}
+}
+
+func (_c *MockRecipeRepository_MenuUserIDs_Call) Run(run func(ctx context.Context, id string)) *MockRecipeRepository_MenuUserIDs_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockRecipeRepository_MenuUserIDs_Call) Return(_a0 []string, _a1 error) *MockRecipeRepository_MenuUserIDs_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockRecipeRepository_MenuUserIDs_Call) RunAndReturn(run func(context.Context, string) ([]string, error)) *MockRecipeRepository_MenuUserIDs_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RemoveFavourite provides a mock function with given fields: ctx, userID, recipeID
 func (_m *MockRecipeRepository) RemoveFavourite(ctx context.Context, userID string, recipeID string) error {
 	ret := _m.Called(ctx, userID, recipeID)
