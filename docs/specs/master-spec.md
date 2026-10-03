@@ -993,6 +993,14 @@ tickets once decided.*
   (not yet numbered), once the droplet's CPU count and Neon plan are
   known.* Findings 6–7.
 
+*From `crockpot-react` `CFE-002b`'s grill, 2026-10-03.*
+- **CROC-067** — **Done** (2026-10-03). The three `resend_too_soon`
+  429s (`Register`, `ResendConfirmation`, `ForgotPassword`) now set
+  `Retry-After` alongside the body's `retryAfterSeconds`, through one
+  shared `resendTooSoon` helper in `errors.go`. Both values round up, so
+  neither ever says 0 or less than the real wait. Unblocks `CFE-002b`'s
+  Resend countdown, which reads only the header.
+
 *Parked 2026-08-31 — a loosely-scoped idea, not sequenced into a
 priority epic yet. Numbered out of physical order deliberately: this
 sits conceptually in Epic 6 (Shopping Lists), but the founder wants it

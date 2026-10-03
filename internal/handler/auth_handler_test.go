@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -168,6 +169,13 @@ func decodeJSONBodyAny(t *testing.T, w *httptest.ResponseRecorder) map[string]an
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	return body
+}
+
+func assertRetryAfterMatchesBody(t *testing.T, w *httptest.ResponseRecorder) {
+	t.Helper()
+	seconds, ok := decodeJSONBodyAny(t, w)["retryAfterSeconds"].(float64)
+	require.True(t, ok, "body has no numeric retryAfterSeconds")
+	assert.Equal(t, strconv.Itoa(int(seconds)), w.Header().Get("Retry-After"))
 }
 
 func refreshCookieFrom(w *httptest.ResponseRecorder) *http.Cookie {
@@ -491,6 +499,7 @@ func TestRegister_UnconfirmedRetry_WithinCooldown(t *testing.T) {
 
 	assert.Equal(t, http.StatusTooManyRequests, w.Code)
 	assert.Equal(t, "resend_too_soon", decodeJSONBodyAny(t, w)["error"])
+	assertRetryAfterMatchesBody(t, w)
 }
 
 // --- Register: fails ---
@@ -780,8 +789,28 @@ func TestResendConfirmation_Fails(t *testing.T) {
 
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.Equal(t, tc.wantError, decodeJSONBodyAny(t, w)["error"])
+			if tc.wantCode == http.StatusTooManyRequests {
+				assertRetryAfterMatchesBody(t, w)
+			}
 		})
 	}
+}
+
+func TestResendConfirmation_CooldownRoundsUpPartialSecond(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	resendUser := &models.User{ID: uuid.MustParse("66666666-6666-6666-6666-666666666666"), Email: "resend@example.com"}
+
+	m.userRepo.EXPECT().FindByEmail(mock.Anything, "resend@example.com").Return(resendUser, nil)
+	m.emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, resendUser.ID.String()).Return(&models.EmailVerificationToken{
+		ID: uuid.New(), UserID: resendUser.ID, ExpiresAt: time.Now().Add(5 * time.Minute),
+		CreatedAt: time.Now().Add(-59500 * time.Millisecond),
+	}, nil)
+
+	w := doResend(m.router, map[string]string{"email": "resend@example.com"})
+
+	assert.Equal(t, http.StatusTooManyRequests, w.Code)
+	assert.Equal(t, "1", w.Header().Get("Retry-After"))
+	assert.Equal(t, float64(1), decodeJSONBodyAny(t, w)["retryAfterSeconds"])
 }
 
 // --- Login ---
@@ -1019,6 +1048,9 @@ func TestForgotPassword_Fails(t *testing.T) {
 
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.Equal(t, tc.wantError, decodeJSONBodyAny(t, w)["error"])
+			if tc.wantCode == http.StatusTooManyRequests {
+				assertRetryAfterMatchesBody(t, w)
+			}
 		})
 	}
 }
