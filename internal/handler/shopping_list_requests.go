@@ -33,12 +33,12 @@ func parseAddManualShoppingListItemRequest(c *gin.Context) (string, *string, flo
 		}
 	}
 
-	if req.Quantity == nil || *req.Quantity <= 0 {
-		badRequest(c, "invalid_quantity")
+	quantity, ok := validateQuantity(c, req.Quantity)
+	if !ok {
 		return "", nil, 0, false
 	}
 
-	return req.ItemID, unitID, *req.Quantity, true
+	return req.ItemID, unitID, quantity, true
 }
 
 type updateShoppingListItemRequest struct {
@@ -57,9 +57,10 @@ func parseUpdateShoppingListItemRequest(c *gin.Context) (*bool, *float64, bool) 
 		badRequest(c, "invalid_request")
 		return nil, nil, false
 	}
-	if req.Quantity != nil && *req.Quantity <= 0 {
-		badRequest(c, "invalid_quantity")
-		return nil, nil, false
+	if req.Quantity != nil {
+		if _, ok := validateQuantity(c, req.Quantity); !ok {
+			return nil, nil, false
+		}
 	}
 	return req.Obtained, req.Quantity, true
 }
