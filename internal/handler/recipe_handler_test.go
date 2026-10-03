@@ -1242,6 +1242,20 @@ func TestRecipeUpdate_MenuUserIDsFails_500(t *testing.T) {
 	assert.Equal(t, "server_error", recipeErr(t, w))
 }
 
+func TestRecipeUpdate_RegenerateQuantityTooLarge_400(t *testing.T) {
+	m := newRecipeMocks(t)
+	holder := uuid.NewString()
+	m.repo.EXPECT().Update(mock.Anything, recipeID.String(), mock.Anything, recipeUserID.String(), false).
+		Return(fakeCreatedRecipe(), nil, nil)
+	m.repo.EXPECT().MenuUserIDs(mock.Anything, recipeID.String()).Return([]string{holder}, nil).Once()
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, holder).Return(models.ErrShoppingListQuantityTooLarge).Once()
+
+	w := doRecipeUpdate(t, m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "shopping_list_quantity_too_large", recipeErr(t, w))
+}
+
 func TestRecipeUpdate_RegenerateFails_500(t *testing.T) {
 	m := newRecipeMocks(t)
 	holder := uuid.NewString()
@@ -1368,6 +1382,19 @@ func TestRecipeDelete_RegeneratesEachAffectedUsersShoppingList(t *testing.T) {
 	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestRecipeDelete_RegenerateQuantityTooLarge_400(t *testing.T) {
+	m := newRecipeMocks(t)
+	affected := uuid.NewString()
+	m.repo.EXPECT().Delete(mock.Anything, recipeID.String(), recipeUserID.String(), false).
+		Return([]string{affected}, nil, nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, affected).Return(models.ErrShoppingListQuantityTooLarge).Once()
+
+	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "shopping_list_quantity_too_large", recipeErr(t, w))
 }
 
 func TestRecipeDelete_RegenerateFails_500(t *testing.T) {

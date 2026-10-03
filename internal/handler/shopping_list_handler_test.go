@@ -273,7 +273,30 @@ func TestShoppingListAddItem_UnknownItem_400(t *testing.T) {
 
 	w := doShoppingListAddItem(m.router, map[string]any{"itemId": itemID, "quantity": 2}, shoppingListAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_item", shoppingListErr(t, w))
+	assert.Equal(t, "invalid_item_id", shoppingListErr(t, w))
+}
+
+func TestShoppingListAddItem_UnknownUnit_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	itemID := uuid.NewString()
+	unitID := uuid.NewString()
+	m.repo.EXPECT().AddManualItem(mock.Anything, shoppingListUserID.String(), itemID, &unitID, 2.0).
+		Return(models.ErrShoppingListInvalidUnit)
+
+	w := doShoppingListAddItem(m.router, map[string]any{"itemId": itemID, "unitId": unitID, "quantity": 2}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_unit_id", shoppingListErr(t, w))
+}
+
+func TestShoppingListAddItem_QuantityTooLarge_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	itemID := uuid.NewString()
+	m.repo.EXPECT().AddManualItem(mock.Anything, shoppingListUserID.String(), itemID, (*string)(nil), 2.0).
+		Return(models.ErrShoppingListQuantityTooLarge)
+
+	w := doShoppingListAddItem(m.router, map[string]any{"itemId": itemID, "quantity": 2}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "shopping_list_quantity_too_large", shoppingListErr(t, w))
 }
 
 func TestShoppingListAddItem_UnitNotAllowed_400(t *testing.T) {
@@ -285,7 +308,7 @@ func TestShoppingListAddItem_UnitNotAllowed_400(t *testing.T) {
 
 	w := doShoppingListAddItem(m.router, map[string]any{"itemId": itemID, "unitId": unitID, "quantity": 2}, shoppingListAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "unit_not_allowed", shoppingListErr(t, w))
+	assert.Equal(t, "unit_not_allowed_for_item", shoppingListErr(t, w))
 }
 
 func TestShoppingListAddItem_RepoError_500(t *testing.T) {
@@ -502,6 +525,15 @@ func TestShoppingListRegenerate_Success_200MessageBody(t *testing.T) {
 	w := doShoppingListRegenerate(m.router, shoppingListAuth(t, "FREE"))
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "shopping list regenerated", shoppingListMsg(t, w))
+}
+
+func TestShoppingListRegenerate_QuantityTooLarge_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	m.repo.EXPECT().RegenerateFromScratch(mock.Anything, shoppingListUserID.String()).Return(models.ErrShoppingListQuantityTooLarge)
+
+	w := doShoppingListRegenerate(m.router, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "shopping_list_quantity_too_large", shoppingListErr(t, w))
 }
 
 func TestShoppingListRegenerate_RepoError_500(t *testing.T) {

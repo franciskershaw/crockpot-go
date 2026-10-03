@@ -60,11 +60,13 @@ func (h *ShoppingListHandler) AddItem(c *gin.Context) {
 	case txErr == nil:
 		c.JSON(http.StatusOK, gin.H{"message": "item added to shopping list"})
 	case errors.Is(txErr, models.ErrShoppingListInvalidItem):
-		badRequest(c, "invalid_item")
+		badRequest(c, "invalid_item_id")
 	case errors.Is(txErr, models.ErrShoppingListInvalidUnit):
-		badRequest(c, "invalid_unit")
+		badRequest(c, "invalid_unit_id")
 	case errors.Is(txErr, models.ErrIngredientUnitNotAllowed):
-		badRequest(c, "unit_not_allowed")
+		badRequest(c, "unit_not_allowed_for_item")
+	case errors.Is(txErr, models.ErrShoppingListQuantityTooLarge):
+		badRequest(c, "shopping_list_quantity_too_large")
 	default:
 		internalError(c, "failed to add manual shopping list item", txErr)
 	}
@@ -144,6 +146,10 @@ func (h *ShoppingListHandler) Regenerate(c *gin.Context) {
 		return h.repo.RegenerateFromScratch(ctx, userID)
 	})
 	if txErr != nil {
+		if errors.Is(txErr, models.ErrShoppingListQuantityTooLarge) {
+			badRequest(c, "shopping_list_quantity_too_large")
+			return
+		}
 		internalError(c, "failed to regenerate shopping list", txErr)
 		return
 	}
