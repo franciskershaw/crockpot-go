@@ -930,27 +930,15 @@ tickets once decided.*
   `bindJSON`). `middleware/rate_limit.go`'s two bodies snake_cased to
   `rate_limit_exceeded` / `server_error`. Absorbed tech-debt findings
   6 + 8 (`CROC-036` is now finding 7 only).
-- **CROC-045** — `GET /items` (`internal/handler/item_handler.go:40-46`)
-  returns the entire items table in one unbounded `c.JSON` write, unlike
-  `/recipes`'s existing page/limit pattern. Raised 2026-09-11 while
-  diagnosing a live 500 the founder hit browsing recipes on a poor
-  connection: server logs showed `/items` taking 26.18s followed by
-  `write tcp ...: i/o timeout` — the query itself likely returned fine,
-  but writing the full payload back to a slow client blew past
-  `newHTTPServer`'s 15s `WriteTimeout` (`lifecycle.go:40`). Will only get
-  worse as the item catalog grows, independent of connection quality.
-  Founder's instinct going in: paginate 10 at a time, with the frontend's
-  "show more" becoming infinite-scroll-on-scroll rather than a discrete
-  next-page click, and a loading-spinner state so a slow fetch reads as
-  "still loading" instead of a stall — needs a grill before building
-  (page/limit query shape matching `/recipes`'s existing convention vs.
-  cursor-based; whether categorised item pickers elsewhere in the
-  frontend can tolerate paginated results or need an unpaginated
-  variant; whether the 500 on `/recipes?page=3` immediately following in
-  the same log capture was this same DB-pool contention or an unrelated
-  cause — unconfirmed, the wrapped error text wasn't in the captured
-  log). Paired with a `crockpot-react` companion ticket for the
-  show-more/infinite-scroll UI once numbered there.
+- **CROC-045** — Gzip every API response via `gin-contrib/gzip` as global
+  middleware. Re-scoped 2026-10-03 from paginating `GET /items`: every
+  `crockpot-react` items consumer searches the full list in memory, so
+  pagination would mean server-side search everywhere, while the actual
+  problem (126 KB uncompressed on slow links, local dev; the app is not
+  deployed) is what compression fixes. Compression lives in the Go server
+  because there is no proxy yet. Revisit pagination if gzipped `/items` is
+  still slow on a throttled connection as the catalogue grows. Fully
+  specified, no grill needed. See `docs/handoffs/CROC-045.md`.
 
 *From the second whole-codebase tech-debt pass, 2026-09-18. Full detail:
 `docs/findings/2026-09-18-tech-debt.md`.*

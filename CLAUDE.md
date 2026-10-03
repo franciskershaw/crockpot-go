@@ -2,6 +2,13 @@
 
 Follows the global development process — see `~/.claude/CLAUDE.md`.
 
+**Not deployed yet.** This is a ground-up rebuild that has never been
+deployed. Production is still the old Next.js/MongoDB app (`../../crockpot`).
+Every "slow", "timeout" or payload-size observation comes from local dev
+(`localhost` against Neon). No nginx, CDN or hosting layer sits in front of
+it yet, so a fix has to work in this code. "Deployment"/"Hosting" below
+describe the plan.
+
 ## Reference projects
 
 - **Functional reference**: `../../crockpot` (Next.js/Prisma/MongoDB, the
@@ -76,8 +83,8 @@ Follows the global development process — see `~/.claude/CLAUDE.md`.
   collaborator mocks for a test) would otherwise collide with the
   package name. Re-run `go tool mockery` after changing any interface in
   `internal/handler`.
-- Deployment: Docker (multi-stage to distroless), behind nginx, on the
-  same DigitalOcean droplet as `packing-list-go`
+- Deployment (planned, not yet live): Docker (multi-stage to distroless),
+  behind nginx, on the same DigitalOcean droplet as `packing-list-go`
 
 ## Architecture
 
