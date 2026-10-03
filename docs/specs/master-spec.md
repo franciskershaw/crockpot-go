@@ -386,6 +386,13 @@ prior to `CROC-005` owned actually building this — the middleware itself
 (`ulule/limiter`, ported from `packing-list-go`) is first wired up there,
 being the first ticket that needs it (see `docs/handoffs/CROC-005.md`).
 
+**Response compression**: every response is gzipped when the client
+accepts it (`gin-contrib/gzip`, registered after CORS so preflights keep
+`Vary: Origin`). Error and empty-body responses go uncompressed, and the
+library drops their whole `Vary` header, `Origin` included. That's accepted
+because nothing caches them. Behind nginx, the already-encoded responses
+pass through untouched.
+
 **Session & revocation lifecycle**: access tokens 15 min, refresh tokens
 7-day sliding expiry, rotate-on-use with reuse-detection revoking the
 whole token family (same model as `packing-list-go`, see its
@@ -930,15 +937,9 @@ tickets once decided.*
   `bindJSON`). `middleware/rate_limit.go`'s two bodies snake_cased to
   `rate_limit_exceeded` / `server_error`. Absorbed tech-debt findings
   6 + 8 (`CROC-036` is now finding 7 only).
-- **CROC-045** — Gzip every API response via `gin-contrib/gzip` as global
-  middleware. Re-scoped 2026-10-03 from paginating `GET /items`: every
-  `crockpot-react` items consumer searches the full list in memory, so
-  pagination would mean server-side search everywhere, while the actual
-  problem (126 KB uncompressed on slow links, local dev; the app is not
-  deployed) is what compression fixes. Compression lives in the Go server
-  because there is no proxy yet. Revisit pagination if gzipped `/items` is
-  still slow on a throttled connection as the catalogue grows. Fully
-  specified, no grill needed. See `docs/handoffs/CROC-045.md`.
+- **CROC-045** — **Done** (2026-10-03, `docs/handoffs/CROC-045.md`). Gzip
+  every API response instead of paginating `GET /items`. Revisit
+  pagination if gzipped `/items` is still slow on a throttled connection.
 
 *From the second whole-codebase tech-debt pass, 2026-09-18. Full detail:
 `docs/findings/2026-09-18-tech-debt.md`.*

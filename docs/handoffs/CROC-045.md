@@ -59,12 +59,13 @@ grill. Cheap to undo.
 
 ## Acceptance criteria
 
-- [ ] A request with `Accept-Encoding: gzip` gets `Content-Encoding: gzip`,
+- [x] A request with `Accept-Encoding: gzip` gets `Content-Encoding: gzip`,
       `Vary: Accept-Encoding`, and a body that decompresses to the same JSON.
-- [ ] A request without `Accept-Encoding` gets an uncompressed body as today.
-- [ ] Error responses (`400`/`401`/`429`) still reach the client intact,
+- [x] A request without `Accept-Encoding` gets an uncompressed body as today.
+- [x] Error responses (`400`/`401`/`429`) still reach the client intact,
       CORS headers included.
-- [ ] `/items` compressed size is recorded against the uncompressed size.
+- [x] `/items` compressed size is recorded against the uncompressed size:
+      125,203 B → 15,847 B (−87%); `/item-categories` 3,700 B → 1,257 B.
 
 ## Pieces and verification
 
