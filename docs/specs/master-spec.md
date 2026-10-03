@@ -240,6 +240,12 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   as recipes), which keeps every ingredient a real `item_id`. Revisit
   the free-text rejection only if a real recipe class emerges where
   ingredients genuinely can't be normalised.
+  **Regulars are per-user references to catalog items, not copies**
+  (`CROC-038`): `regular_items` holds `user_id` + `item_id` + unit +
+  quantity, so restocked rows are ordinary catalog-backed list rows.
+  Rejected: free-text per-user entries, which would force the shopping
+  list itself to hold free text. Revisit alongside `CROC-039` if users
+  regularly need items the catalog lacks.
 - **Reference-data access**: reads (`GET /item-categories`, `/units`,
   `/recipe-categories`) are public — no auth middleware — because
   anonymous users browse and filter recipes by category/ingredient.
@@ -1014,16 +1020,13 @@ addressed only once Epics 1-6's core functionality has shipped, not
 inserted into the current build order. Grill properly before starting —
 the open questions below aren't decisions, just what a grill would need
 to resolve. Paired with `crockpot-react`'s `CFE-015`.*
-- **CROC-038** — "Default items": a per-user saved set of items (e.g.
-  toilet paper, eggs, milk) that aren't tied to any recipe or menu,
-  addable to the current shopping list individually or in bulk (a
-  "restock" gesture distinct from `CROC-022`'s one-off manual add).
-  Open for its grill: reuse the `items` reference-data table
-  (categorised, admin-curated, shared across users) vs. free-text
-  per-user entries; where the saved set lives (a new table vs. a flag
-  on existing rows); whether adding a default to the list is "add all"
-  or per-item picking; interaction with the FREE/PREMIUM tier split, if
-  any.
+- **CROC-038** — Regulars (was "default items"): a per-user set of
+  catalog items with quantity/unit, CRUD under `/regulars`, plus
+  `POST /shopping-list/restock`. Grilled 2026-10-03, AI-driven,
+  `docs/handoffs/CROC-038.md`. Catalog-only, one per item, every tier,
+  capped at 50; restock skips anything on the list unbought and resets
+  bought rows. Build ahead of `crockpot-react` `CFE-015`, which waits on
+  designs.
 
 *Raised 2026-09-06 during `CROC-042`'s grill, parked here for the same
 reason as `CROC-038` above — a loosely-scoped idea, not sequenced.*
