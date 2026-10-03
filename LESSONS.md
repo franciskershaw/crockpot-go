@@ -648,3 +648,8 @@ implementation quality until CROC-001 lands.
 
 - No rework. Reading the library source before placing it showed that `gin-contrib/gzip` deletes the whole `Vary` header on error and empty responses. Registering it after CORS keeps `Vary: Origin` on preflights; the founder accepted the loss on errors. `/items` dropped 87%. Branch-review found nothing.
 - **Pattern**: before adding header-rewriting middleware, read the source and probe it against the existing chain's headers. A middleware can strip a header another one set.
+
+## 2026-10-03 — CROC-067 — Retry-After on resend_too_soon; clean
+
+- No rework. Branch-review found the cooldown seconds were truncated, so the header could say `Retry-After: 0` with time still left. Now rounded up, with a test for a partial second; `recipe_images.go` already floored its value at 1.
+- **Pattern**: none.

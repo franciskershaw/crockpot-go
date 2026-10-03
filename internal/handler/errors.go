@@ -2,7 +2,10 @@ package handler
 
 import (
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,3 +26,10 @@ func notFound(c *gin.Context, code string)     { c.JSON(http.StatusNotFound, gin
 func conflict(c *gin.Context, code string)     { c.JSON(http.StatusConflict, gin.H{"error": code}) }
 func unauthorized(c *gin.Context, code string) { c.JSON(http.StatusUnauthorized, gin.H{"error": code}) }
 func forbidden(c *gin.Context, code string)    { c.JSON(http.StatusForbidden, gin.H{"error": code}) }
+
+// Retry-After carries the same seconds as the body, matching the rate limiter's 429.
+func resendTooSoon(c *gin.Context, retryAfter time.Duration) {
+	seconds := int(math.Ceil(retryAfter.Seconds()))
+	c.Header("Retry-After", strconv.Itoa(seconds))
+	c.JSON(http.StatusTooManyRequests, gin.H{"error": "resend_too_soon", "retryAfterSeconds": seconds})
+}

@@ -152,7 +152,8 @@ Content-Type: application/json
 
 ###
 
-### 🔒 429 — run the request above twice in a row within 60s to see this
+### 🔒 429 — run the request above twice in a row within 60s to see this.
+### Response carries a Retry-After header equal to the body's retryAfterSeconds.
 POST http://localhost:{{$dotenv PORT}}/auth/resend-confirmation
 Content-Type: application/json
 

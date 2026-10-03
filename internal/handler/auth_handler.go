@@ -294,10 +294,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	if err := h.issueConfirmationCode(ctx, user); err != nil {
 		var cooldown *errResendCooldown
 		if errors.As(err, &cooldown) {
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":             "resend_too_soon",
-				"retryAfterSeconds": int(cooldown.retryAfter.Seconds()),
-			})
+			resendTooSoon(c, cooldown.retryAfter)
 			return
 		}
 		internalError(c, "failed to issue confirmation code", err)
@@ -442,10 +439,7 @@ func (h *AuthHandler) ResendConfirmation(c *gin.Context) {
 	if err := h.issueConfirmationCode(ctx, user); err != nil {
 		var cooldown *errResendCooldown
 		if errors.As(err, &cooldown) {
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":             "resend_too_soon",
-				"retryAfterSeconds": int(cooldown.retryAfter.Seconds()),
-			})
+			resendTooSoon(c, cooldown.retryAfter)
 			return
 		}
 		internalError(c, "failed to issue confirmation code", err)
@@ -544,10 +538,7 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	if err := h.issuePasswordResetToken(ctx, user); err != nil {
 		var cooldown *errResendCooldown
 		if errors.As(err, &cooldown) {
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":             "resend_too_soon",
-				"retryAfterSeconds": int(cooldown.retryAfter.Seconds()),
-			})
+			resendTooSoon(c, cooldown.retryAfter)
 			return
 		}
 		internalError(c, "failed to issue password reset token", err)
