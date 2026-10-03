@@ -73,3 +73,5 @@ var ErrShoppingListInvalidItem = errors.New("shopping list item does not exist")
 var ErrShoppingListInvalidUnit = errors.New("shopping list unit does not exist")
 
 var ErrShoppingListItemNotFound = errors.New("shopping list item not found")
+
+var ErrShoppingListQuantityTooLarge = errors.New("shopping list quantity exceeds storable range")
