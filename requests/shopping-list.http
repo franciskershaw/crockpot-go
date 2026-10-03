@@ -325,7 +325,7 @@ Authorization: Bearer {{authToken}}
 
 ###
 
-### 🚫 400 invalid_item — itemId doesn't exist.
+### 🚫 400 invalid_item_id — itemId doesn't exist.
 POST http://localhost:{{$dotenv PORT}}/shopping-list/items
 Authorization: Bearer {{authToken}}
 Content-Type: application/json
@@ -346,6 +346,37 @@ Content-Type: application/json
   "itemId": "{{manualItemId}}",
   "quantity": 0
 }
+
+###
+
+### 🚫 400 invalid_quantity — below the 0.01 floor (would round to 0.00).
+POST http://localhost:{{$dotenv PORT}}/shopping-list/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "itemId": "{{manualItemId}}",
+  "quantity": 0.009
+}
+
+###
+
+### 🚫 400 invalid_quantity — over the 100,000 ceiling.
+POST http://localhost:{{$dotenv PORT}}/shopping-list/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "itemId": "{{manualItemId}}",
+  "quantity": 100000.01
+}
+
+###
+
+### ✅ 200 — still one row, quantity 5: none of the rejected adds above
+### changed it.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
 
 ###
 
@@ -378,6 +409,17 @@ Authorization: Bearer {{authToken}}
 Content-Type: application/json
 
 {}
+
+###
+
+### 🚫 400 invalid_quantity — over the 100,000 ceiling. Quantity stays 9.
+PATCH http://localhost:{{$dotenv PORT}}/shopping-list/items/{{manualRowId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "quantity": 100000.01
+}
 
 ###
 
