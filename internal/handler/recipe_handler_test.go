@@ -344,6 +344,12 @@ func TestRecipeCreate_Validation(t *testing.T) {
 		{"missing quantity", func(b map[string]any) {
 			b["ingredients"] = []map[string]any{{"itemId": uuid.NewString()}}
 		}, "invalid_quantity"},
+		{"quantity below floor", func(b map[string]any) {
+			b["ingredients"] = []map[string]any{{"itemId": uuid.NewString(), "quantity": 0.009}}
+		}, "invalid_quantity"},
+		{"quantity over ceiling", func(b map[string]any) {
+			b["ingredients"] = []map[string]any{{"itemId": uuid.NewString(), "quantity": 100000.01}}
+		}, "invalid_quantity"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -523,6 +529,30 @@ func TestRecipeCreate_PassesParsedInputToRepo(t *testing.T) {
 	require.NotNil(t, captured.Ingredients[0].UnitID)
 	assert.Equal(t, recipeUnitID, *captured.Ingredients[0].UnitID)
 	assert.Equal(t, 800.0, captured.Ingredients[0].Quantity)
+}
+
+func TestRecipeCreate_QuantityBoundsAccepted(t *testing.T) {
+	for _, quantity := range []float64{0.01, 100000} {
+		t.Run(fmt.Sprint(quantity), func(t *testing.T) {
+			m := newRecipeMocks(t)
+			m.repo.EXPECT().CountByCreator(mock.Anything, recipeUserID.String()).Return(0, nil)
+			var captured models.CreateRecipeInput
+			m.repo.EXPECT().Create(mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, in models.CreateRecipeInput) (*models.RecipeDetail, error) {
+					captured = in
+					return fakeCreatedRecipe(), nil
+				})
+
+			body := validRecipeBody()
+			body["ingredients"] = []map[string]any{{"itemId": recipeItemID.String(), "quantity": quantity}}
+
+			w := doRecipeCreate(t, m.router, body, recipeAuth(t, "FREE"))
+
+			require.Equal(t, http.StatusCreated, w.Code)
+			require.Len(t, captured.Ingredients, 1)
+			assert.Equal(t, quantity, captured.Ingredients[0].Quantity)
+		})
+	}
 }
 
 func TestRecipeCreate_IngredientWithoutUnit(t *testing.T) {
@@ -1212,6 +1242,20 @@ func TestRecipeUpdate_MenuUserIDsFails_500(t *testing.T) {
 	assert.Equal(t, "server_error", recipeErr(t, w))
 }
 
+func TestRecipeUpdate_RegenerateQuantityTooLarge_400(t *testing.T) {
+	m := newRecipeMocks(t)
+	holder := uuid.NewString()
+	m.repo.EXPECT().Update(mock.Anything, recipeID.String(), mock.Anything, recipeUserID.String(), false).
+		Return(fakeCreatedRecipe(), nil, nil)
+	m.repo.EXPECT().MenuUserIDs(mock.Anything, recipeID.String()).Return([]string{holder}, nil).Once()
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, holder).Return(models.ErrShoppingListQuantityTooLarge).Once()
+
+	w := doRecipeUpdate(t, m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "shopping_list_quantity_too_large", recipeErr(t, w))
+}
+
 func TestRecipeUpdate_RegenerateFails_500(t *testing.T) {
 	m := newRecipeMocks(t)
 	holder := uuid.NewString()
@@ -1338,6 +1382,19 @@ func TestRecipeDelete_RegeneratesEachAffectedUsersShoppingList(t *testing.T) {
 	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestRecipeDelete_RegenerateQuantityTooLarge_400(t *testing.T) {
+	m := newRecipeMocks(t)
+	affected := uuid.NewString()
+	m.repo.EXPECT().Delete(mock.Anything, recipeID.String(), recipeUserID.String(), false).
+		Return([]string{affected}, nil, nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, affected).Return(models.ErrShoppingListQuantityTooLarge).Once()
+
+	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "shopping_list_quantity_too_large", recipeErr(t, w))
 }
 
 func TestRecipeDelete_RegenerateFails_500(t *testing.T) {

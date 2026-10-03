@@ -67,6 +67,10 @@ func (h *MenuHandler) UpsertEntry(c *gin.Context) {
 		return h.shoppingLists.Regenerate(ctx, userID)
 	})
 	if txErr != nil {
+		if errors.Is(txErr, models.ErrShoppingListQuantityTooLarge) {
+			badRequest(c, "shopping_list_quantity_too_large")
+			return
+		}
 		if errors.Is(txErr, models.ErrRecipeNotFound) {
 			notFound(c, "not_found")
 			return
@@ -99,6 +103,10 @@ func (h *MenuHandler) UpdateEntryServes(c *gin.Context) {
 		return h.shoppingLists.Regenerate(ctx, userID)
 	})
 	if txErr != nil {
+		if errors.Is(txErr, models.ErrShoppingListQuantityTooLarge) {
+			badRequest(c, "shopping_list_quantity_too_large")
+			return
+		}
 		if errors.Is(txErr, models.ErrMenuEntryNotFound) {
 			notFound(c, "menu_entry_not_found")
 			return
@@ -127,6 +135,10 @@ func (h *MenuHandler) RemoveEntry(c *gin.Context) {
 		return h.shoppingLists.Regenerate(ctx, userID)
 	})
 	if txErr != nil {
+		if errors.Is(txErr, models.ErrShoppingListQuantityTooLarge) {
+			badRequest(c, "shopping_list_quantity_too_large")
+			return
+		}
 		internalError(c, "failed to remove menu entry", txErr)
 		return
 	}
@@ -147,6 +159,10 @@ func (h *MenuHandler) ClearMenu(c *gin.Context) {
 		return h.shoppingLists.Regenerate(ctx, userID)
 	})
 	if txErr != nil {
+		if errors.Is(txErr, models.ErrShoppingListQuantityTooLarge) {
+			badRequest(c, "shopping_list_quantity_too_large")
+			return
+		}
 		internalError(c, "failed to clear menu", txErr)
 		return
 	}

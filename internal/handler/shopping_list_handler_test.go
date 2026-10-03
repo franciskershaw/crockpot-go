@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -213,6 +214,30 @@ func TestShoppingListAddItem_ZeroQuantity_400(t *testing.T) {
 	assert.Equal(t, "invalid_quantity", shoppingListErr(t, w))
 }
 
+func TestShoppingListAddItem_QuantityOutOfRange_400(t *testing.T) {
+	for _, quantity := range []float64{0.009, 100000.01} {
+		t.Run(fmt.Sprint(quantity), func(t *testing.T) {
+			m := newShoppingListMocks(t)
+			w := doShoppingListAddItem(m.router, map[string]any{"itemId": uuid.NewString(), "quantity": quantity}, shoppingListAuth(t, "FREE"))
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			assert.Equal(t, "invalid_quantity", shoppingListErr(t, w))
+		})
+	}
+}
+
+func TestShoppingListAddItem_QuantityBoundsAccepted(t *testing.T) {
+	for _, quantity := range []float64{0.01, 100000} {
+		t.Run(fmt.Sprint(quantity), func(t *testing.T) {
+			m := newShoppingListMocks(t)
+			itemID := uuid.NewString()
+			m.repo.EXPECT().AddManualItem(mock.Anything, shoppingListUserID.String(), itemID, (*string)(nil), quantity).Return(nil)
+
+			w := doShoppingListAddItem(m.router, map[string]any{"itemId": itemID, "quantity": quantity}, shoppingListAuth(t, "FREE"))
+			assert.Equal(t, http.StatusOK, w.Code)
+		})
+	}
+}
+
 func TestShoppingListAddItem_MalformedUnitID_400(t *testing.T) {
 	m := newShoppingListMocks(t)
 	w := doShoppingListAddItem(m.router, map[string]any{"itemId": uuid.NewString(), "unitId": "not-a-uuid", "quantity": 2}, shoppingListAuth(t, "FREE"))
@@ -248,7 +273,30 @@ func TestShoppingListAddItem_UnknownItem_400(t *testing.T) {
 
 	w := doShoppingListAddItem(m.router, map[string]any{"itemId": itemID, "quantity": 2}, shoppingListAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_item", shoppingListErr(t, w))
+	assert.Equal(t, "invalid_item_id", shoppingListErr(t, w))
+}
+
+func TestShoppingListAddItem_UnknownUnit_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	itemID := uuid.NewString()
+	unitID := uuid.NewString()
+	m.repo.EXPECT().AddManualItem(mock.Anything, shoppingListUserID.String(), itemID, &unitID, 2.0).
+		Return(models.ErrShoppingListInvalidUnit)
+
+	w := doShoppingListAddItem(m.router, map[string]any{"itemId": itemID, "unitId": unitID, "quantity": 2}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid_unit_id", shoppingListErr(t, w))
+}
+
+func TestShoppingListAddItem_QuantityTooLarge_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	itemID := uuid.NewString()
+	m.repo.EXPECT().AddManualItem(mock.Anything, shoppingListUserID.String(), itemID, (*string)(nil), 2.0).
+		Return(models.ErrShoppingListQuantityTooLarge)
+
+	w := doShoppingListAddItem(m.router, map[string]any{"itemId": itemID, "quantity": 2}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "shopping_list_quantity_too_large", shoppingListErr(t, w))
 }
 
 func TestShoppingListAddItem_UnitNotAllowed_400(t *testing.T) {
@@ -260,7 +308,7 @@ func TestShoppingListAddItem_UnitNotAllowed_400(t *testing.T) {
 
 	w := doShoppingListAddItem(m.router, map[string]any{"itemId": itemID, "unitId": unitID, "quantity": 2}, shoppingListAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "unit_not_allowed", shoppingListErr(t, w))
+	assert.Equal(t, "unit_not_allowed_for_item", shoppingListErr(t, w))
 }
 
 func TestShoppingListAddItem_RepoError_500(t *testing.T) {
@@ -298,6 +346,30 @@ func TestShoppingListUpdateItem_ZeroQuantity_400(t *testing.T) {
 	w := doShoppingListUpdateItem(m.router, uuid.NewString(), map[string]any{"quantity": 0}, shoppingListAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Equal(t, "invalid_quantity", shoppingListErr(t, w))
+}
+
+func TestShoppingListUpdateItem_QuantityOutOfRange_400(t *testing.T) {
+	for _, quantity := range []float64{0.009, 100000.01} {
+		t.Run(fmt.Sprint(quantity), func(t *testing.T) {
+			m := newShoppingListMocks(t)
+			w := doShoppingListUpdateItem(m.router, uuid.NewString(), map[string]any{"quantity": quantity}, shoppingListAuth(t, "FREE"))
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			assert.Equal(t, "invalid_quantity", shoppingListErr(t, w))
+		})
+	}
+}
+
+func TestShoppingListUpdateItem_QuantityBoundsAccepted(t *testing.T) {
+	for _, quantity := range []float64{0.01, 100000} {
+		t.Run(fmt.Sprint(quantity), func(t *testing.T) {
+			m := newShoppingListMocks(t)
+			id := uuid.NewString()
+			m.repo.EXPECT().UpdateItem(mock.Anything, shoppingListUserID.String(), id, (*bool)(nil), &quantity).Return(nil)
+
+			w := doShoppingListUpdateItem(m.router, id, map[string]any{"quantity": quantity}, shoppingListAuth(t, "FREE"))
+			assert.Equal(t, http.StatusOK, w.Code)
+		})
+	}
 }
 
 func TestShoppingListUpdateItem_ObtainedOnly_Success_200(t *testing.T) {
@@ -453,6 +525,15 @@ func TestShoppingListRegenerate_Success_200MessageBody(t *testing.T) {
 	w := doShoppingListRegenerate(m.router, shoppingListAuth(t, "FREE"))
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "shopping list regenerated", shoppingListMsg(t, w))
+}
+
+func TestShoppingListRegenerate_QuantityTooLarge_400(t *testing.T) {
+	m := newShoppingListMocks(t)
+	m.repo.EXPECT().RegenerateFromScratch(mock.Anything, shoppingListUserID.String()).Return(models.ErrShoppingListQuantityTooLarge)
+
+	w := doShoppingListRegenerate(m.router, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "shopping_list_quantity_too_large", shoppingListErr(t, w))
 }
 
 func TestShoppingListRegenerate_RepoError_500(t *testing.T) {

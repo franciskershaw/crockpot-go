@@ -8,6 +8,7 @@ import (
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/sqlc"
 	"github.com/google/uuid"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -93,6 +94,9 @@ func (r *PostgresShoppingListRepository) AddManualItem(ctx context.Context, user
 			Delta: qty,
 			ID:    existing.ID,
 		}); err != nil {
+			if pgErrorCode(err, pgerrcode.NumericValueOutOfRange) {
+				return models.ErrShoppingListQuantityTooLarge
+			}
 			return fmt.Errorf("failed to increment shopping list item: %w", err)
 		}
 		return nil
@@ -330,6 +334,9 @@ func (r *PostgresShoppingListRepository) Regenerate(ctx context.Context, userID 
 	default:
 		aggregate, err = q.AggregateMenuIngredients(ctx, menuID)
 		if err != nil {
+			if pgErrorCode(err, pgerrcode.NumericValueOutOfRange) {
+				return models.ErrShoppingListQuantityTooLarge
+			}
 			return fmt.Errorf("failed to aggregate menu ingredients: %w", err)
 		}
 	}

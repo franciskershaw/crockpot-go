@@ -71,6 +71,21 @@ func validateServes(c *gin.Context, raw int) (int, bool) {
 	return raw, true
 }
 
+// validateQuantity checks raw is present and within the 0.01-100,000 quantity bound, writing 400 invalid_quantity and returning ok=false if not.
+func validateQuantity(c *gin.Context, raw *float64) (float64, bool) {
+	if raw == nil || *raw < minQuantity || *raw > maxQuantity {
+		badRequest(c, "invalid_quantity")
+		return 0, false
+	}
+	return *raw, true
+}
+
+// The floor is the smallest value NUMERIC(10, 2) stores without rounding to zero.
+const (
+	minQuantity = 0.01
+	maxQuantity = 100000
+)
+
 // parseID checks raw is a well-formed UUID (not that it exists — the DB confirms that), writing 400 invalid_request and returning ok=false if malformed.
 func parseID(c *gin.Context, raw string) bool {
 	if _, err := uuid.Parse(raw); err != nil {

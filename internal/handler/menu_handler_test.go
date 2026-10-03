@@ -228,6 +228,17 @@ func TestMenuUpsertEntry_Success_200MessageBody(t *testing.T) {
 	assert.Equal(t, "recipe added to menu", menuMsg(t, w))
 }
 
+func TestMenuUpsertEntry_RegenerateQuantityTooLarge_400(t *testing.T) {
+	m := newMenuMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false).Return(nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(models.ErrShoppingListQuantityTooLarge)
+
+	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "shopping_list_quantity_too_large", menuErr(t, w))
+}
+
 func TestMenuUpsertEntry_RegenerateFails_500(t *testing.T) {
 	m := newMenuMocks(t)
 	id := uuid.NewString()
@@ -302,6 +313,17 @@ func TestMenuUpdateEntryServes_Success_200MessageBody(t *testing.T) {
 	assert.Equal(t, "menu entry updated", menuMsg(t, w))
 }
 
+func TestMenuUpdateEntryServes_RegenerateQuantityTooLarge_400(t *testing.T) {
+	m := newMenuMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().UpdateEntryServes(mock.Anything, menuUserID.String(), id, 10).Return(nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(models.ErrShoppingListQuantityTooLarge)
+
+	w := doMenuPatch(m.router, id, map[string]any{"serves": 10}, menuAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "shopping_list_quantity_too_large", menuErr(t, w))
+}
+
 func TestMenuUpdateEntryServes_RegenerateFails_500(t *testing.T) {
 	m := newMenuMocks(t)
 	id := uuid.NewString()
@@ -359,6 +381,17 @@ func TestMenuRemoveEntry_Success_200MessageBody(t *testing.T) {
 	assert.Equal(t, "recipe removed from menu", menuMsg(t, w))
 }
 
+func TestMenuRemoveEntry_RegenerateQuantityTooLarge_400(t *testing.T) {
+	m := newMenuMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().RemoveEntry(mock.Anything, menuUserID.String(), id).Return(nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(models.ErrShoppingListQuantityTooLarge)
+
+	w := doMenuDelete(m.router, id, menuAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "shopping_list_quantity_too_large", menuErr(t, w))
+}
+
 func TestMenuRemoveEntry_RegenerateFails_500(t *testing.T) {
 	m := newMenuMocks(t)
 	id := uuid.NewString()
@@ -393,6 +426,16 @@ func TestMenuClear_Success_200MessageBody(t *testing.T) {
 	w := doMenuClear(m.router, menuAuth(t, "FREE"))
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "menu cleared", menuMsg(t, w))
+}
+
+func TestMenuClear_RegenerateQuantityTooLarge_400(t *testing.T) {
+	m := newMenuMocks(t)
+	m.repo.EXPECT().ClearMenu(mock.Anything, menuUserID.String()).Return(nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(models.ErrShoppingListQuantityTooLarge)
+
+	w := doMenuClear(m.router, menuAuth(t, "FREE"))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "shopping_list_quantity_too_large", menuErr(t, w))
 }
 
 func TestMenuClear_RegenerateFails_500(t *testing.T) {

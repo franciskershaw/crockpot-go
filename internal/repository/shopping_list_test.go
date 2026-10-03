@@ -227,6 +227,21 @@ func TestRegenerate_MergesCompatibleCrossUnitMetric(t *testing.T) {
 	assert.False(t, tbspRowExists, "must not leave a separate tablespoons row")
 }
 
+func TestRegenerate_AggregateOverflow_ReturnsQuantityTooLarge(t *testing.T) {
+	userID := insertTestUser(t, "Overflow Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	kilogram := unitIDByName(t, "kilogram")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	// 99,999 kg × 1000 g/kg × serves 50/1 ≈ 5e9 g, past NUMERIC(10, 2)'s 99,999,999.99.
+	recipeID := insertTestRecipeWithIngredients(t, userID, 1, []testIngredient{{itemID, &kilogram, 99999}})
+	addToMenu(t, userID, recipeID, 50)
+
+	err := shoppingListRepo.Regenerate(context.Background(), userID.String())
+	assert.ErrorIs(t, err, models.ErrShoppingListQuantityTooLarge)
+}
+
 func TestRegenerate_NullAndCountUnitsDoNotMerge(t *testing.T) {
 	userID := insertTestUser(t, "Count Unit Cook")
 	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
@@ -496,6 +511,23 @@ func TestAddManualItem_MergesIntoExistingManualRow(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, count, "must not create a second row for the same manual item")
+}
+
+func TestAddManualItem_MergeOverflow_ReturnsQuantityTooLargeAndLeavesRow(t *testing.T) {
+	userID := insertTestUser(t, "Manual Add Overflow Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	grams := unitIDByName(t, "grams")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	insertManualShoppingListItem(t, userID, itemID, &grams, 99999999, false)
+
+	err := shoppingListRepo.AddManualItem(context.Background(), userID.String(), itemID.String(), strPtr(grams), 1)
+	assert.ErrorIs(t, err, models.ErrShoppingListQuantityTooLarge)
+
+	row, ok := findShoppingListItem(getShoppingListItemsByUser(t, userID), itemID, &grams)
+	require.True(t, ok)
+	assert.Equal(t, 99999999.0, row.quantity)
 }
 
 func TestAddManualItem_MergesIntoGeneratedRow(t *testing.T) {

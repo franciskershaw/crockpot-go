@@ -976,12 +976,18 @@ tickets once decided.*
   kg/litre quantities by 1000 on every list. Key on `dimension` +
   `base_factor = 1`, guarded by a partial unique index. Medium. Open.
   Finding 1.
-- **CROC-064** — Ingredient/shopping-list quantity validation: add an
-  upper bound and a ≥ 0.01 floor, and map NUMERIC overflow to a 400
-  instead of a 500. Align the shopping list's error codes with the
-  recipe/item spellings (`invalid_item_id`, `invalid_unit_id`,
-  `unit_not_allowed_for_item`). The ceiling value is a grill decision.
-  Open. Findings 2–3.
+- **CROC-064** — **Done** (2026-10-03). Ingredient and shopping-list
+  quantities are bounded to 0.01–100,000 inclusive through one shared
+  `validateQuantity` (`invalid_quantity`). The ceiling only catches
+  typos; it can't prevent overflow, because `base_factor` (up to 1000)
+  × serves ratio (up to 50) × a menu-wide sum can still pass
+  `NUMERIC(10, 2)`. The guarantee is SQLSTATE `22003` from the aggregate
+  or a manual-add merge → 400 `shopping_list_quantity_too_large` on
+  every write that regenerates or merges. The write rolls back, so
+  stored data never overflows. An admin's recipe edit can be refused
+  by one holder's menu (accepted). Shopping-list add now uses
+  `invalid_item_id`, `invalid_unit_id`, `unit_not_allowed_for_item`.
+  Client alignment: `crockpot-react` `CFE-054`.
 - **CROC-065** — Recipe query drift: the visibility predicate is
   hand-copied in 4 queries and the List/Count filters are duplicated in
   different forms. Centralise the predicate and/or lock List/Count with

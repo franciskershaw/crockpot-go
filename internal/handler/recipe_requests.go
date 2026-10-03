@@ -288,12 +288,12 @@ func validateIngredients(c *gin.Context, raw []createIngredientRequest) ([]model
 		}
 		seen[itemID] = true
 
-		if ing.Quantity == nil || *ing.Quantity <= 0 {
-			badRequest(c, "invalid_quantity")
+		quantity, ok := validateQuantity(c, ing.Quantity)
+		if !ok {
 			return nil, false
 		}
 
-		parsed := models.Ingredient{ItemID: itemID, Quantity: *ing.Quantity}
+		parsed := models.Ingredient{ItemID: itemID, Quantity: quantity}
 		if ing.UnitID != nil {
 			if trimmed := strings.TrimSpace(*ing.UnitID); trimmed != "" {
 				unitID, err := uuid.Parse(trimmed)

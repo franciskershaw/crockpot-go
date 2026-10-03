@@ -386,6 +386,8 @@ func writeRecipeWriteError(c *gin.Context, err error) {
 		badRequest(c, "item_not_ingredient")
 	case errors.Is(err, models.ErrRecipeDuplicateIngredient):
 		badRequest(c, "duplicate_ingredient")
+	case errors.Is(err, models.ErrShoppingListQuantityTooLarge):
+		badRequest(c, "shopping_list_quantity_too_large")
 	case errors.Is(err, models.ErrRecipeNotFound):
 		notFound(c, "not_found")
 	case errors.Is(err, models.ErrRecipeForbidden):
