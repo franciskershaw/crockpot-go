@@ -110,6 +110,8 @@ func main() {
 	}
 	// CORS before the rate limiter so preflight OPTIONS aren't charged against the global bucket.
 	server.Use(middleware.CORS(cfg.FrontendURL))
+	// Gzip after CORS: it strips Vary from bodiless responses, which would drop Vary: Origin from preflights.
+	server.Use(middleware.Gzip())
 	server.Use(middleware.BodySizeLimit(maxRequestBodyBytes, map[string]int64{
 		"POST /recipes":      recipeWriteBodyBytes,
 		"PATCH /recipes/:id": recipeWriteBodyBytes,

@@ -643,3 +643,8 @@ implementation quality until CROC-001 lands.
 - Covered `internal/`, `db/migrations/`, `config/`, `main.go`, `lifecycle.go` (`cmd/migrate-data` excluded). Auth/token code was unchanged since the last pass, so it got a spot-check only. 7 findings across 4 tickets (`CROC-063`–`066`), full detail in `docs/findings/2026-10-02-tech-debt.md`. The recipe-cap TOCTOU was reconciled as already accepted at CROC-014, not re-filed.
 - The real find: shopping-list unit merging looks base units up by admin-editable *name*, so a rename silently corrupts every list ×1000. Otherwise: unbounded quantities overflow `NUMERIC(10,2)` into 500s, and the visibility predicate is hand-copied in 4 queries.
 - **Pattern**: a SQL lookup that keys on a mutable display field (name) instead of the structural columns a migration set is a latent bug. Grep queries for `name = '` literals.
+
+## 2026-10-03 — CROC-045 — Gzip API responses; clean
+
+- No rework. Reading the library source before placing it showed that `gin-contrib/gzip` deletes the whole `Vary` header on error and empty responses. Registering it after CORS keeps `Vary: Origin` on preflights; the founder accepted the loss on errors. `/items` dropped 87%. Branch-review found nothing.
+- **Pattern**: before adding header-rewriting middleware, read the source and probe it against the existing chain's headers. A middleware can strip a header another one set.

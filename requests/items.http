@@ -64,6 +64,12 @@ GET http://localhost:{{$dotenv PORT}}/items
 
 ###
 
+### ✅ 200 gzip — headers show Content-Encoding: gzip and Vary: Accept-Encoding; body still reads as JSON
+GET http://localhost:{{$dotenv PORT}}/items
+Accept-Encoding: gzip
+
+###
+
 
 # ══════════════════════════════════════════
 #  POST /items (ADMIN)
