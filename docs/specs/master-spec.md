@@ -976,69 +976,18 @@ tickets once decided.*
   kg/litre quantities by 1000 on every list. Key on `dimension` +
   `base_factor = 1`, guarded by a partial unique index. Medium. Open.
   Finding 1.
-- **CROC-064** — Ingredient/shopping-list quantity validation: add an
-  upper bound and a ≥ 0.01 floor, and map NUMERIC overflow to a 400
-  instead of a 500. Align the shopping list's error codes with the
-  recipe/item spellings (`invalid_item_id`, `invalid_unit_id`,
-  `unit_not_allowed_for_item`). The ceiling value is a grill decision.
-  Open. Findings 2–3.
-
-  *Grilled 2026-10-03. AI-driven.*
-  - **Shared bounds 0.01–100,000 inclusive** for recipe ingredients,
-    manual list adds and list-row edits. The ceiling only catches typos
-    and abuse; it can't prevent overflow. `base_factor` reaches 1000
-    and the serves ratio reaches 50, so one ingredient grows up to
-    5×10⁴, and the aggregate sums across the whole menu. One shared
-    value, because list rows hold aggregated base-unit totals that can
-    legitimately exceed any single recipe quantity (largest legacy
-    ingredient: 2,000 g; smallest: 0.25 tsp).
-  - **`22003` → 400 `shopping_list_quantity_too_large`** is the real
-    guarantee. It names the list, not a field, because the menu upsert
-    and recipe-edit paths send no quantity. Because every write regenerates
-    inside its transaction, an overflowing write rolls back whole and
-    stored data never ends up overflowed. Accepted consequence: an admin's
-    recipe edit can be refused because one holder's menu would overflow.
-  - Out-of-range input keeps `invalid_quantity` for both bounds, like
-    `invalid_serves`.
-
-  **Acceptance criteria**:
-  - [ ] `validateQuantity` in `validation.go`, used by
-        `recipe_requests.go` and both `shopping_list_requests.go` parsers;
-        0.009 and 100,000.01 → 400 `invalid_quantity`, 0.01 and 100,000
-        accepted.
-  - [ ] `models.ErrShoppingListQuantityTooLarge`, returned when SQLSTATE
-        `22003` (via `pgErrorCode`) comes from `AggregateMenuIngredients`
-        in `Regenerate` and from `IncrementShoppingListItemQuantity` in
-        `AddManualItem`.
-  - [ ] That sentinel → 400 `shopping_list_quantity_too_large` in
-        shopping-list `AddItem` and `Regenerate`, the four `MenuHandler`
-        regenerate sites, and `writeRecipeWriteError`.
-  - [ ] Shopping-list `AddItem` returns `invalid_item_id`,
-        `invalid_unit_id`, `unit_not_allowed_for_item`.
-  - [ ] `requests/shopping-list.http` uses the renamed codes and gains
-        an out-of-range quantity request.
-  - [ ] `go test ./internal/handler/...`, `./scripts/test-repo.sh`,
-        `golangci-lint run --max-same-issues=0
-        --max-issues-per-linter=0 ./...`, `gofmt`, `go vet` all clean.
-
-  **Non-goals**: aligning `crockpot-react`'s quantity rule (it already
-  caps at 999,999.99, so it needs to come down to 100,000) and its error
-  codes, tracked as `crockpot-react` `CFE-054`; a limit on menu entries; per-unit ceilings; mapping `22003` in
-  `recipeQuantityFor` (unreachable while the rollback holds).
-
-  **Verification**, in piece order, red then green per piece:
-  1. Validator + three call sites: handler tests (`go test
-     ./internal/handler/...`), boundary values above.
-  2. Repo mapping: real-DB tests via `./scripts/test-repo.sh`. Only real
-     Postgres proves the `::numeric(10, 2)` cast raises `22003`. Cases: a
-     99,999 kg ingredient on a 1-serve recipe at menu serves 50 →
-     `Regenerate` returns the sentinel; a manual add that pushes an
-     existing row past the cap → `AddManualItem` returns it.
-  3. Handler mapping + renames: handler tests per mapped site, plus
-     updated `shopping_list_handler_test.go`.
-  4. `requests/shopping-list.http` run for real against the local server.
-
-  `branch-review` once green, before close-out.
+- **CROC-064** — **Done** (2026-10-03). Ingredient and shopping-list
+  quantities are bounded to 0.01–100,000 inclusive through one shared
+  `validateQuantity` (`invalid_quantity`). The ceiling only catches
+  typos; it can't prevent overflow, because `base_factor` (up to 1000)
+  × serves ratio (up to 50) × a menu-wide sum can still pass
+  `NUMERIC(10, 2)`. The guarantee is SQLSTATE `22003` from the aggregate
+  or a manual-add merge → 400 `shopping_list_quantity_too_large` on
+  every write that regenerates or merges. The write rolls back, so
+  stored data never overflows. An admin's recipe edit can be refused
+  by one holder's menu (accepted). Shopping-list add now uses
+  `invalid_item_id`, `invalid_unit_id`, `unit_not_allowed_for_item`.
+  Client alignment: `crockpot-react` `CFE-054`.
 - **CROC-065** — Recipe query drift: the visibility predicate is
   hand-copied in 4 queries and the List/Count filters are duplicated in
   different forms. Centralise the predicate and/or lock List/Count with

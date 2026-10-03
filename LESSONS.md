@@ -653,3 +653,8 @@ implementation quality until CROC-001 lands.
 
 - No rework. Branch-review found the cooldown seconds were truncated, so the header could say `Retry-After: 0` with time still left. Now rounded up, with a test for a partial second; `recipe_images.go` already floored its value at 1.
 - **Pattern**: none.
+
+## 2026-10-03 — CROC-064 — Quantity bounds and overflow → 400; clean
+
+- No rework in code. The grill corrected two claims in the tech-debt finding before any code: its example ceiling (100,000) can't prevent the overflow it targets, since a unit's `base_factor` × the serves ratio × the menu-wide sum still passes `NUMERIC(10, 2)`; and "no client-side cap" was wrong, since `CFE-042` had added one at 999,999.99. Branch-review's one bug lead was a false positive, settled by reading the regenerate SQL outside the diff.
+- **Pattern**: when a fix proposes a bound to prevent overflow, multiply the bound through every downstream scaling factor before accepting it. A bound that can't prevent the failure is input hygiene, and the error mapping is the real fix.
