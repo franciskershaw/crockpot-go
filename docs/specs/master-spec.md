@@ -1005,6 +1005,33 @@ tickets once decided.*
   (not yet numbered), once the droplet's CPU count and Neon plan are
   known.* Findings 6–7.
 
+*From the fourth whole-codebase tech-debt pass, 2026-10-04. Full detail:
+`docs/findings/2026-10-04-tech-debt.md`.*
+- **CROC-068** — Photo saves vs server timeouts. The 10s `ReadTimeout`
+  covers the whole 6 MiB body. The 15s `WriteTimeout` must cover body,
+  Cloudinary upload (its own timeout is 20s) and the transaction. A slow
+  save can commit and still return a dropped connection, and a retry
+  then duplicates the recipe. Per-route deadlines via
+  `http.ResponseController`, Cloudinary timeout under the remaining
+  budget. Medium. Open, *half time-coupled: nginx's default
+  `client_max_body_size` (1m) must be raised to ≥6m in the deploy-
+  pipeline ticket (not yet numbered); the deadline fix doesn't wait for
+  it.* Finding 1.
+- **CROC-069** — Auth identity hardening: emails are matched
+  case-sensitively (duplicate accounts, failed logins, Google login
+  skipping the password-account conflict). Normalise at the boundary
+  plus a `lower(email)` unique index while the migration source is
+  clean. Also claim confirmation attempts atomically so concurrent
+  guesses can't exceed the 5-attempt cap. Medium. Open. Findings 2–3.
+- **CROC-070** — Handler convention drift: the 8 admin reference-data
+  PATCH/DELETE routes skip `parseID` (a malformed id gives a 500); role
+  checks are repeated string literals. Add `parseID`, role constants and
+  a `callerIsAdmin(c)` helper. Low. Open. Findings 4–5.
+- **CROC-071** — Shared-helper drift: move `checkAllowedUnits` out of
+  `recipe.go`, use the `pgerror.go` helpers in `user.go`, keep one
+  refresh-token TTL, and derive the FK-index schema test's list from
+  `pg_constraint` instead of by hand. Low. Open. Findings 6–7.
+
 *From `crockpot-react` `CFE-002b`'s grill, 2026-10-03.*
 - **CROC-067** — **Done** (2026-10-03). The three `resend_too_soon`
   429s (`Register`, `ResendConfirmation`, `ForgotPassword`) now set
