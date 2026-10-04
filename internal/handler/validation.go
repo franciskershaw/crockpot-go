@@ -108,3 +108,18 @@ func validateCategoryID(c *gin.Context, raw string) (string, bool) {
 	}
 	return trimmed, true
 }
+
+// parseOptionalUnitID treats an absent, null or blank unitId as no unit; anything else must be a UUID.
+func parseOptionalUnitID(c *gin.Context, raw *string) (*string, bool) {
+	if raw == nil {
+		return nil, true
+	}
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return nil, true
+	}
+	if !parseID(c, trimmed) {
+		return nil, false
+	}
+	return &trimmed, true
+}

@@ -193,13 +193,6 @@ func doRecipeDelete(r *gin.Engine, id string, auth string) *httptest.ResponseRec
 	return w
 }
 
-func recipeErr(t *testing.T, w *httptest.ResponseRecorder) string {
-	t.Helper()
-	var body map[string]string
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	return body["error"]
-}
-
 func TestRecipeCreate_NoToken(t *testing.T) {
 	m := newRecipeMocks(t)
 
@@ -272,7 +265,7 @@ func TestRecipeCreate_CapEnforcement(t *testing.T) {
 
 			assert.Equal(t, tc.wantCode, w.Code)
 			if tc.wantErr != "" {
-				assert.Equal(t, tc.wantErr, recipeErr(t, w))
+				assert.Equal(t, tc.wantErr, decodeJSONBody(t, w)["error"])
 			}
 		})
 	}
@@ -285,7 +278,7 @@ func TestRecipeCreate_CountError_500(t *testing.T) {
 	w := doRecipeCreate(t, m.router, validRecipeBody(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, "server_error", recipeErr(t, w))
+	assert.Equal(t, "server_error", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeCreate_Validation(t *testing.T) {
@@ -360,7 +353,7 @@ func TestRecipeCreate_Validation(t *testing.T) {
 			w := doRecipeCreate(t, m.router, body, recipeAuth(t, "FREE"))
 
 			assert.Equal(t, http.StatusBadRequest, w.Code)
-			assert.Equal(t, tc.wantErr, recipeErr(t, w))
+			assert.Equal(t, tc.wantErr, decodeJSONBody(t, w)["error"])
 		})
 	}
 }
@@ -402,7 +395,7 @@ func TestRecipeWrite_RejectsBadRequestShape(t *testing.T) {
 			m.router.ServeHTTP(w, req)
 
 			assert.Equal(t, http.StatusBadRequest, w.Code)
-			assert.Equal(t, "invalid_request", recipeErr(t, w))
+			assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 		})
 	}
 }
@@ -481,7 +474,7 @@ func TestRecipeWrite_RejectsBadPhotos(t *testing.T) {
 			w := doRecipeWrite(t, m.router, tc.method, tc.path, tc.body, tc.photo, recipeAuth(t, "FREE"))
 
 			assert.Equal(t, http.StatusBadRequest, w.Code)
-			assert.Equal(t, tc.wantErr, recipeErr(t, w))
+			assert.Equal(t, tc.wantErr, decodeJSONBody(t, w)["error"])
 		})
 	}
 }
@@ -599,7 +592,7 @@ func TestRecipeCreate_RepoErrorTranslation(t *testing.T) {
 			w := doRecipeCreate(t, m.router, validRecipeBody(), recipeAuth(t, "FREE"))
 
 			assert.Equal(t, tc.wantCode, w.Code)
-			assert.Equal(t, tc.wantErr, recipeErr(t, w))
+			assert.Equal(t, tc.wantErr, decodeJSONBody(t, w)["error"])
 		})
 	}
 }
@@ -684,13 +677,6 @@ func doRecipeListFavourites(r *gin.Engine, rawQuery, auth string) *httptest.Resp
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
-}
-
-func recipeMsg(t *testing.T, w *httptest.ResponseRecorder) string {
-	t.Helper()
-	var body map[string]string
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	return body["message"]
 }
 
 func fakeRecipeCard() *models.RecipeCard {
@@ -794,7 +780,7 @@ func TestRecipeList_BadInput400(t *testing.T) {
 			m := newRecipeMocks(t)
 			w := doRecipeList(m.router, q, "")
 			assert.Equal(t, http.StatusBadRequest, w.Code)
-			assert.Equal(t, "invalid_request", recipeErr(t, w))
+			assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 		})
 	}
 }
@@ -841,7 +827,7 @@ func TestRecipeList_RepoError500(t *testing.T) {
 
 	w := doRecipeList(m.router, "", "")
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, "server_error", recipeErr(t, w))
+	assert.Equal(t, "server_error", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeTimeRange_Success200(t *testing.T) {
@@ -877,14 +863,14 @@ func TestRecipeTimeRange_RepoError500(t *testing.T) {
 
 	w := doRecipeTimeRange(m.router)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, "server_error", recipeErr(t, w))
+	assert.Equal(t, "server_error", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeGet_MalformedID400(t *testing.T) {
 	m := newRecipeMocks(t)
 	w := doRecipeGet(m.router, "not-a-uuid", "")
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", recipeErr(t, w))
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeGet_NotFound404(t *testing.T) {
@@ -895,7 +881,7 @@ func TestRecipeGet_NotFound404(t *testing.T) {
 
 	w := doRecipeGet(m.router, id, "")
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Equal(t, "not_found", recipeErr(t, w))
+	assert.Equal(t, "not_found", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeGet_RepoError500(t *testing.T) {
@@ -965,7 +951,7 @@ func TestRecipeAddFavourite_MalformedID_400(t *testing.T) {
 	m := newRecipeMocks(t)
 	w := doRecipeFavourite(m.router, http.MethodPost, "not-a-uuid", recipeAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", recipeErr(t, w))
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeAddFavourite_Success_200MessageBody(t *testing.T) {
@@ -975,7 +961,7 @@ func TestRecipeAddFavourite_Success_200MessageBody(t *testing.T) {
 
 	w := doRecipeFavourite(m.router, http.MethodPost, id, recipeAuth(t, "FREE"))
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "recipe favourited", recipeMsg(t, w))
+	assert.Equal(t, "recipe favourited", decodeJSONBody(t, w)["message"])
 }
 
 func TestRecipeAddFavourite_NotFound_404(t *testing.T) {
@@ -986,7 +972,7 @@ func TestRecipeAddFavourite_NotFound_404(t *testing.T) {
 
 	w := doRecipeFavourite(m.router, http.MethodPost, id, recipeAuth(t, "FREE"))
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Equal(t, "not_found", recipeErr(t, w))
+	assert.Equal(t, "not_found", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeAddFavourite_RepoError_500(t *testing.T) {
@@ -1018,7 +1004,7 @@ func TestRecipeRemoveFavourite_MalformedID_400(t *testing.T) {
 	m := newRecipeMocks(t)
 	w := doRecipeFavourite(m.router, http.MethodDelete, "not-a-uuid", recipeAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", recipeErr(t, w))
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeRemoveFavourite_Success_200MessageBody(t *testing.T) {
@@ -1028,7 +1014,7 @@ func TestRecipeRemoveFavourite_Success_200MessageBody(t *testing.T) {
 
 	w := doRecipeFavourite(m.router, http.MethodDelete, id, recipeAuth(t, "FREE"))
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "recipe unfavourited", recipeMsg(t, w))
+	assert.Equal(t, "recipe unfavourited", decodeJSONBody(t, w)["message"])
 }
 
 func TestRecipeRemoveFavourite_RepoError_500(t *testing.T) {
@@ -1103,7 +1089,7 @@ func TestRecipeListFavourites_BadInput400(t *testing.T) {
 	m := newRecipeMocks(t)
 	w := doRecipeListFavourites(m.router, "page=notanumber", recipeAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", recipeErr(t, w))
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeListFavourites_RepoError_500(t *testing.T) {
@@ -1143,7 +1129,7 @@ func TestRecipeCreate_DescriptionTooLong_400(t *testing.T) {
 	w := doRecipeCreate(t, m.router, body, recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "description_too_long", recipeErr(t, w))
+	assert.Equal(t, "description_too_long", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeCreate_DescriptionOmitted(t *testing.T) {
@@ -1180,7 +1166,7 @@ func TestRecipeUpdate_ValidationError_400(t *testing.T) {
 	body["name"] = ""
 	w := doRecipeUpdate(t, m.router, recipeID.String(), body, recipeAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "name_required", recipeErr(t, w))
+	assert.Equal(t, "name_required", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeUpdate_NotFound_404(t *testing.T) {
@@ -1191,7 +1177,7 @@ func TestRecipeUpdate_NotFound_404(t *testing.T) {
 	w := doRecipeUpdate(t, m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Equal(t, "not_found", recipeErr(t, w))
+	assert.Equal(t, "not_found", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeUpdate_Forbidden_403(t *testing.T) {
@@ -1202,7 +1188,7 @@ func TestRecipeUpdate_Forbidden_403(t *testing.T) {
 	w := doRecipeUpdate(t, m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
-	assert.Equal(t, "forbidden", recipeErr(t, w))
+	assert.Equal(t, "forbidden", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeUpdate_ApprovedLocked_403(t *testing.T) {
@@ -1213,7 +1199,7 @@ func TestRecipeUpdate_ApprovedLocked_403(t *testing.T) {
 	w := doRecipeUpdate(t, m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
-	assert.Equal(t, "recipe_approved_locked", recipeErr(t, w))
+	assert.Equal(t, "recipe_approved_locked", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeUpdate_RegeneratesEachHoldersShoppingList(t *testing.T) {
@@ -1239,7 +1225,7 @@ func TestRecipeUpdate_MenuUserIDsFails_500(t *testing.T) {
 	w := doRecipeUpdate(t, m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, "server_error", recipeErr(t, w))
+	assert.Equal(t, "server_error", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeUpdate_RegenerateQuantityTooLarge_400(t *testing.T) {
@@ -1253,7 +1239,7 @@ func TestRecipeUpdate_RegenerateQuantityTooLarge_400(t *testing.T) {
 	w := doRecipeUpdate(t, m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "shopping_list_quantity_too_large", recipeErr(t, w))
+	assert.Equal(t, "shopping_list_quantity_too_large", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeUpdate_RegenerateFails_500(t *testing.T) {
@@ -1267,7 +1253,7 @@ func TestRecipeUpdate_RegenerateFails_500(t *testing.T) {
 	w := doRecipeUpdate(t, m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, "server_error", recipeErr(t, w))
+	assert.Equal(t, "server_error", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeUpdate_InvalidItemID_400(t *testing.T) {
@@ -1278,7 +1264,7 @@ func TestRecipeUpdate_InvalidItemID_400(t *testing.T) {
 	w := doRecipeUpdate(t, m.router, recipeID.String(), validRecipeBody(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_item_id", recipeErr(t, w))
+	assert.Equal(t, "invalid_item_id", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeUpdate_Success_200_ReturnsDetail(t *testing.T) {
@@ -1336,7 +1322,7 @@ func TestRecipeDelete_NotFound_404(t *testing.T) {
 	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Equal(t, "not_found", recipeErr(t, w))
+	assert.Equal(t, "not_found", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeDelete_Forbidden_403(t *testing.T) {
@@ -1347,7 +1333,7 @@ func TestRecipeDelete_Forbidden_403(t *testing.T) {
 	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
-	assert.Equal(t, "forbidden", recipeErr(t, w))
+	assert.Equal(t, "forbidden", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeDelete_ApprovedLocked_403(t *testing.T) {
@@ -1358,7 +1344,7 @@ func TestRecipeDelete_ApprovedLocked_403(t *testing.T) {
 	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
-	assert.Equal(t, "recipe_approved_locked", recipeErr(t, w))
+	assert.Equal(t, "recipe_approved_locked", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeDelete_Success_204(t *testing.T) {
@@ -1394,7 +1380,7 @@ func TestRecipeDelete_RegenerateQuantityTooLarge_400(t *testing.T) {
 	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "shopping_list_quantity_too_large", recipeErr(t, w))
+	assert.Equal(t, "shopping_list_quantity_too_large", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeDelete_RegenerateFails_500(t *testing.T) {
@@ -1407,5 +1393,5 @@ func TestRecipeDelete_RegenerateFails_500(t *testing.T) {
 	w := doRecipeDelete(m.router, recipeID.String(), recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, "server_error", recipeErr(t, w))
+	assert.Equal(t, "server_error", decodeJSONBody(t, w)["error"])
 }

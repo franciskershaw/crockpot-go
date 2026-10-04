@@ -1,21 +1,17 @@
 package handler
 
-import (
-	"strings"
+import "github.com/gin-gonic/gin"
 
-	"github.com/gin-gonic/gin"
-)
-
-type addManualShoppingListItemRequest struct {
+type itemQuantityRequest struct {
 	ItemID   string   `json:"itemId"`
 	UnitID   *string  `json:"unitId"`
 	Quantity *float64 `json:"quantity"`
 }
 
-// parseAddManualShoppingListItemRequest validates the body into (itemID, unitID, quantity);
+// parseItemQuantityRequest validates an {itemId, unitId?, quantity} body (manual add, new regular);
 // writes the error response and returns ok=false on failure.
-func parseAddManualShoppingListItemRequest(c *gin.Context) (string, *string, float64, bool) {
-	var req addManualShoppingListItemRequest
+func parseItemQuantityRequest(c *gin.Context) (string, *string, float64, bool) {
+	var req itemQuantityRequest
 	if !bindJSON(c, &req) {
 		return "", nil, 0, false
 	}
@@ -23,14 +19,9 @@ func parseAddManualShoppingListItemRequest(c *gin.Context) (string, *string, flo
 		return "", nil, 0, false
 	}
 
-	var unitID *string
-	if req.UnitID != nil {
-		if trimmed := strings.TrimSpace(*req.UnitID); trimmed != "" {
-			if !parseID(c, trimmed) {
-				return "", nil, 0, false
-			}
-			unitID = &trimmed
-		}
+	unitID, ok := parseOptionalUnitID(c, req.UnitID)
+	if !ok {
+		return "", nil, 0, false
 	}
 
 	quantity, ok := validateQuantity(c, req.Quantity)
@@ -63,4 +54,25 @@ func parseUpdateShoppingListItemRequest(c *gin.Context) (*bool, *float64, bool) 
 		}
 	}
 	return req.Obtained, req.Quantity, true
+}
+
+type restockRequest struct {
+	RegularIDs []string `json:"regularIds"`
+}
+
+func parseRestockRequest(c *gin.Context) ([]string, bool) {
+	var req restockRequest
+	if !bindJSON(c, &req) {
+		return nil, false
+	}
+	if len(req.RegularIDs) == 0 || len(req.RegularIDs) > maxRegularsPerUser {
+		badRequest(c, "invalid_request")
+		return nil, false
+	}
+	for _, id := range req.RegularIDs {
+		if !parseID(c, id) {
+			return nil, false
+		}
+	}
+	return req.RegularIDs, true
 }

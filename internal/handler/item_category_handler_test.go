@@ -59,13 +59,6 @@ func doItemCategoryRequest(r *gin.Engine, method, path string, body any) *httpte
 	return w
 }
 
-func decodeItemCategoryErrorBody(t *testing.T, w *httptest.ResponseRecorder) map[string]string {
-	t.Helper()
-	var body map[string]string
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	return body
-}
-
 // --- List ---
 
 func TestItemCategoryList_Success(t *testing.T) {
@@ -113,7 +106,7 @@ func TestItemCategoryCreate_InvalidJSON(t *testing.T) {
 	m.router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", decodeItemCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCategoryCreate_NameRequired(t *testing.T) {
@@ -122,7 +115,7 @@ func TestItemCategoryCreate_NameRequired(t *testing.T) {
 	w := doItemCategoryRequest(m.router, http.MethodPost, "/item-categories", map[string]string{"name": "  ", "icon": "Package"})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "name_required", decodeItemCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "name_required", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCategoryCreate_NameTooLong(t *testing.T) {
@@ -131,7 +124,7 @@ func TestItemCategoryCreate_NameTooLong(t *testing.T) {
 	w := doItemCategoryRequest(m.router, http.MethodPost, "/item-categories", map[string]string{"name": strings.Repeat("a", 101), "icon": "Package"})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "name_too_long", decodeItemCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "name_too_long", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCategoryCreate_IconRequired(t *testing.T) {
@@ -140,7 +133,7 @@ func TestItemCategoryCreate_IconRequired(t *testing.T) {
 	w := doItemCategoryRequest(m.router, http.MethodPost, "/item-categories", map[string]string{"name": "Cupboard", "icon": " "})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "icon_required", decodeItemCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "icon_required", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCategoryCreate_IconTooLong(t *testing.T) {
@@ -149,7 +142,7 @@ func TestItemCategoryCreate_IconTooLong(t *testing.T) {
 	w := doItemCategoryRequest(m.router, http.MethodPost, "/item-categories", map[string]string{"name": "Cupboard", "icon": strings.Repeat("a", 65)})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "icon_too_long", decodeItemCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "icon_too_long", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCategoryCreate_NameTaken(t *testing.T) {
@@ -159,7 +152,7 @@ func TestItemCategoryCreate_NameTaken(t *testing.T) {
 	w := doItemCategoryRequest(m.router, http.MethodPost, "/item-categories", map[string]string{"name": "Cupboard", "icon": "Package"})
 
 	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Equal(t, "name_taken", decodeItemCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "name_taken", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCategoryCreate_IconTaken(t *testing.T) {
@@ -169,7 +162,7 @@ func TestItemCategoryCreate_IconTaken(t *testing.T) {
 	w := doItemCategoryRequest(m.router, http.MethodPost, "/item-categories", map[string]string{"name": "Cupboard", "icon": "Package"})
 
 	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Equal(t, "icon_taken", decodeItemCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "icon_taken", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCategoryCreate_Success(t *testing.T) {
@@ -194,7 +187,7 @@ func TestItemCategoryUpdate_NeitherFieldProvided(t *testing.T) {
 	w := doItemCategoryRequest(m.router, http.MethodPatch, "/item-categories/"+fakeCategory.ID.String(), map[string]string{})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", decodeItemCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCategoryUpdate_PartialNameOnly(t *testing.T) {
@@ -222,7 +215,7 @@ func TestItemCategoryUpdate_NotFound(t *testing.T) {
 	w := doItemCategoryRequest(m.router, http.MethodPatch, "/item-categories/"+fakeCategory.ID.String(), map[string]string{"name": "New Name"})
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Equal(t, "not_found", decodeItemCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "not_found", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCategoryUpdate_NameTaken(t *testing.T) {
@@ -232,7 +225,7 @@ func TestItemCategoryUpdate_NameTaken(t *testing.T) {
 	w := doItemCategoryRequest(m.router, http.MethodPatch, "/item-categories/"+fakeCategory.ID.String(), map[string]string{"name": "New Name"})
 
 	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Equal(t, "name_taken", decodeItemCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "name_taken", decodeJSONBody(t, w)["error"])
 }
 
 // --- Delete ---
@@ -254,7 +247,7 @@ func TestItemCategoryDelete_NotFound(t *testing.T) {
 	w := doItemCategoryRequest(m.router, http.MethodDelete, "/item-categories/"+fakeCategory.ID.String(), nil)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Equal(t, "not_found", decodeItemCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "not_found", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCategoryDelete_InUse(t *testing.T) {
@@ -264,5 +257,5 @@ func TestItemCategoryDelete_InUse(t *testing.T) {
 	w := doItemCategoryRequest(m.router, http.MethodDelete, "/item-categories/"+fakeCategory.ID.String(), nil)
 
 	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Equal(t, "category_in_use", decodeItemCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "category_in_use", decodeJSONBody(t, w)["error"])
 }

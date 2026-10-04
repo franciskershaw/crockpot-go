@@ -387,3 +387,40 @@ func (r *PostgresShoppingListRepository) Regenerate(ctx context.Context, userID 
 
 	return nil
 }
+
+// Restock per item+unit: skip if an unbought row exists, else reset one bought row (manual first), else insert a manual row.
+func (r *PostgresShoppingListRepository) Restock(ctx context.Context, userID string, regularIDs []string) error {
+	q := queriesFor(ctx, r.db)
+
+	uid, err := uuidParam(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+	ids := make([]pgtype.UUID, len(regularIDs))
+	for i, raw := range regularIDs {
+		if ids[i], err = uuidParam(raw); err != nil {
+			return fmt.Errorf("invalid regular id: %w", err)
+		}
+	}
+
+	listID, err := q.GetOrCreateShoppingList(ctx, uid)
+	if err != nil {
+		return fmt.Errorf("failed to get or create shopping list: %w", err)
+	}
+
+	if err := q.RestockResetBoughtRows(ctx, sqlc.RestockResetBoughtRowsParams{
+		UserID:         uid,
+		RegularIds:     ids,
+		ShoppingListID: listID,
+	}); err != nil {
+		return fmt.Errorf("failed to reset bought rows: %w", err)
+	}
+	if err := q.RestockInsertMissingRows(ctx, sqlc.RestockInsertMissingRowsParams{
+		ShoppingListID: listID,
+		UserID:         uid,
+		RegularIds:     ids,
+	}); err != nil {
+		return fmt.Errorf("failed to insert restocked rows: %w", err)
+	}
+	return nil
+}

@@ -159,3 +159,41 @@ WHERE sli.shopping_list_id = sqlc.arg(shopping_list_id)
 -- name: DeleteShoppingListDismissals :exec
 DELETE FROM shopping_list_dismissed_items
 WHERE shopping_list_id = sqlc.arg(shopping_list_id);
+
+-- name: RestockResetBoughtRows :exec
+WITH selected AS (
+    SELECT item_id, unit_id, quantity FROM regular_items
+    WHERE user_id = sqlc.arg(user_id) AND id = ANY(sqlc.arg(regular_ids)::uuid[])
+), targets AS (
+    SELECT DISTINCT ON (s.item_id, s.unit_id) sli.id, s.quantity
+    FROM selected s
+    JOIN shopping_list_items sli
+        ON sli.shopping_list_id = sqlc.arg(shopping_list_id)
+        AND sli.item_id = s.item_id
+        AND sli.unit_id IS NOT DISTINCT FROM s.unit_id
+    WHERE NOT EXISTS (
+        SELECT 1 FROM shopping_list_items u
+        WHERE u.shopping_list_id = sqlc.arg(shopping_list_id)
+            AND u.item_id = s.item_id
+            AND u.unit_id IS NOT DISTINCT FROM s.unit_id
+            AND NOT u.obtained
+    )
+    ORDER BY s.item_id, s.unit_id, sli.is_manual DESC
+)
+UPDATE shopping_list_items sli
+SET obtained = false, quantity = targets.quantity
+FROM targets
+WHERE sli.id = targets.id;
+
+-- name: RestockInsertMissingRows :exec
+INSERT INTO shopping_list_items (shopping_list_id, item_id, unit_id, quantity, obtained, is_manual)
+SELECT sqlc.arg(shopping_list_id), r.item_id, r.unit_id, r.quantity, false, true
+FROM regular_items r
+WHERE r.user_id = sqlc.arg(user_id)
+    AND r.id = ANY(sqlc.arg(regular_ids)::uuid[])
+    AND NOT EXISTS (
+        SELECT 1 FROM shopping_list_items sli
+        WHERE sli.shopping_list_id = sqlc.arg(shopping_list_id)
+            AND sli.item_id = r.item_id
+            AND sli.unit_id IS NOT DISTINCT FROM r.unit_id
+    );

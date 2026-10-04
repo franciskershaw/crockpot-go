@@ -75,3 +75,13 @@ var ErrShoppingListInvalidUnit = errors.New("shopping list unit does not exist")
 var ErrShoppingListItemNotFound = errors.New("shopping list item not found")
 
 var ErrShoppingListQuantityTooLarge = errors.New("shopping list quantity exceeds storable range")
+
+var ErrRegularNotFound = errors.New("regular not found")
+
+var ErrRegularExists = errors.New("item is already a regular")
+
+var ErrRegularsLimitReached = errors.New("regulars limit reached")
+
+var ErrRegularInvalidItem = errors.New("regular item does not exist")
+
+var ErrRegularInvalidUnit = errors.New("regular unit does not exist")

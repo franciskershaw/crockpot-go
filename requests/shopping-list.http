@@ -14,6 +14,10 @@
 # every row (manual included) and every dismissal, then rebuilds from the
 # current menu.
 #
+# POST /shopping-list/restock — CROC-038. Puts selected regulars on the
+# list: skip if the item+unit is already on it unbought, reset a bought
+# row to the regular's quantity, otherwise add a manual row.
+#
 # This file creates its own throwaway items + two throwaway recipes
 # (both using itemId, no unit — "2 eggs"-style) with the ADMIN account,
 # so the shopping list actually has something to aggregate. Run
@@ -637,6 +641,143 @@ POST http://localhost:{{$dotenv PORT}}/shopping-list/regenerate
 
 
 # ══════════════════════════════════════════
+#  POST /shopping-list/restock — regulars onto the list (CROC-038)
+# ══════════════════════════════════════════
+
+### ✅ 201 — a regular for itemId (1 of it). itemId's generated row is on
+### the list unbought at quantity 4, so restock must skip it.
+# @name regularItem
+POST http://localhost:{{$dotenv PORT}}/regulars
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "itemId": "{{itemId}}",
+  "quantity": 1
+}
+
+###
+
+@regularItemId = {{regularItem.response.body.id}}
+
+### ✅ 201 — a regular for manualItemId (2 of it), not on the list at all.
+# @name regularManual
+POST http://localhost:{{$dotenv PORT}}/regulars
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "itemId": "{{manualItemId}}",
+  "quantity": 2
+}
+
+###
+
+@regularManualId = {{regularManual.response.body.id}}
+
+### ✅ 200 {"message": "regulars added to shopping list"}
+POST http://localhost:{{$dotenv PORT}}/shopping-list/restock
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "regularIds": ["{{regularItemId}}", "{{regularManualId}}"]
+}
+
+###
+
+### ✅ 200 — two rows: itemId's generated row unchanged (quantity 4,
+### isManual false), and a new manualItemId row (quantity 2, isManual
+### true, obtained false). Sorted by name, so the new row is items[1].
+# @name listAfterRestock
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+@restockedRowId = {{listAfterRestock.response.body.items[1].id}}
+
+### ✅ 200 — restock both again.
+POST http://localhost:{{$dotenv PORT}}/shopping-list/restock
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "regularIds": ["{{regularItemId}}", "{{regularManualId}}"]
+}
+
+###
+
+### ✅ 200 — identical to the previous GET: nothing is added twice.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — tick the restocked row bought, and bump it to 5.
+PATCH http://localhost:{{$dotenv PORT}}/shopping-list/items/{{restockedRowId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "obtained": true,
+  "quantity": 5
+}
+
+###
+
+### ✅ 200 — restock just the manualItemId regular.
+POST http://localhost:{{$dotenv PORT}}/shopping-list/restock
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "regularIds": ["{{regularManualId}}"]
+}
+
+###
+
+### ✅ 200 — same row id as restockedRowId, now obtained false and
+### quantity 2: a bought row is reset to the regular's quantity, not 5+2.
+GET http://localhost:{{$dotenv PORT}}/shopping-list
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — an id that isn't one of this user's regulars is ignored.
+POST http://localhost:{{$dotenv PORT}}/shopping-list/restock
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "regularIds": ["00000000-0000-0000-0000-000000000000"]
+}
+
+###
+
+### 🚫 400 invalid_request — empty regularIds.
+POST http://localhost:{{$dotenv PORT}}/shopping-list/restock
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "regularIds": []
+}
+
+###
+
+### 🚫 401 — no token.
+POST http://localhost:{{$dotenv PORT}}/shopping-list/restock
+Content-Type: application/json
+
+{
+  "regularIds": ["{{regularManualId}}"]
+}
+
+###
+
+
+# ══════════════════════════════════════════
 #  Auth
 # ══════════════════════════════════════════
 
@@ -678,6 +819,17 @@ Authorization: Bearer {{authToken}}
 ###
 
 DELETE http://localhost:{{$dotenv PORT}}/recipes/{{recipeBId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### Regulars before items: an item that's someone's regular can't be deleted.
+DELETE http://localhost:{{$dotenv PORT}}/regulars/{{regularItemId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+DELETE http://localhost:{{$dotenv PORT}}/regulars/{{regularManualId}}
 Authorization: Bearer {{authToken}}
 
 ###

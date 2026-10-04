@@ -1,0 +1,316 @@
+# Crockpot API — /regulars
+#
+# CROC-038. A user's regulars: catalog items they buy most weeks, each
+# with a quantity and optional unit. One per item, at most 50 per user,
+# every tier. Restocking them onto the list is POST /shopping-list/restock,
+# covered in shopping-list.http.
+#
+# This file creates its own throwaway items with the ADMIN account (item
+# creation is ADMIN-only), and deletes every regular before the items in
+# Cleanup: items can't be deleted while they're someone's regular.
+#
+# The 50 cap isn't driven from here (it needs 50 items); see the CROC-038
+# handoff for how it was exercised.
+
+
+# ══════════════════════════════════════════
+#  Login (ADMIN account)
+# ══════════════════════════════════════════
+
+### Login, to get a token for the checks below.
+# @name login
+POST http://localhost:{{$dotenv PORT}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "password": "correcthorsebattery"
+}
+
+###
+
+@authToken = {{login.response.body.accessToken}}
+
+
+# ══════════════════════════════════════════
+#  Fixtures — two items; itemA allows only unitId1
+# ══════════════════════════════════════════
+
+### Real item category to hang the throwaway items off.
+# @name itemCategory
+GET http://localhost:{{$dotenv PORT}}/item-categories
+
+###
+
+@itemCategoryId = {{itemCategory.response.body.$[0].id}}
+
+### Two real seeded units.
+# @name units
+GET http://localhost:{{$dotenv PORT}}/units
+
+###
+
+@unitId1 = {{units.response.body.$[0].id}}
+@unitId2 = {{units.response.body.$[1].id}}
+
+# @name itemA
+POST http://localhost:{{$dotenv PORT}}/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-regulars-item-a",
+  "categoryId": "{{itemCategoryId}}",
+  "allowedUnitIds": ["{{unitId1}}"]
+}
+
+###
+
+@itemAId = {{itemA.response.body.id}}
+
+# @name itemB
+POST http://localhost:{{$dotenv PORT}}/items
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "http-test-regulars-item-b",
+  "categoryId": "{{itemCategoryId}}"
+}
+
+###
+
+@itemBId = {{itemB.response.body.id}}
+
+
+# ══════════════════════════════════════════
+#  GET /regulars — before anything's added
+# ══════════════════════════════════════════
+
+### ✅ 200 — [] if this account has no regulars yet (never null).
+GET http://localhost:{{$dotenv PORT}}/regulars
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  POST /regulars
+# ══════════════════════════════════════════
+
+### ✅ 201 — itemA, 9 of unitId1. Body is the regular, names filled in.
+# @name regularA
+POST http://localhost:{{$dotenv PORT}}/regulars
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "itemId": "{{itemAId}}",
+  "unitId": "{{unitId1}}",
+  "quantity": 9
+}
+
+###
+
+@regularAId = {{regularA.response.body.id}}
+
+### ✅ 201 — itemB with no unit: unitId and unitAbbreviation are null.
+# @name regularB
+POST http://localhost:{{$dotenv PORT}}/regulars
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "itemId": "{{itemBId}}",
+  "quantity": 2
+}
+
+###
+
+@regularBId = {{regularB.response.body.id}}
+
+### 🚫 409 regular_exists — itemA is already a regular; never an upsert.
+POST http://localhost:{{$dotenv PORT}}/regulars
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "itemId": "{{itemAId}}",
+  "quantity": 1
+}
+
+###
+
+### 🚫 400 invalid_item_id — item doesn't exist.
+POST http://localhost:{{$dotenv PORT}}/regulars
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "itemId": "00000000-0000-0000-0000-000000000000",
+  "quantity": 1
+}
+
+###
+
+### 🚫 400 invalid_quantity — zero.
+POST http://localhost:{{$dotenv PORT}}/regulars
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "itemId": "{{itemBId}}",
+  "quantity": 0
+}
+
+###
+
+### ✅ 200 — two regulars, sorted by category then item name: itemA
+### (9, unitId1's abbreviation) then itemB (2, no unit).
+GET http://localhost:{{$dotenv PORT}}/regulars
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  PATCH /regulars/:id — full replacement of unit and quantity
+# ══════════════════════════════════════════
+
+### ✅ 200 — no unitId in the body clears the unit: itemA is now 4, no unit.
+PATCH http://localhost:{{$dotenv PORT}}/regulars/{{regularAId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "quantity": 4
+}
+
+###
+
+### ✅ 200 — unit back on: itemA is 6 of unitId1.
+PATCH http://localhost:{{$dotenv PORT}}/regulars/{{regularAId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "unitId": "{{unitId1}}",
+  "quantity": 6
+}
+
+###
+
+### 🚫 400 unit_not_allowed_for_item — itemA only allows unitId1.
+PATCH http://localhost:{{$dotenv PORT}}/regulars/{{regularAId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "unitId": "{{unitId2}}",
+  "quantity": 6
+}
+
+###
+
+### 🚫 400 invalid_quantity — quantity is required.
+PATCH http://localhost:{{$dotenv PORT}}/regulars/{{regularAId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "unitId": "{{unitId1}}"
+}
+
+###
+
+### 🚫 404 regular_not_found — no such regular (or someone else's).
+PATCH http://localhost:{{$dotenv PORT}}/regulars/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "quantity": 1
+}
+
+###
+
+### ✅ 200 — itemA still 6 of unitId1: the rejected updates changed nothing.
+GET http://localhost:{{$dotenv PORT}}/regulars
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  DELETE /regulars/:id
+# ══════════════════════════════════════════
+
+### ✅ 204 — no body.
+DELETE http://localhost:{{$dotenv PORT}}/regulars/{{regularBId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 404 regular_not_found — already gone.
+DELETE http://localhost:{{$dotenv PORT}}/regulars/{{regularBId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 400 invalid_request — malformed id.
+DELETE http://localhost:{{$dotenv PORT}}/regulars/not-a-uuid
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  Items in use
+# ══════════════════════════════════════════
+
+### 🚫 409 item_in_use — itemA is a regular, so it can't be deleted.
+DELETE http://localhost:{{$dotenv PORT}}/items/{{itemAId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+
+# ══════════════════════════════════════════
+#  Auth
+# ══════════════════════════════════════════
+
+### 🚫 401 — no token.
+GET http://localhost:{{$dotenv PORT}}/regulars
+
+###
+
+### 🚫 401 — no token, on a write too.
+POST http://localhost:{{$dotenv PORT}}/regulars
+Content-Type: application/json
+
+{
+  "itemId": "{{itemBId}}",
+  "quantity": 1
+}
+
+###
+
+
+# ══════════════════════════════════════════
+#  Cleanup — regulars before items
+# ══════════════════════════════════════════
+
+DELETE http://localhost:{{$dotenv PORT}}/regulars/{{regularAId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+DELETE http://localhost:{{$dotenv PORT}}/items/{{itemAId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+DELETE http://localhost:{{$dotenv PORT}}/items/{{itemBId}}
+Authorization: Bearer {{authToken}}
+
+###

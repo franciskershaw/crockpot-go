@@ -63,6 +63,7 @@ TRUNCATE
     menu_history_events,
     shopping_list_items,
     shopping_list_dismissed_items,
+    regular_items,
     item_allowed_units,
     recipes,
     items

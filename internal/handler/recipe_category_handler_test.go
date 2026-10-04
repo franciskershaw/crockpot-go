@@ -58,13 +58,6 @@ func doRecipeCategoryRequest(r *gin.Engine, method, path string, body any) *http
 	return w
 }
 
-func decodeRecipeCategoryErrorBody(t *testing.T, w *httptest.ResponseRecorder) map[string]string {
-	t.Helper()
-	var body map[string]string
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	return body
-}
-
 // --- List ---
 
 func TestRecipeCategoryList_Success(t *testing.T) {
@@ -92,7 +85,7 @@ func TestRecipeCategoryCreate_InvalidJSON(t *testing.T) {
 	m.router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", decodeRecipeCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeCategoryCreate_NameRequired(t *testing.T) {
@@ -101,7 +94,7 @@ func TestRecipeCategoryCreate_NameRequired(t *testing.T) {
 	w := doRecipeCategoryRequest(m.router, http.MethodPost, "/recipe-categories", map[string]string{"name": "  "})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "name_required", decodeRecipeCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "name_required", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeCategoryCreate_NameTooLong(t *testing.T) {
@@ -110,7 +103,7 @@ func TestRecipeCategoryCreate_NameTooLong(t *testing.T) {
 	w := doRecipeCategoryRequest(m.router, http.MethodPost, "/recipe-categories", map[string]string{"name": strings.Repeat("a", 101)})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "name_too_long", decodeRecipeCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "name_too_long", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeCategoryCreate_NameTaken(t *testing.T) {
@@ -120,7 +113,7 @@ func TestRecipeCategoryCreate_NameTaken(t *testing.T) {
 	w := doRecipeCategoryRequest(m.router, http.MethodPost, "/recipe-categories", map[string]string{"name": "Batch"})
 
 	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Equal(t, "name_taken", decodeRecipeCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "name_taken", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeCategoryCreate_Success(t *testing.T) {
@@ -144,7 +137,7 @@ func TestRecipeCategoryUpdate_NameRequired(t *testing.T) {
 	w := doRecipeCategoryRequest(m.router, http.MethodPatch, "/recipe-categories/"+fakeRecipeCategory.ID.String(), map[string]string{"name": " "})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "name_required", decodeRecipeCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "name_required", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeCategoryUpdate_Success(t *testing.T) {
@@ -163,7 +156,7 @@ func TestRecipeCategoryUpdate_NotFound(t *testing.T) {
 	w := doRecipeCategoryRequest(m.router, http.MethodPatch, "/recipe-categories/"+fakeRecipeCategory.ID.String(), map[string]string{"name": "New Name"})
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Equal(t, "not_found", decodeRecipeCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "not_found", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeCategoryUpdate_NameTaken(t *testing.T) {
@@ -173,7 +166,7 @@ func TestRecipeCategoryUpdate_NameTaken(t *testing.T) {
 	w := doRecipeCategoryRequest(m.router, http.MethodPatch, "/recipe-categories/"+fakeRecipeCategory.ID.String(), map[string]string{"name": "New Name"})
 
 	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Equal(t, "name_taken", decodeRecipeCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "name_taken", decodeJSONBody(t, w)["error"])
 }
 
 // --- Delete ---
@@ -195,7 +188,7 @@ func TestRecipeCategoryDelete_NotFound(t *testing.T) {
 	w := doRecipeCategoryRequest(m.router, http.MethodDelete, "/recipe-categories/"+fakeRecipeCategory.ID.String(), nil)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Equal(t, "not_found", decodeRecipeCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "not_found", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeCategoryDelete_InUse(t *testing.T) {
@@ -205,5 +198,5 @@ func TestRecipeCategoryDelete_InUse(t *testing.T) {
 	w := doRecipeCategoryRequest(m.router, http.MethodDelete, "/recipe-categories/"+fakeRecipeCategory.ID.String(), nil)
 
 	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Equal(t, "category_in_use", decodeRecipeCategoryErrorBody(t, w)["error"])
+	assert.Equal(t, "category_in_use", decodeJSONBody(t, w)["error"])
 }
