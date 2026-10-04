@@ -117,13 +117,18 @@ func setShoppingListItemObtained(t *testing.T, itemRowID uuid.UUID, obtained boo
 
 func insertManualShoppingListItem(t *testing.T, userID, itemID uuid.UUID, unitID *uuid.UUID, quantity float64, obtained bool) uuid.UUID {
 	t.Helper()
+	return insertShoppingListItemRow(t, userID, itemID, unitID, quantity, obtained, true)
+}
+
+func insertShoppingListItemRow(t *testing.T, userID, itemID uuid.UUID, unitID *uuid.UUID, quantity float64, obtained, isManual bool) uuid.UUID {
+	t.Helper()
 	listID := getOrCreateShoppingListID(t, userID)
 
 	id := uuid.New()
 	_, err := db.DB.Exec(context.Background(),
 		`INSERT INTO shopping_list_items (id, shopping_list_id, item_id, unit_id, quantity, obtained, is_manual)
-		 VALUES ($1, $2, $3, $4, $5, $6, true)`,
-		id, listID, itemID, unitID, quantity, obtained,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		id, listID, itemID, unitID, quantity, obtained, isManual,
 	)
 	require.NoError(t, err)
 	cleanupExec(t, `DELETE FROM shopping_list_items WHERE id = $1`, id)
