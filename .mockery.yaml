@@ -25,4 +25,5 @@ packages:
       MenuRepository:
       ShoppingListRegenerator:
       ShoppingListRepository:
+      RegularRepository:
       ImageStore:

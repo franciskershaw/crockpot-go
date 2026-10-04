@@ -86,6 +86,7 @@ func main() {
 	recipeRepo := repository.NewPostgresRecipeRepository(db.DB)
 	menuRepo := repository.NewPostgresMenuRepository(db.DB)
 	shoppingListRepo := repository.NewPostgresShoppingListRepository(db.DB)
+	regularRepo := repository.NewPostgresRegularRepository(db.DB)
 	emailSender := email.NewResendClient(cfg.ResendAPIKey, cfg.EmailFrom)
 	authHandler := handler.NewAuthHandler(userRepo, oauthManager, refreshTokenRepo, emailVerificationTokenRepo, passwordResetTokenRepo, emailSender, transactor, cfg)
 	itemCategoryHandler := handler.NewItemCategoryHandler(itemCategoryRepo)
@@ -100,6 +101,7 @@ func main() {
 	})
 	menuHandler := handler.NewMenuHandler(menuRepo, shoppingListRepo, transactor)
 	shoppingListHandler := handler.NewShoppingListHandler(shoppingListRepo, transactor)
+	regularHandler := handler.NewRegularHandler(regularRepo)
 
 	// Initialize Gin server
 	gin.SetMode(configureGinMode(string(cfg.Environment)))
@@ -226,6 +228,16 @@ func main() {
 		shoppingList.DELETE("/items/:id", shoppingListHandler.DeleteItem)
 		shoppingList.DELETE("", shoppingListHandler.ClearList)
 		shoppingList.POST("/regenerate", shoppingListHandler.Regenerate)
+		shoppingList.POST("/restock", shoppingListHandler.Restock)
+	}
+
+	regulars := server.Group("/regulars")
+	regulars.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess))
+	{
+		regulars.GET("", regularHandler.List)
+		regulars.POST("", regularHandler.Create)
+		regulars.PATCH("/:id", regularHandler.Update)
+		regulars.DELETE("/:id", regularHandler.Delete)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

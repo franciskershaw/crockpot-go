@@ -16,6 +16,7 @@ type ShoppingListRepository interface {
 	DeleteItem(ctx context.Context, userID, itemRowID string) error
 	ClearList(ctx context.Context, userID string) error
 	RegenerateFromScratch(ctx context.Context, userID string) error
+	Restock(ctx context.Context, userID string, regularIDs []string) error
 }
 
 type ShoppingListHandler struct {
@@ -48,7 +49,7 @@ func (h *ShoppingListHandler) AddItem(c *gin.Context) {
 		unauthorized(c, "unauthorized")
 		return
 	}
-	itemID, unitID, quantity, ok := parseAddManualShoppingListItemRequest(c)
+	itemID, unitID, quantity, ok := parseItemQuantityRequest(c)
 	if !ok {
 		return
 	}
@@ -154,4 +155,25 @@ func (h *ShoppingListHandler) Regenerate(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "shopping list regenerated"})
+}
+
+func (h *ShoppingListHandler) Restock(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+	regularIDs, ok := parseRestockRequest(c)
+	if !ok {
+		return
+	}
+
+	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
+		return h.repo.Restock(ctx, userID, regularIDs)
+	})
+	if txErr != nil {
+		internalError(c, "failed to restock regulars", txErr)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "regulars added to shopping list"})
 }

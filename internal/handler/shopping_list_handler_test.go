@@ -49,6 +49,7 @@ func newShoppingListMocks(t *testing.T) *shoppingListMocks {
 		authed.DELETE("/items/:id", h.DeleteItem)
 		authed.DELETE("", h.ClearList)
 		authed.POST("/regenerate", h.Regenerate)
+		authed.POST("/restock", h.Restock)
 	}
 	return m
 }
@@ -562,4 +563,93 @@ func TestShoppingListRegenerate_RunsInsideTransaction(t *testing.T) {
 
 	w := doShoppingListRegenerate(router, shoppingListAuth(t, "FREE"))
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func doShoppingListRestock(r *gin.Engine, body any, auth string) *httptest.ResponseRecorder {
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/shopping-list/restock", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestShoppingListRestock_NoToken_401(t *testing.T) {
+	m := newShoppingListMocks(t)
+	w := doShoppingListRestock(m.router, map[string]any{"regularIds": []string{uuid.NewString()}}, "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestShoppingListRestock_Success_200Message(t *testing.T) {
+	m := newShoppingListMocks(t)
+	ids := []string{uuid.NewString(), uuid.NewString()}
+	m.repo.EXPECT().Restock(mock.Anything, shoppingListUserID.String(), ids).Return(nil)
+
+	w := doShoppingListRestock(m.router, map[string]any{"regularIds": ids}, shoppingListAuth(t, "FREE"))
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "regulars added to shopping list", shoppingListMsg(t, w))
+}
+
+func TestShoppingListRestock_RunsInsideTransaction(t *testing.T) {
+	repo := genmocks.NewMockShoppingListRepository(t)
+	transactor := genmocks.NewMockTransactor(t)
+	transactor.EXPECT().WithinTx(mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+			return fn(context.WithValue(ctx, txMarkerKey{}, true))
+		})
+	inTx := mock.MatchedBy(func(ctx context.Context) bool { return ctx.Value(txMarkerKey{}) == true })
+	repo.EXPECT().Restock(inTx, shoppingListUserID.String(), mock.Anything).Return(nil)
+
+	h := handler.NewShoppingListHandler(repo, transactor)
+	router := gin.New()
+	router.POST("/shopping-list/restock", middleware.AuthMiddleware(testutil.TestAccessSecret), h.Restock)
+
+	w := doShoppingListRestock(router, map[string]any{"regularIds": []string{uuid.NewString()}}, shoppingListAuth(t, "FREE"))
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestShoppingListRestock_AcceptsFiftyIDs(t *testing.T) {
+	m := newShoppingListMocks(t)
+	ids := make([]string, 50)
+	for i := range ids {
+		ids[i] = uuid.NewString()
+	}
+	m.repo.EXPECT().Restock(mock.Anything, shoppingListUserID.String(), ids).Return(nil)
+
+	w := doShoppingListRestock(m.router, map[string]any{"regularIds": ids}, shoppingListAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestShoppingListRestock_InvalidBody_400(t *testing.T) {
+	tooMany := make([]string, 51)
+	for i := range tooMany {
+		tooMany[i] = uuid.NewString()
+	}
+	for name, body := range map[string]any{
+		"missing ids":  map[string]any{},
+		"empty ids":    map[string]any{"regularIds": []string{}},
+		"51 ids":       map[string]any{"regularIds": tooMany},
+		"malformed id": map[string]any{"regularIds": []string{uuid.NewString(), "nope"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := newShoppingListMocks(t)
+			w := doShoppingListRestock(m.router, body, shoppingListAuth(t, "FREE"))
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			assert.Equal(t, "invalid_request", shoppingListErr(t, w))
+		})
+	}
+}
+
+func TestShoppingListRestock_RepoError_500(t *testing.T) {
+	m := newShoppingListMocks(t)
+	m.repo.EXPECT().Restock(mock.Anything, mock.Anything, mock.Anything).Return(errors.New("db down"))
+
+	w := doShoppingListRestock(m.router, map[string]any{"regularIds": []string{uuid.NewString()}}, shoppingListAuth(t, "FREE"))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

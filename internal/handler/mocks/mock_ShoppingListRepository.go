@@ -274,6 +274,54 @@ func (_c *MockShoppingListRepository_RegenerateFromScratch_Call) RunAndReturn(ru
 	return _c
 }
 
+// Restock provides a mock function with given fields: ctx, userID, regularIDs
+func (_m *MockShoppingListRepository) Restock(ctx context.Context, userID string, regularIDs []string) error {
+	ret := _m.Called(ctx, userID, regularIDs)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Restock")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, []string) error); ok {
+		r0 = rf(ctx, userID, regularIDs)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShoppingListRepository_Restock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Restock'
+type MockShoppingListRepository_Restock_Call struct {
+	*mock.Call
+}
+
+// Restock is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - regularIDs []string
+func (_e *MockShoppingListRepository_Expecter) Restock(ctx interface{}, userID interface{}, regularIDs interface{}) *MockShoppingListRepository_Restock_Call {
+	return &MockShoppingListRepository_Restock_Call{Call: _e.mock.On("Restock", ctx, userID, regularIDs)}
+}
+
+func (_c *MockShoppingListRepository_Restock_Call) Run(run func(ctx context.Context, userID string, regularIDs []string)) *MockShoppingListRepository_Restock_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].([]string))
+	})
+	return _c
+}
+
+func (_c *MockShoppingListRepository_Restock_Call) Return(_a0 error) *MockShoppingListRepository_Restock_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShoppingListRepository_Restock_Call) RunAndReturn(run func(context.Context, string, []string) error) *MockShoppingListRepository_Restock_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateItem provides a mock function with given fields: ctx, userID, itemRowID, obtained, quantity
 func (_m *MockShoppingListRepository) UpdateItem(ctx context.Context, userID string, itemRowID string, obtained *bool, quantity *float64) error {
 	ret := _m.Called(ctx, userID, itemRowID, obtained, quantity)
