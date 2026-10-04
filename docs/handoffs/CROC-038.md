@@ -98,7 +98,7 @@ go-ahead, confirm green, stop.
 |---|---|---|---|
 | `GET /regulars` | — | 200 `[{id, itemId, itemName, categoryId, categoryName, unitId, unitAbbreviation, quantity}]`, ordered by category name then item name | — |
 | `POST /regulars` | `{itemId, unitId?, quantity}` | 201 + the regular | 400 `invalid_item_id` / `invalid_unit_id` / `unit_not_allowed_for_item` / existing quantity errors; 409 `regular_exists`; 409 `regulars_limit_reached` |
-| `PATCH /regulars/:id` | `{unitId?, quantity?}`, at least one | 200 + the regular | 400 as above, `invalid_request` for an empty body; 404 `regular_not_found` |
+| `PATCH /regulars/:id` | `{unitId: string \| null, quantity}`, a full replacement: `quantity` required, absent or null `unitId` clears the unit | 200 + the regular | 400 as above; 404 `regular_not_found` |
 | `DELETE /regulars/:id` | — | 204 | 404 `regular_not_found` |
 | `POST /shopping-list/restock` | `{regularIds: [...]}` | 200 `{message}` | 400 for an empty array or more than 50 IDs, or a malformed ID |
 

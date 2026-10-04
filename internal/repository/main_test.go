@@ -23,6 +23,7 @@ var (
 	recipeRepo                 *repository.PostgresRecipeRepository
 	menuRepo                   *repository.PostgresMenuRepository
 	shoppingListRepo           *repository.PostgresShoppingListRepository
+	regularRepo                *repository.PostgresRegularRepository
 	transactor                 *repository.PostgresTransactor
 	repoUserID                 uuid.UUID
 )
@@ -53,6 +54,7 @@ func TestMain(m *testing.M) {
 	recipeRepo = repository.NewPostgresRecipeRepository(db.DB)
 	menuRepo = repository.NewPostgresMenuRepository(db.DB)
 	shoppingListRepo = repository.NewPostgresShoppingListRepository(db.DB)
+	regularRepo = repository.NewPostgresRegularRepository(db.DB)
 	transactor = repository.NewPostgresTransactor(db.DB)
 	repoUserID = uuid.New()
 
