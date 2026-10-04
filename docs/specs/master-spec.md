@@ -1020,13 +1020,10 @@ addressed only once Epics 1-6's core functionality has shipped, not
 inserted into the current build order. Grill properly before starting —
 the open questions below aren't decisions, just what a grill would need
 to resolve. Paired with `crockpot-react`'s `CFE-015`.*
-- **CROC-038** — Regulars (was "default items"): a per-user set of
-  catalog items with quantity/unit, CRUD under `/regulars`, plus
-  `POST /shopping-list/restock`. Grilled 2026-10-03, AI-driven,
-  `docs/handoffs/CROC-038.md`. Catalog-only, one per item, every tier,
-  capped at 50; restock skips anything on the list unbought and resets
-  bought rows. Build ahead of `crockpot-react` `CFE-015`, which waits on
-  designs.
+- **CROC-038** — **Done** (2026-10-04). Regulars: a per-user set of
+  catalog items with quantity/unit, CRUD under `/regulars` (one per item,
+  capped at 50, every tier), plus `POST /shopping-list/restock`.
+  `docs/handoffs/CROC-038.md`. Unblocks `crockpot-react` `CFE-015`.
 
 *Raised 2026-09-06 during `CROC-042`'s grill, parked here for the same
 reason as `CROC-038` above — a loosely-scoped idea, not sequenced.*

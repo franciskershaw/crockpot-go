@@ -658,3 +658,8 @@ implementation quality until CROC-001 lands.
 
 - No rework in code. The grill corrected two claims in the tech-debt finding before any code: its example ceiling (100,000) can't prevent the overflow it targets, since a unit's `base_factor` × the serves ratio × the menu-wide sum still passes `NUMERIC(10, 2)`; and "no client-side cap" was wrong, since `CFE-042` had added one at 999,999.99. Branch-review's one bug lead was a false positive, settled by reading the regenerate SQL outside the diff.
 - **Pattern**: when a fix proposes a bound to prevent overflow, multiply the bound through every downstream scaling factor before accepting it. A bound that can't prevent the failure is input hygiene, and the error mapping is the real fix.
+
+## 2026-10-04 — CROC-038 — Regulars and restock shipped; clean
+
+- No rework. One handoff claim was wrong (the FK-index schema test checks a hand-kept list, not every FK) and was caught at the first piece. Branch-review's two bug leads were false positives again, settled outside the diff: the list upsert's row lock serialises restocks, and item/unit deletes map any restrict violation.
+- **Pattern**: when a reviewer flags a race that an existing lock already prevents, add a deterministic lock-wait test (CROC-058's `waitForLockWait`) and prove it fails with the lock removed, so the question stays answered.

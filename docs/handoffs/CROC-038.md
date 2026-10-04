@@ -163,3 +163,9 @@ Migration `000014_regular_items`:
 Build before `CFE-015`; it doesn't wait for the designs. Suggested pieces:
 migration + schema tests → repository CRUD → restock repository → handlers +
 routes → `.http` files.
+
+The 50 cap was exercised against the running local API by a throwaway script:
+create regulars from real catalog items until refused, expect 409
+`regulars_limit_reached` at exactly 50, delete what it created.
+
+Completed 2026-10-04.
