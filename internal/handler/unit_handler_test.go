@@ -59,13 +59,6 @@ func doUnitRequest(r *gin.Engine, method, path string, body any) *httptest.Respo
 	return w
 }
 
-func decodeUnitErrorBody(t *testing.T, w *httptest.ResponseRecorder) map[string]string {
-	t.Helper()
-	var body map[string]string
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	return body
-}
-
 // --- List ---
 
 func TestUnitList_Success(t *testing.T) {
@@ -94,7 +87,7 @@ func TestUnitCreate_InvalidJSON(t *testing.T) {
 	m.router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", decodeUnitErrorBody(t, w)["error"])
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestUnitCreate_NameRequired(t *testing.T) {
@@ -103,7 +96,7 @@ func TestUnitCreate_NameRequired(t *testing.T) {
 	w := doUnitRequest(m.router, http.MethodPost, "/units", map[string]string{"name": "  ", "abbreviation": "g"})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "name_required", decodeUnitErrorBody(t, w)["error"])
+	assert.Equal(t, "name_required", decodeJSONBody(t, w)["error"])
 }
 
 func TestUnitCreate_NameTooLong(t *testing.T) {
@@ -112,7 +105,7 @@ func TestUnitCreate_NameTooLong(t *testing.T) {
 	w := doUnitRequest(m.router, http.MethodPost, "/units", map[string]string{"name": strings.Repeat("a", 101), "abbreviation": "g"})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "name_too_long", decodeUnitErrorBody(t, w)["error"])
+	assert.Equal(t, "name_too_long", decodeJSONBody(t, w)["error"])
 }
 
 func TestUnitCreate_AbbreviationRequired(t *testing.T) {
@@ -121,7 +114,7 @@ func TestUnitCreate_AbbreviationRequired(t *testing.T) {
 	w := doUnitRequest(m.router, http.MethodPost, "/units", map[string]string{"name": "grams", "abbreviation": " "})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "abbreviation_required", decodeUnitErrorBody(t, w)["error"])
+	assert.Equal(t, "abbreviation_required", decodeJSONBody(t, w)["error"])
 }
 
 func TestUnitCreate_AbbreviationTooLong(t *testing.T) {
@@ -130,7 +123,7 @@ func TestUnitCreate_AbbreviationTooLong(t *testing.T) {
 	w := doUnitRequest(m.router, http.MethodPost, "/units", map[string]string{"name": "grams", "abbreviation": strings.Repeat("a", 33)})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "abbreviation_too_long", decodeUnitErrorBody(t, w)["error"])
+	assert.Equal(t, "abbreviation_too_long", decodeJSONBody(t, w)["error"])
 }
 
 func TestUnitCreate_NameTaken(t *testing.T) {
@@ -140,7 +133,7 @@ func TestUnitCreate_NameTaken(t *testing.T) {
 	w := doUnitRequest(m.router, http.MethodPost, "/units", map[string]string{"name": "grams", "abbreviation": "g"})
 
 	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Equal(t, "name_taken", decodeUnitErrorBody(t, w)["error"])
+	assert.Equal(t, "name_taken", decodeJSONBody(t, w)["error"])
 }
 
 func TestUnitCreate_AbbreviationTaken(t *testing.T) {
@@ -150,7 +143,7 @@ func TestUnitCreate_AbbreviationTaken(t *testing.T) {
 	w := doUnitRequest(m.router, http.MethodPost, "/units", map[string]string{"name": "grams", "abbreviation": "g"})
 
 	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Equal(t, "abbreviation_taken", decodeUnitErrorBody(t, w)["error"])
+	assert.Equal(t, "abbreviation_taken", decodeJSONBody(t, w)["error"])
 }
 
 func TestUnitCreate_Success(t *testing.T) {
@@ -175,7 +168,7 @@ func TestUnitUpdate_NeitherFieldProvided(t *testing.T) {
 	w := doUnitRequest(m.router, http.MethodPatch, "/units/"+fakeUnit.ID.String(), map[string]string{})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", decodeUnitErrorBody(t, w)["error"])
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestUnitUpdate_PartialNameOnly(t *testing.T) {
@@ -203,7 +196,7 @@ func TestUnitUpdate_NotFound(t *testing.T) {
 	w := doUnitRequest(m.router, http.MethodPatch, "/units/"+fakeUnit.ID.String(), map[string]string{"name": "kilograms"})
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Equal(t, "not_found", decodeUnitErrorBody(t, w)["error"])
+	assert.Equal(t, "not_found", decodeJSONBody(t, w)["error"])
 }
 
 func TestUnitUpdate_NameTaken(t *testing.T) {
@@ -213,7 +206,7 @@ func TestUnitUpdate_NameTaken(t *testing.T) {
 	w := doUnitRequest(m.router, http.MethodPatch, "/units/"+fakeUnit.ID.String(), map[string]string{"name": "kilograms"})
 
 	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Equal(t, "name_taken", decodeUnitErrorBody(t, w)["error"])
+	assert.Equal(t, "name_taken", decodeJSONBody(t, w)["error"])
 }
 
 // --- Delete ---
@@ -235,7 +228,7 @@ func TestUnitDelete_NotFound(t *testing.T) {
 	w := doUnitRequest(m.router, http.MethodDelete, "/units/"+fakeUnit.ID.String(), nil)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Equal(t, "not_found", decodeUnitErrorBody(t, w)["error"])
+	assert.Equal(t, "not_found", decodeJSONBody(t, w)["error"])
 }
 
 func TestUnitDelete_InUse(t *testing.T) {
@@ -245,5 +238,5 @@ func TestUnitDelete_InUse(t *testing.T) {
 	w := doUnitRequest(m.router, http.MethodDelete, "/units/"+fakeUnit.ID.String(), nil)
 
 	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Equal(t, "unit_in_use", decodeUnitErrorBody(t, w)["error"])
+	assert.Equal(t, "unit_in_use", decodeJSONBody(t, w)["error"])
 }

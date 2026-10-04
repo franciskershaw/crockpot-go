@@ -42,15 +42,6 @@ func regularAuth(t *testing.T) string {
 	return testutil.AuthHeader(t, "cook@example.com", regularUserID.String(), "FREE")
 }
 
-func regularErr(t *testing.T, w *httptest.ResponseRecorder) string {
-	t.Helper()
-	var body struct {
-		Error string `json:"error"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	return body.Error
-}
-
 func doRegularRequest(r *gin.Engine, method, path string, body any, auth string) *httptest.ResponseRecorder {
 	var reader *bytes.Reader
 	if body != nil {
@@ -196,7 +187,7 @@ func TestRegularCreate_RepoErrorsMapToContract(t *testing.T) {
 			w := doRegularRequest(r, http.MethodPost, "/regulars", map[string]any{"itemId": uuid.NewString(), "quantity": 1}, regularAuth(t))
 
 			assert.Equal(t, tc.status, w.Code)
-			assert.Equal(t, tc.code, regularErr(t, w))
+			assert.Equal(t, tc.code, decodeJSONBody(t, w)["error"])
 		})
 	}
 }
@@ -269,7 +260,7 @@ func TestRegularUpdate_RepoErrorsMapToContract(t *testing.T) {
 			w := doRegularRequest(r, http.MethodPatch, "/regulars/"+uuid.NewString(), map[string]any{"quantity": 1}, regularAuth(t))
 
 			assert.Equal(t, tc.status, w.Code)
-			assert.Equal(t, tc.code, regularErr(t, w))
+			assert.Equal(t, tc.code, decodeJSONBody(t, w)["error"])
 		})
 	}
 }
@@ -309,7 +300,7 @@ func TestRegularDelete_RepoErrorsMapToContract(t *testing.T) {
 			w := doRegularRequest(r, http.MethodDelete, "/regulars/"+uuid.NewString(), nil, regularAuth(t))
 
 			assert.Equal(t, tc.status, w.Code)
-			assert.Equal(t, tc.code, regularErr(t, w))
+			assert.Equal(t, tc.code, decodeJSONBody(t, w)["error"])
 		})
 	}
 }

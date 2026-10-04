@@ -73,7 +73,7 @@ func TestRecipeCreate_Photo_UploadFails_502NothingSaved(t *testing.T) {
 	w := doRecipeWrite(t, m.router, http.MethodPost, "/recipes", validRecipeBody(), jpegBytes, recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusBadGateway, w.Code)
-	assert.Equal(t, "image_upload_failed", recipeErr(t, w))
+	assert.Equal(t, "image_upload_failed", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeCreate_Photo_SaveFails_DestroysNewUpload(t *testing.T) {
@@ -87,7 +87,7 @@ func TestRecipeCreate_Photo_SaveFails_DestroysNewUpload(t *testing.T) {
 	w := doRecipeWrite(t, m.router, http.MethodPost, "/recipes", validRecipeBody(), jpegBytes, recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_item_id", recipeErr(t, w))
+	assert.Equal(t, "invalid_item_id", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeCreate_Photo_AtRecipeCap_RefusedBeforeUpload(t *testing.T) {
@@ -97,7 +97,7 @@ func TestRecipeCreate_Photo_AtRecipeCap_RefusedBeforeUpload(t *testing.T) {
 	w := doRecipeWrite(t, m.router, http.MethodPost, "/recipes", validRecipeBody(), jpegBytes, recipeAuth(t, "FREE"))
 
 	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Equal(t, "recipe_limit_reached", recipeErr(t, w))
+	assert.Equal(t, "recipe_limit_reached", decodeJSONBody(t, w)["error"])
 }
 
 func TestRecipeUpdate_ImageActionWithoutPhoto(t *testing.T) {
@@ -184,7 +184,7 @@ func TestRecipeUpdate_Photo_RefusedBeforeUpload(t *testing.T) {
 			w := doRecipeWrite(t, m.router, http.MethodPatch, "/recipes/"+id, validRecipeBody(), jpegBytes, recipeAuth(t, "FREE"))
 
 			assert.Equal(t, tc.wantStatus, w.Code)
-			assert.Equal(t, tc.wantCode, recipeErr(t, w))
+			assert.Equal(t, tc.wantCode, decodeJSONBody(t, w)["error"])
 		})
 	}
 }
@@ -278,7 +278,7 @@ func TestRecipeWrite_PhotoLimitPerUser(t *testing.T) {
 
 	assert.Equal(t, http.StatusCreated, first.Code)
 	assert.Equal(t, http.StatusTooManyRequests, second.Code)
-	assert.Equal(t, "rate_limit_exceeded", recipeErr(t, second))
+	assert.Equal(t, "rate_limit_exceeded", decodeJSONBody(t, second)["error"])
 	retry, err := strconv.Atoi(second.Header().Get("Retry-After"))
 	assert.NoError(t, err)
 	assert.Positive(t, retry)
@@ -351,5 +351,5 @@ func TestRecipeWrite_OversizeChunkedBody_413(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
-	assert.Equal(t, "request_too_large", recipeErr(t, w))
+	assert.Equal(t, "request_too_large", decodeJSONBody(t, w)["error"])
 }

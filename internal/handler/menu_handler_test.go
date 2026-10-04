@@ -118,20 +118,6 @@ func doMenuClear(r *gin.Engine, auth string) *httptest.ResponseRecorder {
 	return w
 }
 
-func menuMsg(t *testing.T, w *httptest.ResponseRecorder) string {
-	t.Helper()
-	var body map[string]string
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	return body["message"]
-}
-
-func menuErr(t *testing.T, w *httptest.ResponseRecorder) string {
-	t.Helper()
-	var body map[string]string
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	return body["error"]
-}
-
 func fakeMenu() *models.Menu {
 	return &models.Menu{
 		Entries: []models.MenuEntry{
@@ -200,21 +186,21 @@ func TestMenuUpsertEntry_MalformedRecipeID_400(t *testing.T) {
 	m := newMenuMocks(t)
 	w := doMenuUpsert(m.router, map[string]any{"recipeId": "not-a-uuid", "serves": 4}, menuAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", menuErr(t, w))
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestMenuUpsertEntry_ServesTooLow_400(t *testing.T) {
 	m := newMenuMocks(t)
 	w := doMenuUpsert(m.router, map[string]any{"recipeId": uuid.NewString(), "serves": 0}, menuAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_serves", menuErr(t, w))
+	assert.Equal(t, "invalid_serves", decodeJSONBody(t, w)["error"])
 }
 
 func TestMenuUpsertEntry_ServesTooHigh_400(t *testing.T) {
 	m := newMenuMocks(t)
 	w := doMenuUpsert(m.router, map[string]any{"recipeId": uuid.NewString(), "serves": 51}, menuAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_serves", menuErr(t, w))
+	assert.Equal(t, "invalid_serves", decodeJSONBody(t, w)["error"])
 }
 
 func TestMenuUpsertEntry_Success_200MessageBody(t *testing.T) {
@@ -225,7 +211,7 @@ func TestMenuUpsertEntry_Success_200MessageBody(t *testing.T) {
 
 	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "FREE"))
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "recipe added to menu", menuMsg(t, w))
+	assert.Equal(t, "recipe added to menu", decodeJSONBody(t, w)["message"])
 }
 
 func TestMenuUpsertEntry_RegenerateQuantityTooLarge_400(t *testing.T) {
@@ -236,7 +222,7 @@ func TestMenuUpsertEntry_RegenerateQuantityTooLarge_400(t *testing.T) {
 
 	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "shopping_list_quantity_too_large", menuErr(t, w))
+	assert.Equal(t, "shopping_list_quantity_too_large", decodeJSONBody(t, w)["error"])
 }
 
 func TestMenuUpsertEntry_RegenerateFails_500(t *testing.T) {
@@ -257,7 +243,7 @@ func TestMenuUpsertEntry_HiddenRecipe_404(t *testing.T) {
 
 	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "FREE"))
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Equal(t, "not_found", menuErr(t, w))
+	assert.Equal(t, "not_found", decodeJSONBody(t, w)["error"])
 }
 
 func TestMenuUpsertEntry_ThreadsCallerIsAdmin(t *testing.T) {
@@ -292,14 +278,14 @@ func TestMenuUpdateEntryServes_MalformedID_400(t *testing.T) {
 	m := newMenuMocks(t)
 	w := doMenuPatch(m.router, "not-a-uuid", map[string]any{"serves": 4}, menuAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", menuErr(t, w))
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestMenuUpdateEntryServes_ServesOutOfRange_400(t *testing.T) {
 	m := newMenuMocks(t)
 	w := doMenuPatch(m.router, uuid.NewString(), map[string]any{"serves": 0}, menuAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_serves", menuErr(t, w))
+	assert.Equal(t, "invalid_serves", decodeJSONBody(t, w)["error"])
 }
 
 func TestMenuUpdateEntryServes_Success_200MessageBody(t *testing.T) {
@@ -310,7 +296,7 @@ func TestMenuUpdateEntryServes_Success_200MessageBody(t *testing.T) {
 
 	w := doMenuPatch(m.router, id, map[string]any{"serves": 10}, menuAuth(t, "FREE"))
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "menu entry updated", menuMsg(t, w))
+	assert.Equal(t, "menu entry updated", decodeJSONBody(t, w)["message"])
 }
 
 func TestMenuUpdateEntryServes_RegenerateQuantityTooLarge_400(t *testing.T) {
@@ -321,7 +307,7 @@ func TestMenuUpdateEntryServes_RegenerateQuantityTooLarge_400(t *testing.T) {
 
 	w := doMenuPatch(m.router, id, map[string]any{"serves": 10}, menuAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "shopping_list_quantity_too_large", menuErr(t, w))
+	assert.Equal(t, "shopping_list_quantity_too_large", decodeJSONBody(t, w)["error"])
 }
 
 func TestMenuUpdateEntryServes_RegenerateFails_500(t *testing.T) {
@@ -342,7 +328,7 @@ func TestMenuUpdateEntryServes_NotOnMenu_404(t *testing.T) {
 
 	w := doMenuPatch(m.router, id, map[string]any{"serves": 10}, menuAuth(t, "FREE"))
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Equal(t, "menu_entry_not_found", menuErr(t, w))
+	assert.Equal(t, "menu_entry_not_found", decodeJSONBody(t, w)["error"])
 }
 
 func TestMenuUpdateEntryServes_RepoError_500(t *testing.T) {
@@ -367,7 +353,7 @@ func TestMenuRemoveEntry_MalformedID_400(t *testing.T) {
 	m := newMenuMocks(t)
 	w := doMenuDelete(m.router, "not-a-uuid", menuAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", menuErr(t, w))
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestMenuRemoveEntry_Success_200MessageBody(t *testing.T) {
@@ -378,7 +364,7 @@ func TestMenuRemoveEntry_Success_200MessageBody(t *testing.T) {
 
 	w := doMenuDelete(m.router, id, menuAuth(t, "FREE"))
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "recipe removed from menu", menuMsg(t, w))
+	assert.Equal(t, "recipe removed from menu", decodeJSONBody(t, w)["message"])
 }
 
 func TestMenuRemoveEntry_RegenerateQuantityTooLarge_400(t *testing.T) {
@@ -389,7 +375,7 @@ func TestMenuRemoveEntry_RegenerateQuantityTooLarge_400(t *testing.T) {
 
 	w := doMenuDelete(m.router, id, menuAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "shopping_list_quantity_too_large", menuErr(t, w))
+	assert.Equal(t, "shopping_list_quantity_too_large", decodeJSONBody(t, w)["error"])
 }
 
 func TestMenuRemoveEntry_RegenerateFails_500(t *testing.T) {
@@ -425,7 +411,7 @@ func TestMenuClear_Success_200MessageBody(t *testing.T) {
 
 	w := doMenuClear(m.router, menuAuth(t, "FREE"))
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "menu cleared", menuMsg(t, w))
+	assert.Equal(t, "menu cleared", decodeJSONBody(t, w)["message"])
 }
 
 func TestMenuClear_RegenerateQuantityTooLarge_400(t *testing.T) {
@@ -435,7 +421,7 @@ func TestMenuClear_RegenerateQuantityTooLarge_400(t *testing.T) {
 
 	w := doMenuClear(m.router, menuAuth(t, "FREE"))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "shopping_list_quantity_too_large", menuErr(t, w))
+	assert.Equal(t, "shopping_list_quantity_too_large", decodeJSONBody(t, w)["error"])
 }
 
 func TestMenuClear_RegenerateFails_500(t *testing.T) {

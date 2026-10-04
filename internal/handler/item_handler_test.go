@@ -66,13 +66,6 @@ func doItemRequest(r *gin.Engine, method, path string, body any) *httptest.Respo
 	return w
 }
 
-func decodeItemErrorBody(t *testing.T, w *httptest.ResponseRecorder) map[string]string {
-	t.Helper()
-	var body map[string]string
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	return body
-}
-
 // --- List ---
 
 func TestItemList_Success(t *testing.T) {
@@ -101,7 +94,7 @@ func TestItemCreate_InvalidJSON(t *testing.T) {
 	m.router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", decodeItemErrorBody(t, w)["error"])
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCreate_NameRequired(t *testing.T) {
@@ -110,7 +103,7 @@ func TestItemCreate_NameRequired(t *testing.T) {
 	w := doItemRequest(m.router, http.MethodPost, "/items", map[string]any{"name": "  ", "categoryId": fakeItem.CategoryID.String()})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "name_required", decodeItemErrorBody(t, w)["error"])
+	assert.Equal(t, "name_required", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCreate_NameTooLong(t *testing.T) {
@@ -119,7 +112,7 @@ func TestItemCreate_NameTooLong(t *testing.T) {
 	w := doItemRequest(m.router, http.MethodPost, "/items", map[string]any{"name": strings.Repeat("a", 101), "categoryId": fakeItem.CategoryID.String()})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "name_too_long", decodeItemErrorBody(t, w)["error"])
+	assert.Equal(t, "name_too_long", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCreate_CategoryIDRequired(t *testing.T) {
@@ -128,7 +121,7 @@ func TestItemCreate_CategoryIDRequired(t *testing.T) {
 	w := doItemRequest(m.router, http.MethodPost, "/items", map[string]any{"name": "Fresh Basil", "categoryId": " "})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "category_id_required", decodeItemErrorBody(t, w)["error"])
+	assert.Equal(t, "category_id_required", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCreate_CategoryIDMalformed(t *testing.T) {
@@ -137,7 +130,7 @@ func TestItemCreate_CategoryIDMalformed(t *testing.T) {
 	w := doItemRequest(m.router, http.MethodPost, "/items", map[string]any{"name": "Fresh Basil", "categoryId": "not-a-uuid"})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", decodeItemErrorBody(t, w)["error"])
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCreate_AllowedUnitIDMalformed(t *testing.T) {
@@ -148,7 +141,7 @@ func TestItemCreate_AllowedUnitIDMalformed(t *testing.T) {
 	})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", decodeItemErrorBody(t, w)["error"])
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCreate_NameTaken(t *testing.T) {
@@ -158,7 +151,7 @@ func TestItemCreate_NameTaken(t *testing.T) {
 	w := doItemRequest(m.router, http.MethodPost, "/items", map[string]any{"name": "Fresh Basil", "categoryId": fakeItem.CategoryID.String()})
 
 	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Equal(t, "name_taken", decodeItemErrorBody(t, w)["error"])
+	assert.Equal(t, "name_taken", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCreate_InvalidCategory(t *testing.T) {
@@ -168,7 +161,7 @@ func TestItemCreate_InvalidCategory(t *testing.T) {
 	w := doItemRequest(m.router, http.MethodPost, "/items", map[string]any{"name": "Fresh Basil", "categoryId": fakeItem.CategoryID.String()})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_category_id", decodeItemErrorBody(t, w)["error"])
+	assert.Equal(t, "invalid_category_id", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCreate_InvalidUnit(t *testing.T) {
@@ -181,7 +174,7 @@ func TestItemCreate_InvalidUnit(t *testing.T) {
 	})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_unit_id", decodeItemErrorBody(t, w)["error"])
+	assert.Equal(t, "invalid_unit_id", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemCreate_Success(t *testing.T) {
@@ -205,7 +198,7 @@ func TestItemUpdate_NoFieldsProvided(t *testing.T) {
 	w := doItemRequest(m.router, http.MethodPatch, "/items/"+fakeItem.ID.String(), map[string]any{})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, "invalid_request", decodeItemErrorBody(t, w)["error"])
+	assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemUpdate_PartialNameOnly(t *testing.T) {
@@ -243,7 +236,7 @@ func TestItemUpdate_NotFound(t *testing.T) {
 	w := doItemRequest(m.router, http.MethodPatch, "/items/"+fakeItem.ID.String(), map[string]any{"name": "New Name"})
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Equal(t, "not_found", decodeItemErrorBody(t, w)["error"])
+	assert.Equal(t, "not_found", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemUpdate_NameTaken(t *testing.T) {
@@ -253,7 +246,7 @@ func TestItemUpdate_NameTaken(t *testing.T) {
 	w := doItemRequest(m.router, http.MethodPatch, "/items/"+fakeItem.ID.String(), map[string]any{"name": "New Name"})
 
 	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Equal(t, "name_taken", decodeItemErrorBody(t, w)["error"])
+	assert.Equal(t, "name_taken", decodeJSONBody(t, w)["error"])
 }
 
 // --- Delete ---
@@ -275,7 +268,7 @@ func TestItemDelete_NotFound(t *testing.T) {
 	w := doItemRequest(m.router, http.MethodDelete, "/items/"+fakeItem.ID.String(), nil)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Equal(t, "not_found", decodeItemErrorBody(t, w)["error"])
+	assert.Equal(t, "not_found", decodeJSONBody(t, w)["error"])
 }
 
 func TestItemDelete_InUse(t *testing.T) {
@@ -285,5 +278,5 @@ func TestItemDelete_InUse(t *testing.T) {
 	w := doItemRequest(m.router, http.MethodDelete, "/items/"+fakeItem.ID.String(), nil)
 
 	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Equal(t, "item_in_use", decodeItemErrorBody(t, w)["error"])
+	assert.Equal(t, "item_in_use", decodeJSONBody(t, w)["error"])
 }

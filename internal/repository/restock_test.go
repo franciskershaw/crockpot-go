@@ -230,3 +230,47 @@ func TestRestock_RollsBackWithTheActiveTransaction(t *testing.T) {
 	assert.ErrorIs(t, err, boom)
 	assert.Equal(t, before, getShoppingListItemsByUser(t, user))
 }
+
+func TestRestock_ConcurrentRestockWaitsAndAddsOneRow(t *testing.T) {
+	ctx := context.Background()
+	f := newRestockFixture(t)
+	item := f.item(t)
+	user := createTestUser(t)
+	getOrCreateShoppingListID(t, user)
+	regulars := []string{addRegular(t, user, item, &f.unit, 9)}
+
+	restocked := make(chan struct{})
+	release := make(chan struct{})
+	t.Cleanup(func() { releaseOnce(release) })
+	firstErr := make(chan error, 1)
+	go func() {
+		firstErr <- transactor.WithinTx(ctx, func(ctx context.Context) error {
+			if err := shoppingListRepo.Restock(ctx, user.String(), regulars); err != nil {
+				return err
+			}
+			close(restocked)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-restocked:
+	case err := <-firstErr:
+		t.Fatalf("first restock failed before holding its transaction open: %v", err)
+	}
+
+	secondErr := make(chan error, 1)
+	go func() {
+		secondErr <- transactor.WithinTx(ctx, func(ctx context.Context) error {
+			return shoppingListRepo.Restock(ctx, user.String(), regulars)
+		})
+	}()
+
+	waitForLockWait(t)
+	releaseOnce(release)
+
+	require.NoError(t, <-firstErr)
+	require.NoError(t, <-secondErr)
+	items := getShoppingListItemsByUser(t, user)
+	assert.Len(t, items, 1, "a restock that waited must see the first one's row and skip, not insert a second")
+}
