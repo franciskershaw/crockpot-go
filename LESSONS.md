@@ -663,3 +663,9 @@ implementation quality until CROC-001 lands.
 
 - No rework. One handoff claim was wrong (the FK-index schema test checks a hand-kept list, not every FK) and was caught at the first piece. Branch-review's two bug leads were false positives again, settled outside the diff: the list upsert's row lock serialises restocks, and item/unit deletes map any restrict violation.
 - **Pattern**: when a reviewer flags a race that an existing lock already prevents, add a deterministic lock-wait test (CROC-058's `waitForLockWait`) and prove it fails with the lock removed, so the question stays answered.
+
+## 2026-10-04 — Fourth whole-codebase tech-debt pass
+
+- Covered `internal/`, `db/migrations/`, `config/`, `main.go`, `lifecycle.go` (`cmd/migrate-data` excluded). Whole-codebase, but per the founder, nothing already open on the backlog was re-filed (063, 065, 066, 056, 059 and 051's "sign out everywhere"). 8 findings across 4 tickets (`CROC-068`–`071`), full detail in `docs/findings/2026-10-04-tech-debt.md`.
+- The real finds: the server timeouts were never re-checked after `CROC-040` added 6 MiB photo uploads, so a slow save can commit and still lose its response (the Cloudinary client's 20s timeout is longer than the whole 15s write budget). Also, email addresses have been matched case-sensitively since `CROC-002`, which nobody had ever raised.
+- **Pattern**: a ticket that makes a request much heavier (a big body, an outbound call) has to re-check the global server timeouts it now runs under. Those limits were set for small JSON requests.
