@@ -36,7 +36,8 @@ go-ahead, confirm green, stop.
   (`recipe_handler.go:358-373`). It's a soft cap under concurrency.
 - Admin item delete maps an FK violation to 409 `item_in_use` (`item_handler.go:134-141`).
 - `TestSchemaFKColumnsAreIndexed` (`internal/repository/schema_test.go:17`)
-  requires every FK column to lead an index. `TestMigrateTruncateCoversEveryReferencingTable`
+  checks a hand-maintained list of FK columns lead an index; new FK columns
+  must be added to that list. `TestMigrateTruncateCoversEveryReferencingTable`
   (`:208`) requires every table with an FK into a truncated table (here `items`)
   to be in `MigrateTruncate` (`internal/sqlc/queries/migrate.sql`).
 - Routes: `main.go:220` (`/shopping-list` group).

@@ -33,6 +33,9 @@ func TestSchemaFKColumnsAreIndexed(t *testing.T) {
 		{"shopping_list_dismissed_items", "shopping_list_id"},
 		{"shopping_list_dismissed_items", "item_id"},
 		{"shopping_list_dismissed_items", "unit_id"},
+		{"regular_items", "user_id"},
+		{"regular_items", "item_id"},
+		{"regular_items", "unit_id"},
 	}
 
 	for _, fk := range fkColumns {
@@ -342,5 +345,86 @@ func TestMenuHistoryBaselineSchema(t *testing.T) {
 		}
 		require.NoError(t, insert())
 		assert.Error(t, insert(), "a second baseline row for the same menu and recipe must be rejected")
+	})
+}
+
+func insertTestRegular(t *testing.T, userID, itemID uuid.UUID, unitID *uuid.UUID) error {
+	t.Helper()
+	id := uuid.New()
+	_, err := db.DB.Exec(context.Background(),
+		`INSERT INTO regular_items (id, user_id, item_id, unit_id, quantity) VALUES ($1, $2, $3, $4, 1)`,
+		id, userID, itemID, unitID)
+	if err == nil {
+		cleanupExec(t, `DELETE FROM regular_items WHERE id = $1`, id)
+	}
+	return err
+}
+
+func TestRegularItemsSchema(t *testing.T) {
+	require.True(t, tableExists(t, "regular_items"), "regular_items table must exist")
+
+	newItem := func(t *testing.T) uuid.UUID {
+		cat := insertTestItemCategory(t, "repo-test-reg-cat-"+uuid.NewString(), "repo-test-reg-icon-"+uuid.NewString())
+		return insertTestItem(t, "repo-test-reg-item-"+uuid.NewString(), cat)
+	}
+
+	t.Run("columns have the expected types and nullability", func(t *testing.T) {
+		rows, err := db.DB.Query(context.Background(), `
+			SELECT column_name, data_type, is_nullable
+			FROM information_schema.columns
+			WHERE table_name = 'regular_items'`)
+		require.NoError(t, err)
+		defer rows.Close()
+
+		cols := map[string]struct{ dataType, nullable string }{}
+		for rows.Next() {
+			var name, dataType, nullable string
+			require.NoError(t, rows.Scan(&name, &dataType, &nullable))
+			cols[name] = struct{ dataType, nullable string }{dataType, nullable}
+		}
+		require.NoError(t, rows.Err())
+
+		assert.Equal(t, struct{ dataType, nullable string }{"uuid", "NO"}, cols["user_id"])
+		assert.Equal(t, struct{ dataType, nullable string }{"uuid", "NO"}, cols["item_id"])
+		assert.Equal(t, struct{ dataType, nullable string }{"uuid", "YES"}, cols["unit_id"])
+		assert.Equal(t, struct{ dataType, nullable string }{"numeric", "NO"}, cols["quantity"])
+	})
+
+	t.Run("one regular per user and item", func(t *testing.T) {
+		user := insertTestUser(t, "Owner")
+		other := insertTestUser(t, "Other")
+		item := newItem(t)
+
+		require.NoError(t, insertTestRegular(t, user, item, nil))
+		assert.Error(t, insertTestRegular(t, user, item, nil), "a second regular for the same item must be rejected")
+		assert.NoError(t, insertTestRegular(t, other, item, nil), "another user can have the same item")
+	})
+
+	t.Run("deleting a user deletes their regulars", func(t *testing.T) {
+		user := insertTestUser(t, "Owner")
+		require.NoError(t, insertTestRegular(t, user, newItem(t), nil))
+
+		_, err := db.DB.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, user)
+		require.NoError(t, err)
+		assert.Equal(t, 0, rowCount(t, `SELECT count(*) FROM regular_items WHERE user_id = $1`, user))
+	})
+
+	t.Run("an item that is someone's regular cannot be deleted", func(t *testing.T) {
+		user := insertTestUser(t, "Owner")
+		item := newItem(t)
+		require.NoError(t, insertTestRegular(t, user, item, nil))
+
+		_, err := db.DB.Exec(context.Background(), `DELETE FROM items WHERE id = $1`, item)
+		assert.Error(t, err)
+	})
+
+	t.Run("a unit used by a regular cannot be deleted", func(t *testing.T) {
+		user := insertTestUser(t, "Owner")
+		item := newItem(t)
+		unit := insertTestUnit(t, "repo-test-reg-unit-"+uuid.NewString(), "rr-"+uuid.NewString())
+		require.NoError(t, insertTestRegular(t, user, item, &unit))
+
+		_, err := db.DB.Exec(context.Background(), `DELETE FROM units WHERE id = $1`, unit)
+		assert.Error(t, err)
 	})
 }

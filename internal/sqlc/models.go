@@ -138,6 +138,16 @@ type RefreshToken struct {
 	CreatedAt              pgtype.Timestamptz
 }
 
+type RegularItem struct {
+	ID        pgtype.UUID
+	UserID    pgtype.UUID
+	ItemID    pgtype.UUID
+	UnitID    pgtype.UUID
+	Quantity  pgtype.Numeric
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
 type ShoppingList struct {
 	ID        pgtype.UUID
 	UserID    pgtype.UUID
