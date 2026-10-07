@@ -89,19 +89,9 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 		return nil, 0, fmt.Errorf("failed to list recipes: %w", err)
 	}
 
-	total, err := q.CountRecipes(ctx, sqlc.CountRecipesParams{
-		CallerIsAdmin:      filter.CallerIsAdmin,
-		CallerID:           callerID,
-		OnlyMine:           filter.Mine,
-		NameQuery:          filter.Query,
-		MinTime:            int32(filter.MinTime),
-		MaxTime:            int32(filter.MaxTime),
-		ExcludeCategoryIds: pgUUIDs(filter.ExcludeCategoryIDs),
-		IncludeCategoryIds: pgUUIDs(filter.IncludeCategoryIDs),
-		IngredientIds:      pgUUIDs(filter.IngredientIDs),
-	})
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to count recipes: %w", err)
+	total := 0
+	if len(rows) > 0 {
+		total = int(rows[0].Total)
 	}
 
 	cards := make([]*models.RecipeCard, len(rows))

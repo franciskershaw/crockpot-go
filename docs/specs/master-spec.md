@@ -290,9 +290,10 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
 - **List pagination**: offset — `?page=` (1-based, default 1) / `?limit=`
   (default 20, max 50), envelope `{recipes, page, limit, total,
   totalPages}`, `total` respects visibility + all filters, over-range
-  page → empty `recipes` with a 200. First and only paginated list
-  (`CROC-015`); reference-data lists stay bare arrays. Cursor pagination
-  rejected — stable `created_at DESC, id` order makes offset correct for
+  page → empty `recipes` and `total`/`totalPages` 0 with a 200 (total
+  is a window count carried on the page's rows, `CROC-065`). First and
+  only paginated list (`CROC-015`); reference-data lists stay bare
+  arrays. Cursor pagination rejected — stable `created_at DESC, id` order makes offset correct for
   TanStack `useInfiniteQuery`, and the dataset is ~189 rows. Revisit if
   a list ever needs stable paging under heavy concurrent inserts.
 - **Images**: Cloudinary, **uploaded through the API** (`CROC-040`).
