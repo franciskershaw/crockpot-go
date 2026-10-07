@@ -376,6 +376,24 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   FK). Revisit if a query over events gets slow: add a maintained summary
   table (additive), or compact old events into the baseline table.
 
+- **Accounts and attribution** (from the Epic 12 grill, 2026-10-07,
+  `docs/handoffs/CROC-051.md`, `CROC-030.md`):
+  - **Deleting an account is a hard delete.** Owned rows cascade,
+    unapproved recipes are deleted with the account, and approved recipes
+    stay with `created_by_id` null. Rejected: soft delete (a filter on every
+    user query, and the email stays taken) and a grace period (needs a
+    cleanup job). Revisit if a real "undo" request shows up.
+  - **A recipe's byline is the creator's live `users.name`.** Reverses
+    `CROC-002`'s `created_by_name` snapshot: it existed to keep a deleted
+    user's name on their recipes, but a user who deletes their account
+    should take their name with them. Rejected: keeping the copy and
+    updating it on rename and delete (two write paths to keep in step).
+  - **A Google account's name is set when it's created, never after.**
+    Reverses `CROC-004`'s refresh on every sign-in, which would undo a name
+    the user edited.
+  - **A password check on a signed-in request returns 403 when wrong**, never
+    401, because the frontend reads a 401 there as an expired session.
+
 ## Non-functional expectations
 
 **Load & latency**: no meaningful traffic yet (founder + partner, then
@@ -472,7 +490,8 @@ session.*
   credentials, preflight short-circuit; port of `packing-list-go`'s).
   Real cross-origin/browser proof is owed by `crockpot-react` CFE-002a.
   **Done.** See `docs/handoffs/CROC-009a.md`.
-- **CROC-044** — Drop user profile images entirely: remove `image` from
+- ~~**CROC-044**~~ — **Folded into `CROC-051`** (2026-10-07): it rewrites the
+  same login-profile code and `/me` allowlist. Original scope: drop user profile images entirely: remove `image` from
   `models.User`, the sqlc `users` queries/generated code
   (`internal/sqlc/queries/users.sql` + regenerated output), the
   repository layer (`GetOrCreateUser`/`refreshLoginProfile`'s
@@ -816,50 +835,47 @@ not a demotion.*
   webhooks, update `role` accordingly.
 - **CROC-029** — Customer portal / cancel flow + billing-history endpoint.
 
-### Epic 12: Account Deletion
-*Added at `CROC-009`'s grill (`docs/handoffs/CROC-009.md`): raised while
-reasoning about what happens to a live token when its user row is gone —
-there was no way for a user to delete their own account anywhere in this
-spec, not even as a stated non-goal. Design is deliberately deferred to
-its own ticket rather than decided inline here — it has real open
-questions (hard vs. soft delete, given this spec's current "no soft-delete
-requirement identified yet" stance; cascade behaviour for owned recipes/
-favourites/menu/shopping-list/planner rows; whether an ADMIN or a user
-with pending-approval recipes needs different handling; email confirmation
-of intent; session revocation) that deserve their own grill, not a
-few-line addendum to a `GET /me` ticket.*
-- **CROC-030** — Design + implement self-service account deletion. Output
-  of the design half: hard-delete vs. soft-delete decision (and why,
-  against this spec's existing no-soft-delete default), what happens to
-  the deleted user's recipes/favourites/menu/shopping-list/planner rows,
-  confirmation mechanism, and full session revocation on completion.
+### Epic 12: Account Management
+*Merged 2026-10-07 from two epics: Account Deletion (raised at `CROC-009`'s
+grill, `docs/handoffs/CROC-009.md`: no way for a user to delete their own
+account, not even as a stated non-goal) and Account Management (raised
+2026-09-20: the founder's "everything a user would expect to be able to do
+once they've signed up"; nothing lets a user change their account after
+sign-up). They share one settings surface in `crockpot-react`, one session
+revocation story, and the same Google-vs-password split, so one grill
+covers both repos. Paired with `crockpot-react` `CFE-055`.*
 
-### Epic 13: Account Management
-*Raised 2026-09-20, deliberately vague — the founder's "everything a user
-would expect to be able to do once they've signed up." Epic 2 ships
-sign-up/login/reset and a read-only `GET /me` (`CROC-009`); nothing lets a
-user change anything about their account afterwards. Not grilled: what
-belongs in v1 is an open question, and it likely splits into several
-tickets once decided.*
-- **CROC-051** — Self-service account management. Candidate scope:
-  - **Edit profile** — name (`PATCH /me` or similar); email change is the
-    hard one (re-confirmation of the new address, what happens to live
-    sessions, collision with an existing user).
-  - **Change password** — password accounts only, needs the current
-    password; whether to revoke other sessions on success (`CROC-007`'s
-    reset already does). Google accounts have no password, and
-    Google/password are mutually exclusive per user (`CROC-002`), so the
-    UI/API must handle "this account has no password" cleanly.
-  - **Delete account** — already `CROC-030` (Epic 12); sequence with it
-    rather than re-specifying here.
-  - Not named but likely candidates: a session list with "sign out
-    everywhere" (refresh-token rows already exist), and account
-    preferences if any ever exist.
-  Open for its grill: which of these earn tickets and in what order;
-  whether email change is in scope at all for v1; how any of it differs
-  for Google accounts (name/email owned by Google — editable locally, or
-  read-only?); and the `crockpot-react` settings-page surface these would
-  feed.
+**Sequence:**
+1. **One grill, both repos.** Decides scope and the expensive backend
+   decisions, then writes a **design brief** for Claude Design: every
+   settings state the agreed scope needs (password vs Google account,
+   each action's form, inline errors, confirmations, the delete flow
+   end to end, mobile and desktop).
+2. **Designs.** The founder feeds the brief to Claude Design; the PNGs land
+   in `../screenshots/account/`.
+3. **Design review.** Reopen only the decisions the designs actually
+   touch, then split into tickets (backend under `CROC-030`/`CROC-051`
+   plus new numbers as needed, frontend under `CFE-055`).
+
+**Grilled 2026-10-07** as one epic with `crockpot-react` `CFE-055`. v1 is
+edit name, change password (password accounts) and delete account; email
+change, a session list and "sign out everywhere" are out. Decisions:
+`docs/handoffs/CROC-051.md`, `docs/handoffs/CROC-030.md`; the design brief
+is in `crockpot-react`'s `docs/handoffs/CFE-055.md`. Build `CROC-051`, then
+`CROC-030`.
+
+- **CROC-051** — Profile and password: `PATCH /me` (name, trimmed 1–50,
+  same rule on register); `POST /me/password` (current password, revokes
+  every session then signs in the caller again, sends a change email, 403
+  `invalid_password`); `/me` gains `authProvider`; Google sign-in stops
+  overwriting the name; the byline becomes a live lookup
+  (`created_by_name` dropped); `users.image` dropped (absorbs `CROC-044`).
+  AI-driven. Open.
+- **CROC-030** — Self-service account deletion: `DELETE /me`, hard delete
+  in one transaction that locks the user row; unapproved recipes deleted
+  (lists rebuilt, photos destroyed); approved recipes stay, unnamed;
+  password required for password accounts; ADMIN blocked. AI-driven.
+  Open, after `CROC-051`.
 
 ### Tech Debt & Production Readiness
 *From the first whole-codebase tech-debt pass, 2026-08-30. Full detail:
