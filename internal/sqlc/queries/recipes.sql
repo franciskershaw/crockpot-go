@@ -107,11 +107,7 @@ WITH candidates AS (
             WHERE x.recipe_id = r.id AND x.category_id = ANY(sqlc.arg(include_category_ids)::uuid[])
         )::int AS matched_category_count
     FROM recipes r
-    WHERE (
-            r.approved
-            OR sqlc.arg(caller_is_admin)::boolean
-            OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
-        )
+    WHERE recipe_visible_to(r.approved, r.created_by_id, sqlc.narg(caller_id)::uuid, sqlc.arg(caller_is_admin)::boolean)
         AND (
             NOT sqlc.arg(only_mine)::boolean
             OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
@@ -170,11 +166,7 @@ LIMIT sqlc.arg(result_limit)::int OFFSET sqlc.arg(result_offset)::int;
 -- name: CountRecipes :one
 SELECT count(*)
 FROM recipes r
-WHERE (
-        r.approved
-        OR sqlc.arg(caller_is_admin)::boolean
-        OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
-    )
+WHERE recipe_visible_to(r.approved, r.created_by_id, sqlc.narg(caller_id)::uuid, sqlc.arg(caller_is_admin)::boolean)
     AND (
         NOT sqlc.arg(only_mine)::boolean
         OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
@@ -208,11 +200,7 @@ WHERE (
 SELECT r.*
 FROM recipes r
 WHERE r.id = sqlc.arg(id)
-    AND (
-        r.approved
-        OR sqlc.arg(caller_is_admin)::boolean
-        OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
-    );
+    AND recipe_visible_to(r.approved, r.created_by_id, sqlc.narg(caller_id)::uuid, sqlc.arg(caller_is_admin)::boolean);
 
 -- name: ListRecipeCardCategories :many
 SELECT rcr.recipe_id, rc.id, rc.name

@@ -14,14 +14,10 @@ import (
 const countRecipes = `-- name: CountRecipes :one
 SELECT count(*)
 FROM recipes r
-WHERE (
-        r.approved
-        OR $1::boolean
-        OR ($2::uuid IS NOT NULL AND r.created_by_id = $2::uuid)
-    )
+WHERE recipe_visible_to(r.approved, r.created_by_id, $1::uuid, $2::boolean)
     AND (
         NOT $3::boolean
-        OR ($2::uuid IS NOT NULL AND r.created_by_id = $2::uuid)
+        OR ($1::uuid IS NOT NULL AND r.created_by_id = $1::uuid)
     )
     AND ($4::text = '' OR r.name ILIKE '%' || $4::text || '%')
     AND ($5::int = 0 OR r.time_in_minutes >= $5::int)
@@ -50,8 +46,8 @@ WHERE (
 `
 
 type CountRecipesParams struct {
-	CallerIsAdmin      bool
 	CallerID           pgtype.UUID
+	CallerIsAdmin      bool
 	OnlyMine           bool
 	NameQuery          string
 	MinTime            int32
@@ -63,8 +59,8 @@ type CountRecipesParams struct {
 
 func (q *Queries) CountRecipes(ctx context.Context, arg CountRecipesParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countRecipes,
-		arg.CallerIsAdmin,
 		arg.CallerID,
+		arg.CallerIsAdmin,
 		arg.OnlyMine,
 		arg.NameQuery,
 		arg.MinTime,
@@ -264,21 +260,17 @@ const getRecipeForReader = `-- name: GetRecipeForReader :one
 SELECT r.id, r.name, r.description, r.time_in_minutes, r.image_url, r.image_filename, r.instructions, r.notes, r.approved, r.serves, r.created_by_id, r.created_by_name, r.created_at, r.updated_at
 FROM recipes r
 WHERE r.id = $1
-    AND (
-        r.approved
-        OR $2::boolean
-        OR ($3::uuid IS NOT NULL AND r.created_by_id = $3::uuid)
-    )
+    AND recipe_visible_to(r.approved, r.created_by_id, $2::uuid, $3::boolean)
 `
 
 type GetRecipeForReaderParams struct {
 	ID            pgtype.UUID
-	CallerIsAdmin bool
 	CallerID      pgtype.UUID
+	CallerIsAdmin bool
 }
 
 func (q *Queries) GetRecipeForReader(ctx context.Context, arg GetRecipeForReaderParams) (Recipe, error) {
-	row := q.db.QueryRow(ctx, getRecipeForReader, arg.ID, arg.CallerIsAdmin, arg.CallerID)
+	row := q.db.QueryRow(ctx, getRecipeForReader, arg.ID, arg.CallerID, arg.CallerIsAdmin)
 	var i Recipe
 	err := row.Scan(
 		&i.ID,
@@ -516,14 +508,10 @@ WITH candidates AS (
             WHERE x.recipe_id = r.id AND x.category_id = ANY($7::uuid[])
         )::int AS matched_category_count
     FROM recipes r
-    WHERE (
-            r.approved
-            OR $8::boolean
-            OR ($9::uuid IS NOT NULL AND r.created_by_id = $9::uuid)
-        )
+    WHERE recipe_visible_to(r.approved, r.created_by_id, $8::uuid, $9::boolean)
         AND (
             NOT $10::boolean
-            OR ($9::uuid IS NOT NULL AND r.created_by_id = $9::uuid)
+            OR ($8::uuid IS NOT NULL AND r.created_by_id = $8::uuid)
         )
         AND ($11::text = '' OR r.name ILIKE '%' || $11::text || '%')
         AND ($12::int = 0 OR r.time_in_minutes >= $12::int)
@@ -585,8 +573,8 @@ type ListRecipesParams struct {
 	ResultLimit        int32
 	IngredientIds      []pgtype.UUID
 	IncludeCategoryIds []pgtype.UUID
-	CallerIsAdmin      bool
 	CallerID           pgtype.UUID
+	CallerIsAdmin      bool
 	OnlyMine           bool
 	NameQuery          string
 	MinTime            int32
@@ -624,8 +612,8 @@ func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]Lis
 		arg.ResultLimit,
 		arg.IngredientIds,
 		arg.IncludeCategoryIds,
-		arg.CallerIsAdmin,
 		arg.CallerID,
+		arg.CallerIsAdmin,
 		arg.OnlyMine,
 		arg.NameQuery,
 		arg.MinTime,

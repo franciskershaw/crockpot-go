@@ -139,18 +139,18 @@ const recipeVisibleToCaller = `-- name: RecipeVisibleToCaller :one
 SELECT EXISTS (
     SELECT 1 FROM recipes r
     WHERE r.id = $1
-      AND (r.approved OR $2::boolean OR r.created_by_id = $3::uuid)
+      AND recipe_visible_to(r.approved, r.created_by_id, $2::uuid, $3::boolean)
 )
 `
 
 type RecipeVisibleToCallerParams struct {
 	ID            pgtype.UUID
-	CallerIsAdmin bool
 	CallerID      pgtype.UUID
+	CallerIsAdmin bool
 }
 
 func (q *Queries) RecipeVisibleToCaller(ctx context.Context, arg RecipeVisibleToCallerParams) (bool, error) {
-	row := q.db.QueryRow(ctx, recipeVisibleToCaller, arg.ID, arg.CallerIsAdmin, arg.CallerID)
+	row := q.db.QueryRow(ctx, recipeVisibleToCaller, arg.ID, arg.CallerID, arg.CallerIsAdmin)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
