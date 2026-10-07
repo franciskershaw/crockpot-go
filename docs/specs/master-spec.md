@@ -845,18 +845,6 @@ sign-up). They share one settings surface in `crockpot-react`, one session
 revocation story, and the same Google-vs-password split, so one grill
 covers both repos. Paired with `crockpot-react` `CFE-055`.*
 
-**Sequence:**
-1. **One grill, both repos.** Decides scope and the expensive backend
-   decisions, then writes a **design brief** for Claude Design: every
-   settings state the agreed scope needs (password vs Google account,
-   each action's form, inline errors, confirmations, the delete flow
-   end to end, mobile and desktop).
-2. **Designs.** The founder feeds the brief to Claude Design; the PNGs land
-   in `../screenshots/account/`.
-3. **Design review.** Reopen only the decisions the designs actually
-   touch, then split into tickets (backend under `CROC-030`/`CROC-051`
-   plus new numbers as needed, frontend under `CFE-055`).
-
 **Grilled 2026-10-07** as one epic with `crockpot-react` `CFE-055`. v1 is
 edit name, change password (password accounts) and delete account; email
 change, a session list and "sign out everywhere" are out. Decisions:
