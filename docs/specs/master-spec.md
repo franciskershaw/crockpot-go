@@ -999,6 +999,59 @@ tickets once decided.*
   different forms. Centralise the predicate and/or lock List/Count with
   a total-equals-rows test. Also delete the dead `ListRecipeIngredients`
   query. Open. Findings 4–5.
+  **Grilled 2026-10-07 (AI-driven, cheap-to-undo — no separate handoff
+  doc):**
+  - **One SQL function, not tests alone.** Every current visibility case
+    is already tested on all four paths, so more tests guard nothing new;
+    the risk is the next rule change landing in 3 of 4 copies. Spiked:
+    sqlc v1.31.1 reads a migration-defined function and the param
+    structs come out unchanged.
+  - **Signature**: `recipe_visible_to(approved boolean, created_by_id
+    uuid, caller_id uuid, caller_is_admin boolean) RETURNS boolean
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN approved OR
+    caller_is_admin OR COALESCE(created_by_id = caller_id, false)`.
+    Columns, not a `recipes` row (no row-type dependency). Always
+    two-valued. Never `IS NOT DISTINCT FROM`: it would show an orphaned
+    (`created_by_id` NULL) unapproved recipe to anonymous callers.
+  - **List/Count merged**: `count(*) OVER ()` in `ListRecipes`,
+    `CountRecipes` deleted — one filter clause, one pass. `ListFavourites`
+    out of scope (no finding).
+  - **Contract change**: a page past the end now returns `total: 0` /
+    `totalPages: 0`, reversing CROC-015's "correct total on over-range
+    page" (no stated reason, no consumer — client reads `total` from
+    page 1 only and `totalPages` only to stop scrolling). The `LEFT JOIN
+    LATERAL` sentinel-row shape that would keep it was rejected: every
+    card column turns nullable in sqlc for an edge no client hits.
+  - **Acceptance criteria:**
+    - [ ] Migration `000015` creates `recipe_visible_to`; down drops it;
+          down-then-up run on Neon dev.
+    - [ ] `ListRecipes`, `GetRecipeForReader`, `RecipeVisibleToCaller`
+          call it; no hand-written copy of the predicate remains.
+    - [ ] Truth-table repo test: approved → true for any caller;
+          unapproved + admin → true; caller = creator → true; other
+          caller → false; anonymous → false; NULL creator + caller →
+          false; both NULL → false; every result non-NULL.
+    - [ ] `ListRecipes` returns the total via window count;
+          `CountRecipes` and `ListRecipeIngredients` deleted, sqlc
+          regenerated.
+    - [ ] `TestListRecipes_Pagination` page-99 assertion becomes
+          `total == 0`; `TestListRecipes_CountMatchesListLength` kept.
+    - [ ] `EXPLAIN (VERBOSE)` of `GetRecipeForReader` on Neon shows the
+          predicate inlined (manual, one-off).
+    - [ ] List pagination line in this spec updated; page-past-the-end
+          request added to `requests/recipes.http`.
+  - **Pieces**: (1) function + truth table (stub `RETURN NOT approved`
+    for red) + rewire 4 queries; (2) window-count merge + dead-query
+    deletion (red: the edited page-99 assertion).
+  - **Non-goals**: `ListFavourites` count; `GetRecipeTimeRange`'s
+    approved-only rule (deliberate, CROC-043-era); any client change.
+  - **Verification**: logic — `./scripts/test-repo.sh -run
+    'TestRecipeVisibleTo|TestListRecipes|TestGetRecipeForReader|TestAddFavourite|TestUpsertEntry'`
+    per piece on Neon, full `./scripts/test-repo.sh` + `go test
+    ./internal/handler/...` at the end; service boundary — real `GET
+    /recipes?page=1` and `?page=99` against the local server, plus the
+    migration down/up; lint — `golangci-lint run --max-same-issues=0
+    --max-issues-per-linter=0 ./...` and `sqlc generate` leaving no diff.
 - **CROC-066** — Deploy readiness: explicit pgxpool `MaxConns` plus a
   server-side `statement_timeout`, and run the token sweeper once at
   startup. Open, *time-coupled: do alongside the deploy-pipeline ticket
