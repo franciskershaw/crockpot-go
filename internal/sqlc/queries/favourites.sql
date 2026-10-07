@@ -9,7 +9,7 @@ DELETE FROM recipe_favourites WHERE user_id = $1 AND recipe_id = $2;
 SELECT EXISTS (
     SELECT 1 FROM recipes r
     WHERE r.id = $1
-      AND (r.approved OR sqlc.arg(caller_is_admin)::boolean OR r.created_by_id = sqlc.arg(caller_id)::uuid)
+      AND recipe_visible_to(r.approved, r.created_by_id, sqlc.arg(caller_id)::uuid, sqlc.arg(caller_is_admin)::boolean)
 );
 
 -- name: ListFavouritedRecipeIDs :many

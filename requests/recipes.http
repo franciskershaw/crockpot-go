@@ -593,6 +593,11 @@ GET http://localhost:{{$dotenv PORT}}/recipes?page=1&limit=2
 
 ###
 
+### ✅ 200 — page past the end: empty recipes, total and totalPages 0.
+GET http://localhost:{{$dotenv PORT}}/recipes?page=999&limit=2
+
+###
+
 ### ✅ 200 — authenticated (ADMIN): sees all recipes, approved or not.
 GET http://localhost:{{$dotenv PORT}}/recipes?limit=5
 Authorization: Bearer {{authToken}}

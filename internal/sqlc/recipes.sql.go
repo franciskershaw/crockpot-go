@@ -11,73 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const countRecipes = `-- name: CountRecipes :one
-SELECT count(*)
-FROM recipes r
-WHERE (
-        r.approved
-        OR $1::boolean
-        OR ($2::uuid IS NOT NULL AND r.created_by_id = $2::uuid)
-    )
-    AND (
-        NOT $3::boolean
-        OR ($2::uuid IS NOT NULL AND r.created_by_id = $2::uuid)
-    )
-    AND ($4::text = '' OR r.name ILIKE '%' || $4::text || '%')
-    AND ($5::int = 0 OR r.time_in_minutes >= $5::int)
-    AND ($6::int = 0 OR r.time_in_minutes <= $6::int)
-    AND (
-        cardinality($7::uuid[]) = 0
-        OR NOT EXISTS (
-            SELECT 1 FROM recipe_categories_recipes x
-            WHERE x.recipe_id = r.id AND x.category_id = ANY($7::uuid[])
-        )
-    )
-    AND (
-        (
-            cardinality($8::uuid[]) = 0
-            AND cardinality($9::uuid[]) = 0
-        )
-        OR EXISTS (
-            SELECT 1 FROM recipe_categories_recipes x
-            WHERE x.recipe_id = r.id AND x.category_id = ANY($8::uuid[])
-        )
-        OR EXISTS (
-            SELECT 1 FROM recipe_ingredients x
-            WHERE x.recipe_id = r.id AND x.item_id = ANY($9::uuid[])
-        )
-    )
-`
-
-type CountRecipesParams struct {
-	CallerIsAdmin      bool
-	CallerID           pgtype.UUID
-	OnlyMine           bool
-	NameQuery          string
-	MinTime            int32
-	MaxTime            int32
-	ExcludeCategoryIds []pgtype.UUID
-	IncludeCategoryIds []pgtype.UUID
-	IngredientIds      []pgtype.UUID
-}
-
-func (q *Queries) CountRecipes(ctx context.Context, arg CountRecipesParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countRecipes,
-		arg.CallerIsAdmin,
-		arg.CallerID,
-		arg.OnlyMine,
-		arg.NameQuery,
-		arg.MinTime,
-		arg.MaxTime,
-		arg.ExcludeCategoryIds,
-		arg.IncludeCategoryIds,
-		arg.IngredientIds,
-	)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const countRecipesByCreator = `-- name: CountRecipesByCreator :one
 SELECT count(*) FROM recipes
 WHERE created_by_id = $1
@@ -264,21 +197,17 @@ const getRecipeForReader = `-- name: GetRecipeForReader :one
 SELECT r.id, r.name, r.description, r.time_in_minutes, r.image_url, r.image_filename, r.instructions, r.notes, r.approved, r.serves, r.created_by_id, r.created_by_name, r.created_at, r.updated_at
 FROM recipes r
 WHERE r.id = $1
-    AND (
-        r.approved
-        OR $2::boolean
-        OR ($3::uuid IS NOT NULL AND r.created_by_id = $3::uuid)
-    )
+    AND recipe_visible_to(r.approved, r.created_by_id, $2::uuid, $3::boolean)
 `
 
 type GetRecipeForReaderParams struct {
 	ID            pgtype.UUID
-	CallerIsAdmin bool
 	CallerID      pgtype.UUID
+	CallerIsAdmin bool
 }
 
 func (q *Queries) GetRecipeForReader(ctx context.Context, arg GetRecipeForReaderParams) (Recipe, error) {
-	row := q.db.QueryRow(ctx, getRecipeForReader, arg.ID, arg.CallerIsAdmin, arg.CallerID)
+	row := q.db.QueryRow(ctx, getRecipeForReader, arg.ID, arg.CallerID, arg.CallerIsAdmin)
 	var i Recipe
 	err := row.Scan(
 		&i.ID,
@@ -415,38 +344,6 @@ func (q *Queries) ListRecipeDetailCategories(ctx context.Context, recipeID pgtyp
 	return items, nil
 }
 
-const listRecipeIngredients = `-- name: ListRecipeIngredients :many
-SELECT item_id, unit_id, quantity FROM recipe_ingredients
-WHERE recipe_id = $1
-ORDER BY position
-`
-
-type ListRecipeIngredientsRow struct {
-	ItemID   pgtype.UUID
-	UnitID   pgtype.UUID
-	Quantity pgtype.Numeric
-}
-
-func (q *Queries) ListRecipeIngredients(ctx context.Context, recipeID pgtype.UUID) ([]ListRecipeIngredientsRow, error) {
-	rows, err := q.db.Query(ctx, listRecipeIngredients, recipeID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListRecipeIngredientsRow
-	for rows.Next() {
-		var i ListRecipeIngredientsRow
-		if err := rows.Scan(&i.ItemID, &i.UnitID, &i.Quantity); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listRecipeIngredientsHydrated = `-- name: ListRecipeIngredientsHydrated :many
 SELECT
     ri.item_id,
@@ -516,14 +413,10 @@ WITH candidates AS (
             WHERE x.recipe_id = r.id AND x.category_id = ANY($7::uuid[])
         )::int AS matched_category_count
     FROM recipes r
-    WHERE (
-            r.approved
-            OR $8::boolean
-            OR ($9::uuid IS NOT NULL AND r.created_by_id = $9::uuid)
-        )
+    WHERE recipe_visible_to(r.approved, r.created_by_id, $8::uuid, $9::boolean)
         AND (
             NOT $10::boolean
-            OR ($9::uuid IS NOT NULL AND r.created_by_id = $9::uuid)
+            OR ($8::uuid IS NOT NULL AND r.created_by_id = $8::uuid)
         )
         AND ($11::text = '' OR r.name ILIKE '%' || $11::text || '%')
         AND ($12::int = 0 OR r.time_in_minutes >= $12::int)
@@ -561,7 +454,7 @@ WITH candidates AS (
         END)::float8 AS score
     FROM candidates
 )
-SELECT scored.id, scored.name, scored.description, scored.time_in_minutes, scored.image_url, scored.image_filename, scored.instructions, scored.notes, scored.approved, scored.serves, scored.created_by_id, scored.created_by_name, scored.created_at, scored.updated_at, scored.total_ingredient_count, scored.matched_ingredient_count, scored.matched_category_count, scored.score
+SELECT scored.id, scored.name, scored.description, scored.time_in_minutes, scored.image_url, scored.image_filename, scored.instructions, scored.notes, scored.approved, scored.serves, scored.created_by_id, scored.created_by_name, scored.created_at, scored.updated_at, scored.total_ingredient_count, scored.matched_ingredient_count, scored.matched_category_count, scored.score, count(*) OVER ()::int AS total
 FROM scored
 ORDER BY
     (CASE
@@ -585,8 +478,8 @@ type ListRecipesParams struct {
 	ResultLimit        int32
 	IngredientIds      []pgtype.UUID
 	IncludeCategoryIds []pgtype.UUID
-	CallerIsAdmin      bool
 	CallerID           pgtype.UUID
+	CallerIsAdmin      bool
 	OnlyMine           bool
 	NameQuery          string
 	MinTime            int32
@@ -613,6 +506,7 @@ type ListRecipesRow struct {
 	MatchedIngredientCount int32
 	MatchedCategoryCount   int32
 	Score                  float64
+	Total                  int32
 }
 
 func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]ListRecipesRow, error) {
@@ -624,8 +518,8 @@ func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]Lis
 		arg.ResultLimit,
 		arg.IngredientIds,
 		arg.IncludeCategoryIds,
-		arg.CallerIsAdmin,
 		arg.CallerID,
+		arg.CallerIsAdmin,
 		arg.OnlyMine,
 		arg.NameQuery,
 		arg.MinTime,
@@ -658,6 +552,7 @@ func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]Lis
 			&i.MatchedIngredientCount,
 			&i.MatchedCategoryCount,
 			&i.Score,
+			&i.Total,
 		); err != nil {
 			return nil, err
 		}

@@ -290,9 +290,10 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
 - **List pagination**: offset — `?page=` (1-based, default 1) / `?limit=`
   (default 20, max 50), envelope `{recipes, page, limit, total,
   totalPages}`, `total` respects visibility + all filters, over-range
-  page → empty `recipes` with a 200. First and only paginated list
-  (`CROC-015`); reference-data lists stay bare arrays. Cursor pagination
-  rejected — stable `created_at DESC, id` order makes offset correct for
+  page → empty `recipes` and `total`/`totalPages` 0 with a 200 (total
+  is a window count carried on the page's rows, `CROC-065`). First and
+  only paginated list (`CROC-015`); reference-data lists stay bare
+  arrays. Cursor pagination rejected — stable `created_at DESC, id` order makes offset correct for
   TanStack `useInfiniteQuery`, and the dataset is ~189 rows. Revisit if
   a list ever needs stable paging under heavy concurrent inserts.
 - **Images**: Cloudinary, **uploaded through the API** (`CROC-040`).
@@ -994,11 +995,15 @@ tickets once decided.*
   by one holder's menu (accepted). Shopping-list add now uses
   `invalid_item_id`, `invalid_unit_id`, `unit_not_allowed_for_item`.
   Client alignment: `crockpot-react` `CFE-054`.
-- **CROC-065** — Recipe query drift: the visibility predicate is
-  hand-copied in 4 queries and the List/Count filters are duplicated in
-  different forms. Centralise the predicate and/or lock List/Count with
-  a total-equals-rows test. Also delete the dead `ListRecipeIngredients`
-  query. Open. Findings 4–5.
+- **CROC-065** — **Done** (2026-10-07). The recipe visibility rule
+  lives in one SQL function, `recipe_visible_to(approved, created_by_id,
+  caller_id, caller_is_admin)` (migration `000015`), called by
+  `ListRecipes`, `GetRecipeForReader` and `RecipeVisibleToCaller`. It
+  always returns true or false; a NULL caller never matches a deleted
+  creator. Change the rule with a new `CREATE OR REPLACE` migration.
+  `ListRecipes` carries `total` via `count(*) OVER ()`; `CountRecipes`
+  and `ListRecipeIngredients` are deleted. A page past the end now
+  returns `total`/`totalPages` 0 (reverses CROC-015; no consumer).
 - **CROC-066** — Deploy readiness: explicit pgxpool `MaxConns` plus a
   server-side `statement_timeout`, and run the token sweeper once at
   startup. Open, *time-coupled: do alongside the deploy-pipeline ticket

@@ -88,11 +88,6 @@ SELECT
 FROM recipes
 WHERE approved;
 
--- name: ListRecipeIngredients :many
-SELECT item_id, unit_id, quantity FROM recipe_ingredients
-WHERE recipe_id = $1
-ORDER BY position;
-
 -- name: ListRecipes :many
 WITH candidates AS (
     SELECT
@@ -107,11 +102,7 @@ WITH candidates AS (
             WHERE x.recipe_id = r.id AND x.category_id = ANY(sqlc.arg(include_category_ids)::uuid[])
         )::int AS matched_category_count
     FROM recipes r
-    WHERE (
-            r.approved
-            OR sqlc.arg(caller_is_admin)::boolean
-            OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
-        )
+    WHERE recipe_visible_to(r.approved, r.created_by_id, sqlc.narg(caller_id)::uuid, sqlc.arg(caller_is_admin)::boolean)
         AND (
             NOT sqlc.arg(only_mine)::boolean
             OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
@@ -152,7 +143,7 @@ WITH candidates AS (
         END)::float8 AS score
     FROM candidates
 )
-SELECT scored.*
+SELECT scored.*, count(*) OVER ()::int AS total
 FROM scored
 ORDER BY
     (CASE
@@ -167,52 +158,11 @@ ORDER BY
     scored.id
 LIMIT sqlc.arg(result_limit)::int OFFSET sqlc.arg(result_offset)::int;
 
--- name: CountRecipes :one
-SELECT count(*)
-FROM recipes r
-WHERE (
-        r.approved
-        OR sqlc.arg(caller_is_admin)::boolean
-        OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
-    )
-    AND (
-        NOT sqlc.arg(only_mine)::boolean
-        OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
-    )
-    AND (sqlc.arg(name_query)::text = '' OR r.name ILIKE '%' || sqlc.arg(name_query)::text || '%')
-    AND (sqlc.arg(min_time)::int = 0 OR r.time_in_minutes >= sqlc.arg(min_time)::int)
-    AND (sqlc.arg(max_time)::int = 0 OR r.time_in_minutes <= sqlc.arg(max_time)::int)
-    AND (
-        cardinality(sqlc.arg(exclude_category_ids)::uuid[]) = 0
-        OR NOT EXISTS (
-            SELECT 1 FROM recipe_categories_recipes x
-            WHERE x.recipe_id = r.id AND x.category_id = ANY(sqlc.arg(exclude_category_ids)::uuid[])
-        )
-    )
-    AND (
-        (
-            cardinality(sqlc.arg(include_category_ids)::uuid[]) = 0
-            AND cardinality(sqlc.arg(ingredient_ids)::uuid[]) = 0
-        )
-        OR EXISTS (
-            SELECT 1 FROM recipe_categories_recipes x
-            WHERE x.recipe_id = r.id AND x.category_id = ANY(sqlc.arg(include_category_ids)::uuid[])
-        )
-        OR EXISTS (
-            SELECT 1 FROM recipe_ingredients x
-            WHERE x.recipe_id = r.id AND x.item_id = ANY(sqlc.arg(ingredient_ids)::uuid[])
-        )
-    );
-
 -- name: GetRecipeForReader :one
 SELECT r.*
 FROM recipes r
 WHERE r.id = sqlc.arg(id)
-    AND (
-        r.approved
-        OR sqlc.arg(caller_is_admin)::boolean
-        OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
-    );
+    AND recipe_visible_to(r.approved, r.created_by_id, sqlc.narg(caller_id)::uuid, sqlc.arg(caller_is_admin)::boolean);
 
 -- name: ListRecipeCardCategories :many
 SELECT rcr.recipe_id, rc.id, rc.name

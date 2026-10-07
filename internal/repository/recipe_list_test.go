@@ -674,7 +674,7 @@ func TestListRecipes_Pagination(t *testing.T) {
 	f.Page = 99
 	pOut, total, err := recipeRepo.List(ctx, f)
 	require.NoError(t, err)
-	assert.Equal(t, 5, total)
+	assert.Equal(t, 0, total)
 	assert.Empty(t, pOut)
 }
 
