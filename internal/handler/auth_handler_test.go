@@ -485,7 +485,45 @@ func TestRegister_UnconfirmedRetry_WithinCooldown(t *testing.T) {
 	assertRetryAfterMatchesBody(t, w)
 }
 
+func TestRegister_NormalisesName(t *testing.T) {
+	cases := []struct {
+		name     string
+		raw      string
+		wantName string
+	}{
+		{"surrounding whitespace trimmed", "  New User  ", "New User"},
+		{"50 characters accepted", strings.Repeat("a", 50), strings.Repeat("a", 50)},
+		{"50 multi-byte characters accepted", strings.Repeat("é", 50), strings.Repeat("é", 50)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMocks(t, config.EnvDevelopment)
+			newUser := &models.User{ID: uuid.MustParse("22222222-2222-2222-2222-222222222222"), Email: "new@example.com"}
+			var gotName string
+			m.userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, "new@example.com", mock.AnythingOfType("string"), mock.AnythingOfType("string")).
+				Run(func(_ context.Context, _, _, name string) { gotName = name }).
+				Return(newUser, nil)
+			m.emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, newUser.ID.String()).Return(nil, models.ErrNoActiveEmailVerificationToken)
+			m.emailTokenRepo.EXPECT().DeleteActiveForUser(mock.Anything, newUser.ID.String()).Return(nil)
+			m.emailTokenRepo.EXPECT().Create(mock.Anything, newUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(&models.EmailVerificationToken{}, nil)
+			m.emailSender.EXPECT().SendConfirmationCode(mock.Anything, "new@example.com", mock.AnythingOfType("string")).Return(nil)
+
+			w := doRegister(m.router, map[string]string{"email": "new@example.com", "password": "correcthorse", "name": tc.raw})
+
+			assert.Equal(t, http.StatusCreated, w.Code)
+			assert.Equal(t, tc.wantName, gotName)
+		})
+	}
+}
+
 // --- Register: fails ---
+
+// unreachableCreateUnconfirmedUser lets a validation case reach the repo without a mock panic, so a missing check shows as a status diff.
+func unreachableCreateUnconfirmedUser(userRepo *genmocks.MockUserRepository) {
+	userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, models.ErrEmailRegisteredWithPassword).Maybe()
+}
 
 func TestRegister_Fails(t *testing.T) {
 	cases := []struct {
@@ -506,6 +544,27 @@ func TestRegister_Fails(t *testing.T) {
 			body:      map[string]string{"email": "new@example.com", "password": strings.Repeat("a", 73), "name": "New User"},
 			wantCode:  http.StatusBadRequest,
 			wantError: "password_too_long",
+		},
+		{
+			name:      "empty name",
+			body:      map[string]string{"email": "new@example.com", "password": "correcthorse", "name": ""},
+			setup:     unreachableCreateUnconfirmedUser,
+			wantCode:  http.StatusBadRequest,
+			wantError: "invalid_name",
+		},
+		{
+			name:      "whitespace-only name",
+			body:      map[string]string{"email": "new@example.com", "password": "correcthorse", "name": "   "},
+			setup:     unreachableCreateUnconfirmedUser,
+			wantCode:  http.StatusBadRequest,
+			wantError: "invalid_name",
+		},
+		{
+			name:      "51-character name",
+			body:      map[string]string{"email": "new@example.com", "password": "correcthorse", "name": strings.Repeat("a", 51)},
+			setup:     unreachableCreateUnconfirmedUser,
+			wantCode:  http.StatusBadRequest,
+			wantError: "invalid_name",
 		},
 		{
 			name:      "invalid email",

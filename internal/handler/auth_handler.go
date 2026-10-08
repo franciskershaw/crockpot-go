@@ -243,7 +243,7 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 type registerRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required"`
-	Name     string `json:"name" binding:"required"`
+	Name     string `json:"name"`
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -251,13 +251,12 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	if !bindJSON(c, &req) {
 		return
 	}
-
-	if len(req.Password) < minPasswordLength {
-		badRequest(c, "password_too_short")
+	name, ok := validateUserName(c, req.Name)
+	if !ok {
 		return
 	}
-	if len(req.Password) > maxPasswordBytes {
-		badRequest(c, "password_too_long")
+
+	if !validateNewPassword(c, req.Password) {
 		return
 	}
 
@@ -268,7 +267,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	user, err := h.userRepo.CreateUnconfirmedUser(ctx, req.Email, string(hash), req.Name)
+	user, err := h.userRepo.CreateUnconfirmedUser(ctx, req.Email, string(hash), name)
 	if err != nil {
 		switch {
 		case errors.Is(err, models.ErrEmailRegisteredWithGoogle):
@@ -626,12 +625,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	if len(req.NewPassword) < minPasswordLength {
-		badRequest(c, "password_too_short")
-		return
-	}
-	if len(req.NewPassword) > maxPasswordBytes {
-		badRequest(c, "password_too_long")
+	if !validateNewPassword(c, req.NewPassword) {
 		return
 	}
 

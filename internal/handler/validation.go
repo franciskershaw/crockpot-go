@@ -2,6 +2,7 @@ package handler
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -30,6 +31,29 @@ func validateName(c *gin.Context, raw string) (string, bool) {
 		return "", false
 	}
 	return trimmed, true
+}
+
+// validateUserName trims a person's display name and checks it is 1-50 characters, writing 400 invalid_name and returning ok=false if not.
+func validateUserName(c *gin.Context, raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if n := utf8.RuneCountInString(trimmed); n < 1 || n > 50 {
+		badRequest(c, "invalid_name")
+		return "", false
+	}
+	return trimmed, true
+}
+
+// validateNewPassword checks a password being set is 8-72 bytes (bcrypt ignores anything past 72), writing 400 password_too_short or password_too_long and returning ok=false if not.
+func validateNewPassword(c *gin.Context, password string) bool {
+	if len(password) < minPasswordLength {
+		badRequest(c, "password_too_short")
+		return false
+	}
+	if len(password) > maxPasswordBytes {
+		badRequest(c, "password_too_long")
+		return false
+	}
+	return true
 }
 
 // validateIconToken trims and validates an icon token, writing the appropriate error
