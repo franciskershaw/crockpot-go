@@ -1,4 +1,4 @@
-# Crockpot API — GET /me
+# Crockpot API — /me (profile, password)
 #
 # Own file, own login: REST Client's captured variables and cookie jar
 # are scoped per .http file, not shared across files, so this can't
@@ -44,6 +44,149 @@ GET http://localhost:{{$dotenv PORT}}/me
 ### 🔒 401 — malformed token
 GET http://localhost:{{$dotenv PORT}}/me
 Authorization: Bearer not-a-valid-token
+
+
+# ══════════════════════════════════════════
+#  PATCH /me — rename
+# ══════════════════════════════════════════
+
+### ✅ 200 — trims and saves the name; the response is the /me shape,
+### with authProvider "password" for this account.
+PATCH http://localhost:{{$dotenv PORT}}/me
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "   REST Client Renamed   "
+}
+
+###
+
+### ✅ 200 — the byline is a live lookup: createdByName on a recipe this
+### account created shows the name set above. Paste the id of any recipe
+### this account created (recipes.http creates some) below.
+GET http://localhost:{{$dotenv PORT}}/recipes/REPLACE_WITH_A_RECIPE_ID_THIS_ACCOUNT_CREATED
+Authorization: Bearer {{authToken}}
+
+###
+
+### ❌ 400 invalid_name — whitespace only
+PATCH http://localhost:{{$dotenv PORT}}/me
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "   "
+}
+
+###
+
+### ❌ 400 invalid_name — 51 characters
+PATCH http://localhost:{{$dotenv PORT}}/me
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
+
+
+# ══════════════════════════════════════════
+#  POST /me/password
+#
+#  Changes the shared account's password and then changes it back, so
+#  the file's Login still works on the next run. A Google account's 409
+#  no_password needs a Google session, so it's covered by handler tests
+#  only. Each successful change sends a real "password changed" email.
+# ══════════════════════════════════════════
+
+### 🔒 403 invalid_password — wrong current password (403, not 401, so
+### the frontend doesn't treat it as an expired session)
+POST http://localhost:{{$dotenv PORT}}/me/password
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "currentPassword": "not-the-password",
+  "newPassword": "correcthorsebattery-changed"
+}
+
+###
+
+### ❌ 400 password_too_short
+POST http://localhost:{{$dotenv PORT}}/me/password
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "currentPassword": "correcthorsebattery",
+  "newPassword": "short"
+}
+
+###
+
+### ✅ 200 — new accessToken + refreshToken cookie. Before running this,
+### copy the refreshToken cookie value out of the Login response's
+### Set-Cookie header into PRE_CHANGE_REFRESH_TOKEN below.
+# @name changePassword
+POST http://localhost:{{$dotenv PORT}}/me/password
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "currentPassword": "correcthorsebattery",
+  "newPassword": "correcthorsebattery-changed"
+}
+
+###
+
+@changedAuthToken = {{changePassword.response.body.accessToken}}
+
+### 🔒 401 — the pre-change session was revoked by the change.
+POST http://localhost:{{$dotenv PORT}}/auth/refresh
+Cookie: refreshToken=PRE_CHANGE_REFRESH_TOKEN
+
+###
+
+### ✅ 200 — the session the change issued (held by the cookie jar) works.
+POST http://localhost:{{$dotenv PORT}}/auth/refresh
+
+###
+
+### 🔒 401 invalid_credentials — the old password no longer logs in
+POST http://localhost:{{$dotenv PORT}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_YOUR_REAL_EMAIL",
+  "password": "correcthorsebattery"
+}
+
+###
+
+### ✅ 200 — change it back, so Login at the top works next run.
+POST http://localhost:{{$dotenv PORT}}/me/password
+Authorization: Bearer {{changedAuthToken}}
+Content-Type: application/json
+
+{
+  "currentPassword": "correcthorsebattery-changed",
+  "newPassword": "correcthorsebattery"
+}
+
+###
+
+### 🚦 429 rate_limit_exceeded — send this 11 times within a minute; the
+### 11th returns 429 (the 10/min auth limit). Earlier ones return 403.
+### Uses up this minute's budget, so run it last.
+POST http://localhost:{{$dotenv PORT}}/me/password
+Authorization: Bearer {{changedAuthToken}}
+Content-Type: application/json
+
+{
+  "currentPassword": "not-the-password",
+  "newPassword": "correcthorsebattery-unused"
+}
 
 
 # ══════════════════════════════════════════
