@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/sqlc"
@@ -521,6 +522,50 @@ func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, caller
 		}
 	}
 	return uuidStrings(menuUserIDs), orphan, nil
+}
+
+// DeleteUnapprovedByCreator deletes every unapproved recipe creatorID made, returning the users whose menus held one and the photos no recipe uses any more.
+func (r *PostgresRecipeRepository) DeleteUnapprovedByCreator(ctx context.Context, creatorID string) (menuUserIDs []string, orphanedImages []string, err error) {
+	q := queriesFor(ctx, r.db)
+
+	cid, err := uuidParam(creatorID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid creator id: %w", err)
+	}
+	drafts, err := q.ListUnapprovedRecipesForWriteByCreator(ctx, cid)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list unapproved recipes: %w", err)
+	}
+
+	holders := map[string]struct{}{}
+	for _, d := range drafts {
+		ids, err := q.ListMenuUserIDsForRecipe(ctx, d.ID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to list menus holding recipe: %w", err)
+		}
+		for _, id := range uuidStrings(ids) {
+			holders[id] = struct{}{}
+		}
+
+		if err := q.DeleteRecipe(ctx, d.ID); err != nil {
+			return nil, nil, fmt.Errorf("failed to delete recipe: %w", err)
+		}
+		if d.ImageFilename.Valid {
+			orphan, err := orphanedImage(ctx, q, d.ImageFilename, d.ID)
+			if err != nil {
+				return nil, nil, err
+			}
+			if orphan != nil {
+				orphanedImages = append(orphanedImages, *orphan)
+			}
+		}
+	}
+
+	for id := range holders {
+		menuUserIDs = append(menuUserIDs, id)
+	}
+	sort.Strings(menuUserIDs)
+	return menuUserIDs, orphanedImages, nil
 }
 
 // orphanedImage returns publicID when no recipe other than recipeID still uses it.

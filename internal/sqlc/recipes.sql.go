@@ -558,6 +558,40 @@ func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]Lis
 	return items, nil
 }
 
+const listUnapprovedRecipesForWriteByCreator = `-- name: ListUnapprovedRecipesForWriteByCreator :many
+SELECT id, image_filename
+FROM recipes
+WHERE created_by_id = $1 AND NOT approved
+ORDER BY id
+FOR UPDATE
+`
+
+type ListUnapprovedRecipesForWriteByCreatorRow struct {
+	ID            pgtype.UUID
+	ImageFilename pgtype.Text
+}
+
+// FOR UPDATE re-checks approved after any wait, so a recipe approved concurrently drops out instead of being deleted.
+func (q *Queries) ListUnapprovedRecipesForWriteByCreator(ctx context.Context, creatorID pgtype.UUID) ([]ListUnapprovedRecipesForWriteByCreatorRow, error) {
+	rows, err := q.db.Query(ctx, listUnapprovedRecipesForWriteByCreator, creatorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUnapprovedRecipesForWriteByCreatorRow
+	for rows.Next() {
+		var i ListUnapprovedRecipesForWriteByCreatorRow
+		if err := rows.Scan(&i.ID, &i.ImageFilename); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockImage = `-- name: LockImage :exec
 SELECT pg_advisory_xact_lock(hashtext($1::text))
 `

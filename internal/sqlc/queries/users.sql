@@ -52,3 +52,7 @@ RETURNING *;
 -- name: GetUserName :one
 SELECT name FROM users
 WHERE id = $1;
+
+-- name: DeleteUser :execrows
+DELETE FROM users
+WHERE id = $1;

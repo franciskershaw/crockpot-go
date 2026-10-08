@@ -32,6 +32,14 @@ FROM recipes
 WHERE id = sqlc.arg(id)
 FOR UPDATE;
 
+-- name: ListUnapprovedRecipesForWriteByCreator :many
+-- FOR UPDATE re-checks approved after any wait, so a recipe approved concurrently drops out instead of being deleted.
+SELECT id, image_filename
+FROM recipes
+WHERE created_by_id = sqlc.arg(creator_id) AND NOT approved
+ORDER BY id
+FOR UPDATE;
+
 -- name: LockImage :exec
 -- Serialises concurrent drops of one shared image so the last one sees the others gone and reports it orphaned.
 SELECT pg_advisory_xact_lock(hashtext(sqlc.arg(image_filename)::text));

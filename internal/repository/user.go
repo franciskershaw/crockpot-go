@@ -161,6 +161,22 @@ func (r *PostgresUserRepository) UpdateName(ctx context.Context, userID, name st
 	return toModelUser(updated), nil
 }
 
+// Delete removes the user; every table that references them cascades, and recipes they created keep a null creator.
+func (r *PostgresUserRepository) Delete(ctx context.Context, userID string) error {
+	userUUID, err := uuidParam(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+	n, err := queriesFor(ctx, r.db).DeleteUser(ctx, userUUID)
+	if err != nil {
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+	if n == 0 {
+		return models.ErrUserNotFound
+	}
+	return nil
+}
+
 func (r *PostgresUserRepository) markLogin(ctx context.Context, id pgtype.UUID) (*models.User, error) {
 	updated, err := queriesFor(ctx, r.db).UpdateUserLastLogin(ctx, id)
 	if err != nil {
