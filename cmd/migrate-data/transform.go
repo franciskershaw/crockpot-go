@@ -43,7 +43,6 @@ type userRow struct {
 	Email           string
 	GoogleID        string
 	Name            *string
-	Image           *string
 	Role            string
 	EmailVerifiedAt *time.Time
 	CreatedAt       time.Time
@@ -293,7 +292,6 @@ func buildUsers(users []mongoUser, subs map[oid]string, allowMissingSub bool) ([
 			Email:           src.Email,
 			GoogleID:        gid,
 			Name:            src.Name,
-			Image:           src.Image,
 			Role:            "ADMIN",
 			EmailVerifiedAt: &verified,
 			CreatedAt:       src.CreatedAt.Time,

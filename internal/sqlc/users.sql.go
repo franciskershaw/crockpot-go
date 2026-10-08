@@ -12,25 +12,19 @@ import (
 )
 
 const createGoogleUser = `-- name: CreateGoogleUser :one
-INSERT INTO users (email, google_id, name, image, email_verified_at, last_login_at)
-VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-RETURNING id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at
+INSERT INTO users (email, google_id, name, email_verified_at, last_login_at)
+VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+RETURNING id, google_id, password_hash, email, name, role, email_verified_at, last_login_at, created_at, updated_at
 `
 
 type CreateGoogleUserParams struct {
 	Email    string
 	GoogleID pgtype.Text
 	Name     pgtype.Text
-	Image    pgtype.Text
 }
 
 func (q *Queries) CreateGoogleUser(ctx context.Context, arg CreateGoogleUserParams) (User, error) {
-	row := q.db.QueryRow(ctx, createGoogleUser,
-		arg.Email,
-		arg.GoogleID,
-		arg.Name,
-		arg.Image,
-	)
+	row := q.db.QueryRow(ctx, createGoogleUser, arg.Email, arg.GoogleID, arg.Name)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -38,7 +32,6 @@ func (q *Queries) CreateGoogleUser(ctx context.Context, arg CreateGoogleUserPara
 		&i.PasswordHash,
 		&i.Email,
 		&i.Name,
-		&i.Image,
 		&i.Role,
 		&i.EmailVerifiedAt,
 		&i.LastLoginAt,
@@ -51,7 +44,7 @@ func (q *Queries) CreateGoogleUser(ctx context.Context, arg CreateGoogleUserPara
 const createUnconfirmedUser = `-- name: CreateUnconfirmedUser :one
 INSERT INTO users (email, password_hash, name)
 VALUES ($1, $2, $3)
-RETURNING id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at
+RETURNING id, google_id, password_hash, email, name, role, email_verified_at, last_login_at, created_at, updated_at
 `
 
 type CreateUnconfirmedUserParams struct {
@@ -69,7 +62,6 @@ func (q *Queries) CreateUnconfirmedUser(ctx context.Context, arg CreateUnconfirm
 		&i.PasswordHash,
 		&i.Email,
 		&i.Name,
-		&i.Image,
 		&i.Role,
 		&i.EmailVerifiedAt,
 		&i.LastLoginAt,
@@ -80,7 +72,7 @@ func (q *Queries) CreateUnconfirmedUser(ctx context.Context, arg CreateUnconfirm
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at FROM users
+SELECT id, google_id, password_hash, email, name, role, email_verified_at, last_login_at, created_at, updated_at FROM users
 WHERE email = $1
 `
 
@@ -93,7 +85,6 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.PasswordHash,
 		&i.Email,
 		&i.Name,
-		&i.Image,
 		&i.Role,
 		&i.EmailVerifiedAt,
 		&i.LastLoginAt,
@@ -104,7 +95,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 }
 
 const getUserByGoogleID = `-- name: GetUserByGoogleID :one
-SELECT id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at FROM users
+SELECT id, google_id, password_hash, email, name, role, email_verified_at, last_login_at, created_at, updated_at FROM users
 WHERE google_id = $1
 `
 
@@ -117,7 +108,6 @@ func (q *Queries) GetUserByGoogleID(ctx context.Context, googleID pgtype.Text) (
 		&i.PasswordHash,
 		&i.Email,
 		&i.Name,
-		&i.Image,
 		&i.Role,
 		&i.EmailVerifiedAt,
 		&i.LastLoginAt,
@@ -128,7 +118,7 @@ func (q *Queries) GetUserByGoogleID(ctx context.Context, googleID pgtype.Text) (
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at FROM users
+SELECT id, google_id, password_hash, email, name, role, email_verified_at, last_login_at, created_at, updated_at FROM users
 WHERE id = $1
 `
 
@@ -141,7 +131,6 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 		&i.PasswordHash,
 		&i.Email,
 		&i.Name,
-		&i.Image,
 		&i.Role,
 		&i.EmailVerifiedAt,
 		&i.LastLoginAt,
@@ -155,7 +144,7 @@ const markUserEmailConfirmed = `-- name: MarkUserEmailConfirmed :one
 UPDATE users
 SET email_verified_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
-RETURNING id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at
+RETURNING id, google_id, password_hash, email, name, role, email_verified_at, last_login_at, created_at, updated_at
 `
 
 func (q *Queries) MarkUserEmailConfirmed(ctx context.Context, id pgtype.UUID) (User, error) {
@@ -167,7 +156,6 @@ func (q *Queries) MarkUserEmailConfirmed(ctx context.Context, id pgtype.UUID) (U
 		&i.PasswordHash,
 		&i.Email,
 		&i.Name,
-		&i.Image,
 		&i.Role,
 		&i.EmailVerifiedAt,
 		&i.LastLoginAt,
@@ -181,7 +169,7 @@ const updateUserLastLogin = `-- name: UpdateUserLastLogin :one
 UPDATE users
 SET last_login_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
-RETURNING id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at
+RETURNING id, google_id, password_hash, email, name, role, email_verified_at, last_login_at, created_at, updated_at
 `
 
 func (q *Queries) UpdateUserLastLogin(ctx context.Context, id pgtype.UUID) (User, error) {
@@ -193,42 +181,6 @@ func (q *Queries) UpdateUserLastLogin(ctx context.Context, id pgtype.UUID) (User
 		&i.PasswordHash,
 		&i.Email,
 		&i.Name,
-		&i.Image,
-		&i.Role,
-		&i.EmailVerifiedAt,
-		&i.LastLoginAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const updateUserLoginProfile = `-- name: UpdateUserLoginProfile :one
-UPDATE users
-SET name = COALESCE(NULLIF($1::text, ''), name),
-    image = COALESCE(NULLIF($2::text, ''), image),
-    last_login_at = CURRENT_TIMESTAMP,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = $3
-RETURNING id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at
-`
-
-type UpdateUserLoginProfileParams struct {
-	DisplayName string
-	AvatarUrl   string
-	ID          pgtype.UUID
-}
-
-func (q *Queries) UpdateUserLoginProfile(ctx context.Context, arg UpdateUserLoginProfileParams) (User, error) {
-	row := q.db.QueryRow(ctx, updateUserLoginProfile, arg.DisplayName, arg.AvatarUrl, arg.ID)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.GoogleID,
-		&i.PasswordHash,
-		&i.Email,
-		&i.Name,
-		&i.Image,
 		&i.Role,
 		&i.EmailVerifiedAt,
 		&i.LastLoginAt,
@@ -242,7 +194,7 @@ const updateUserPassword = `-- name: UpdateUserPassword :one
 UPDATE users
 SET password_hash = $2, updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
-RETURNING id, google_id, password_hash, email, name, image, role, email_verified_at, last_login_at, created_at, updated_at
+RETURNING id, google_id, password_hash, email, name, role, email_verified_at, last_login_at, created_at, updated_at
 `
 
 type UpdateUserPasswordParams struct {
@@ -259,7 +211,6 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 		&i.PasswordHash,
 		&i.Email,
 		&i.Name,
-		&i.Image,
 		&i.Role,
 		&i.EmailVerifiedAt,
 		&i.LastLoginAt,

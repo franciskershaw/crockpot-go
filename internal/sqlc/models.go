@@ -189,7 +189,6 @@ type User struct {
 	PasswordHash    pgtype.Text
 	Email           string
 	Name            pgtype.Text
-	Image           pgtype.Text
 	Role            string
 	EmailVerifiedAt pgtype.Timestamptz
 	LastLoginAt     pgtype.Timestamptz

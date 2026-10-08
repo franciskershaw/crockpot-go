@@ -4,12 +4,12 @@
 
 -- name: MigrateInsertUser :exec
 INSERT INTO users (
-    id, email, google_id, name, image, role, email_verified_at,
+    id, email, google_id, name, role, email_verified_at,
     created_at, updated_at
 )
 VALUES (
     sqlc.arg(id), sqlc.arg(email), sqlc.arg(google_id), sqlc.narg(name),
-    sqlc.narg(image), sqlc.arg(role), sqlc.narg(email_verified_at),
+    sqlc.arg(role), sqlc.narg(email_verified_at),
     sqlc.arg(created_at), sqlc.arg(updated_at)
 );
 

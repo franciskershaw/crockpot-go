@@ -30,7 +30,7 @@ const (
 )
 
 type UserRepository interface {
-	GetOrCreateUser(ctx context.Context, email, googleID, displayName, avatarURL string) (*models.User, error)
+	GetOrCreateUser(ctx context.Context, email, googleID, displayName string) (*models.User, error)
 	CreateUnconfirmedUser(ctx context.Context, email, passwordHash, name string) (*models.User, error)
 	MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error)
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
@@ -219,7 +219,7 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userRepo.GetOrCreateUser(ctx, idTokenClaims.Email, idTokenClaims.GoogleID, idTokenClaims.DisplayName, idTokenClaims.AvatarURL)
+	user, err := h.userRepo.GetOrCreateUser(ctx, idTokenClaims.Email, idTokenClaims.GoogleID, idTokenClaims.DisplayName)
 	if err != nil {
 		if errors.Is(err, models.ErrEmailRegisteredWithPassword) {
 			h.redirectWithError(c, "email_registered_with_password")
@@ -823,7 +823,6 @@ func (h *AuthHandler) Me(c *gin.Context) {
 		"id":    user.ID.String(),
 		"email": user.Email,
 		"name":  user.Name,
-		"image": user.Image,
 		"role":  user.Role,
 	})
 }

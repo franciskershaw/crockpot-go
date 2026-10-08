@@ -27,7 +27,6 @@ type mongoUser struct {
 	ID            oid        `json:"_id"`
 	Name          *string    `json:"name"`
 	Email         string     `json:"email"`
-	Image         *string    `json:"image"`
 	Role          string     `json:"role"`
 	EmailVerified *ejsonDate `json:"emailVerified"`
 	CreatedAt     ejsonDate  `json:"createdAt"`

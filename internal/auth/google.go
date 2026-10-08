@@ -26,7 +26,6 @@ type IDTokenClaims struct {
 	EmailVerified bool   `json:"email_verified"`
 	GoogleID      string `json:"sub"`
 	DisplayName   string `json:"name"`
-	AvatarURL     string `json:"picture"`
 }
 
 // NewGoogleOAuthManager initializes the Google OAuth2 manager

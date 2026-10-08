@@ -40,7 +40,6 @@ var (
 		ID:       uuid.MustParse("11111111-1111-1111-1111-111111111111"),
 		Email:    "test@example.com",
 		Name:     ptr("Test User"),
-		Image:    ptr("https://example.com/avatar.png"),
 		GoogleID: ptr("google-123"),
 		Role:     "FREE",
 	}
@@ -49,7 +48,6 @@ var (
 		EmailVerified: true,
 		GoogleID:      *fakeUser.GoogleID,
 		DisplayName:   *fakeUser.Name,
-		AvatarURL:     *fakeUser.Image,
 	}
 )
 
@@ -129,7 +127,7 @@ func mockSuccessfulExchange(oauthMgr *genmocks.MockOAuthManager) {
 
 // mockSuccessfulUserAndFamily wires GetOrCreateUser/DeleteStaleFamiliesForUser/CreateFamily to all succeed.
 func mockSuccessfulUserAndFamily(userRepo *genmocks.MockUserRepository, refreshTokenRepo *genmocks.MockRefreshTokenRepository) {
-	userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).Return(fakeUser, nil)
+	userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName).Return(fakeUser, nil)
 	refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, fakeUser.ID.String()).Return(nil)
 	refreshTokenRepo.EXPECT().CreateFamily(mock.Anything, mock.AnythingOfType("string"), fakeUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).
 		Return(&models.RefreshTokenFamily{ID: uuid.New(), UserID: fakeUser.ID}, nil)
@@ -320,7 +318,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 				oauthMgr.EXPECT().ExchangeCodeForToken(mock.Anything, "auth-code").Return(fakeToken, nil)
 				unverifiedClaims := &auth.IDTokenClaims{
 					Email: fakeClaims.Email, EmailVerified: false,
-					GoogleID: fakeClaims.GoogleID, DisplayName: fakeClaims.DisplayName, AvatarURL: fakeClaims.AvatarURL,
+					GoogleID: fakeClaims.GoogleID, DisplayName: fakeClaims.DisplayName,
 				}
 				oauthMgr.EXPECT().VerifyIDToken(mock.Anything, fakeToken).Return(unverifiedClaims, nil)
 			},
@@ -330,7 +328,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 			name: "email already registered with password",
 			setup: func(oauthMgr *genmocks.MockOAuthManager, userRepo *genmocks.MockUserRepository, _ *genmocks.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
-				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).
+				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName).
 					Return(nil, models.ErrEmailRegisteredWithPassword)
 			},
 			wantError: "email_registered_with_password",
@@ -339,7 +337,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 			name: "GetOrCreateUser generic error",
 			setup: func(oauthMgr *genmocks.MockOAuthManager, userRepo *genmocks.MockUserRepository, _ *genmocks.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
-				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).
+				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName).
 					Return(nil, errors.New("db exploded"))
 			},
 			wantError: "server_error",
@@ -348,7 +346,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 			name: "DeleteStaleFamiliesForUser fails",
 			setup: func(oauthMgr *genmocks.MockOAuthManager, userRepo *genmocks.MockUserRepository, refreshTokenRepo *genmocks.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
-				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).Return(fakeUser, nil)
+				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName).Return(fakeUser, nil)
 				refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, fakeUser.ID.String()).Return(errors.New("delete failed"))
 			},
 			wantError: "server_error",
@@ -357,7 +355,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 			name: "CreateFamily fails",
 			setup: func(oauthMgr *genmocks.MockOAuthManager, userRepo *genmocks.MockUserRepository, refreshTokenRepo *genmocks.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
-				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).Return(fakeUser, nil)
+				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName).Return(fakeUser, nil)
 				refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, fakeUser.ID.String()).Return(nil)
 				refreshTokenRepo.EXPECT().CreateFamily(mock.Anything, mock.AnythingOfType("string"), fakeUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).
 					Return(nil, errors.New("insert failed"))
@@ -1467,12 +1465,10 @@ func TestLogout_ClearsCookieEvenWithoutValidRefreshToken(t *testing.T) {
 var (
 	meTestUserID = uuid.MustParse("55555555-5555-5555-5555-555555555555")
 	meTestName   = "Me Test User"
-	meTestImage  = "https://example.com/avatar.png"
 	meTestUser   = &models.User{
 		ID:    meTestUserID,
 		Email: "me@example.com",
 		Name:  &meTestName,
-		Image: &meTestImage,
 		Role:  "FREE",
 	}
 )
@@ -1498,7 +1494,7 @@ func TestMe_ReturnsProfile(t *testing.T) {
 	assert.Equal(t, meTestUserID.String(), body["id"])
 	assert.Equal(t, meTestUser.Email, body["email"])
 	assert.Equal(t, meTestName, body["name"])
-	assert.Equal(t, meTestImage, body["image"])
+	assert.NotContains(t, body, "image")
 	assert.Equal(t, meTestUser.Role, body["role"])
 }
 

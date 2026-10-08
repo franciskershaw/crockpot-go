@@ -204,13 +204,13 @@ func (q *Queries) MigrateInsertRecipeMenu(ctx context.Context, userID pgtype.UUI
 const migrateInsertUser = `-- name: MigrateInsertUser :exec
 
 INSERT INTO users (
-    id, email, google_id, name, image, role, email_verified_at,
+    id, email, google_id, name, role, email_verified_at,
     created_at, updated_at
 )
 VALUES (
     $1, $2, $3, $4,
-    $5, $6, $7,
-    $8, $9
+    $5, $6,
+    $7, $8
 )
 `
 
@@ -219,7 +219,6 @@ type MigrateInsertUserParams struct {
 	Email           string
 	GoogleID        pgtype.Text
 	Name            pgtype.Text
-	Image           pgtype.Text
 	Role            string
 	EmailVerifiedAt pgtype.Timestamptz
 	CreatedAt       pgtype.Timestamptz
@@ -235,7 +234,6 @@ func (q *Queries) MigrateInsertUser(ctx context.Context, arg MigrateInsertUserPa
 		arg.Email,
 		arg.GoogleID,
 		arg.Name,
-		arg.Image,
 		arg.Role,
 		arg.EmailVerifiedAt,
 		arg.CreatedAt,
