@@ -35,10 +35,8 @@ type UserRepository interface {
 	MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error)
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
 	FindByID(ctx context.Context, userID string) (*models.User, error)
-	FindByIDForUpdate(ctx context.Context, userID string) (*models.User, error)
 	UpdateLastLogin(ctx context.Context, userID string) (*models.User, error)
 	UpdatePassword(ctx context.Context, userID, passwordHash string) (*models.User, error)
-	UpdateName(ctx context.Context, userID, name string) (*models.User, error)
 }
 
 type RefreshTokenRepository interface {
@@ -665,7 +663,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 			return fmt.Errorf("failed to mark email confirmed: %w", err)
 		}
 
-		return h.replaceAllSessions(ctx, userID, familyID, refreshToken)
+		return replaceAllSessions(ctx, h.refreshTokenRepo, userID, familyID, refreshToken)
 	})
 	if txErr != nil {
 		if errors.Is(txErr, errPasswordResetTokenAlreadyClaimed) {
@@ -690,14 +688,14 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 }
 
 // replaceAllSessions revokes every refresh family the user has and starts familyID as the only one; run it inside the caller's transaction.
-func (h *AuthHandler) replaceAllSessions(ctx context.Context, userID, familyID, refreshToken string) error {
-	if err := h.refreshTokenRepo.RevokeAllFamiliesForUser(ctx, userID); err != nil {
+func replaceAllSessions(ctx context.Context, refreshTokens RefreshTokenRepository, userID, familyID, refreshToken string) error {
+	if err := refreshTokens.RevokeAllFamiliesForUser(ctx, userID); err != nil {
 		return fmt.Errorf("failed to revoke existing sessions: %w", err)
 	}
-	if err := h.refreshTokenRepo.DeleteStaleFamiliesForUser(ctx, userID); err != nil {
+	if err := refreshTokens.DeleteStaleFamiliesForUser(ctx, userID); err != nil {
 		return fmt.Errorf("failed to clean up refresh tokens: %w", err)
 	}
-	if _, err := h.refreshTokenRepo.CreateFamily(ctx, familyID, userID, auth.HashToken(refreshToken), time.Now().Add(refreshTokenTTL)); err != nil {
+	if _, err := refreshTokens.CreateFamily(ctx, familyID, userID, auth.HashToken(refreshToken), time.Now().Add(refreshTokenTTL)); err != nil {
 		return fmt.Errorf("failed to persist refresh token: %w", err)
 	}
 	return nil
@@ -801,182 +799,4 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	// Cookie is always cleared, even if the token above was missing or invalid.
 	setRefreshCookie(c, h.cfg, "", -1)
 	c.JSON(http.StatusOK, gin.H{"message": "logged out"})
-}
-
-func (h *AuthHandler) Me(c *gin.Context) {
-	userID, ok := userIDFromCtx(c)
-	if !ok {
-		unauthorized(c, "unauthorized")
-		return
-	}
-
-	user, err := h.userRepo.FindByID(c.Request.Context(), userID)
-	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) {
-			unauthorized(c, "unauthorized")
-			return
-		}
-		internalError(c, "failed to look up user", err)
-		return
-	}
-
-	c.JSON(http.StatusOK, meResponse(user))
-}
-
-type updateMeRequest struct {
-	Name string `json:"name"`
-}
-
-func (h *AuthHandler) UpdateMe(c *gin.Context) {
-	userID, ok := userIDFromCtx(c)
-	if !ok {
-		unauthorized(c, "unauthorized")
-		return
-	}
-
-	var req updateMeRequest
-	if !bindJSON(c, &req) {
-		return
-	}
-	name, ok := validateUserName(c, req.Name)
-	if !ok {
-		return
-	}
-
-	user, err := h.userRepo.UpdateName(c.Request.Context(), userID, name)
-	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) {
-			unauthorized(c, "unauthorized")
-			return
-		}
-		internalError(c, "failed to update name", err)
-		return
-	}
-
-	c.JSON(http.StatusOK, meResponse(user))
-}
-
-type changePasswordRequest struct {
-	CurrentPassword string `json:"currentPassword" binding:"required"`
-	NewPassword     string `json:"newPassword" binding:"required"`
-}
-
-func (h *AuthHandler) ChangePassword(c *gin.Context) {
-	userID, ok := userIDFromCtx(c)
-	if !ok {
-		unauthorized(c, "unauthorized")
-		return
-	}
-
-	var req changePasswordRequest
-	if !bindJSON(c, &req) {
-		return
-	}
-	if !validateNewPassword(c, req.NewPassword) {
-		return
-	}
-
-	ctx := c.Request.Context()
-	user, err := h.userRepo.FindByID(ctx, userID)
-	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) {
-			unauthorized(c, "unauthorized")
-			return
-		}
-		internalError(c, "failed to look up user", err)
-		return
-	}
-	if user.PasswordHash == nil {
-		conflict(c, "no_password")
-		return
-	}
-	// bcrypt runs before the transaction so a wrong guess never holds the user row lock.
-	if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
-		// 403, not 401: the frontend treats a 401 on a signed-in request as an expired session.
-		forbidden(c, "invalid_password")
-		return
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
-	if err != nil {
-		internalError(c, "failed to hash password", err)
-		return
-	}
-
-	familyID := uuid.NewString()
-	refreshToken, err := auth.GenerateRefreshToken(userID, familyID, h.cfg.JWTSecretRefresh)
-	if err != nil {
-		internalError(c, "failed to generate refresh token", err)
-		return
-	}
-
-	txErr := h.transactor.WithinTx(ctx, func(ctx context.Context) error {
-		locked, err := h.userRepo.FindByIDForUpdate(ctx, userID)
-		if err != nil {
-			return fmt.Errorf("failed to look up user: %w", err)
-		}
-		// A reset or change that landed after the check above makes the checked password stale.
-		if !samePasswordHash(locked.PasswordHash, user.PasswordHash) {
-			return errInvalidPassword
-		}
-		if _, err := h.userRepo.UpdatePassword(ctx, userID, string(hash)); err != nil {
-			return fmt.Errorf("failed to update password: %w", err)
-		}
-		return h.replaceAllSessions(ctx, userID, familyID, refreshToken)
-	})
-	switch {
-	case txErr == nil:
-	case errors.Is(txErr, models.ErrUserNotFound):
-		unauthorized(c, "unauthorized")
-		return
-	case errors.Is(txErr, errInvalidPassword):
-		forbidden(c, "invalid_password")
-		return
-	default:
-		_ = c.Error(txErr)
-		serverError(c)
-		return
-	}
-
-	accessToken, err := auth.GenerateAccessToken(user.Email, user.ID.String(), user.Role, h.cfg.JWTSecretAccess)
-	if err != nil {
-		internalError(c, "failed to generate access token", err)
-		return
-	}
-
-	setRefreshCookie(c, h.cfg, refreshToken, int(refreshTokenTTL.Seconds()))
-
-	forgotURL := fmt.Sprintf("%s/forgot-password", h.cfg.FrontendURL)
-	if err := h.emailSender.SendPasswordChanged(context.WithoutCancel(ctx), user.Email, forgotURL); err != nil {
-		_ = c.Error(fmt.Errorf("failed to send password changed email: %w", err))
-	}
-
-	c.JSON(http.StatusOK, gin.H{"accessToken": accessToken})
-}
-
-var errInvalidPassword = errors.New("current password does not match")
-
-func samePasswordHash(a, b *string) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return *a == *b
-}
-
-func meResponse(user *models.User) gin.H {
-	return gin.H{
-		"id":           user.ID.String(),
-		"email":        user.Email,
-		"name":         user.Name,
-		"role":         user.Role,
-		"authProvider": authProvider(user),
-	}
-}
-
-// authProvider relies on the users CHECK constraint: exactly one of google_id and password_hash is set.
-func authProvider(user *models.User) string {
-	if user.GoogleID != nil {
-		return "google"
-	}
-	return "password"
 }

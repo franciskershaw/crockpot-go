@@ -506,6 +506,11 @@ func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, caller
 		return nil, nil, err
 	}
 
+	return deleteRecipeRow(ctx, q, recipeID, existing.ImageFilename)
+}
+
+// deleteRecipeRow deletes a recipe the caller has already locked, returning the users whose menus held it and its photo if no other recipe uses it.
+func deleteRecipeRow(ctx context.Context, q *sqlc.Queries, recipeID pgtype.UUID, imageFilename pgtype.Text) ([]string, *string, error) {
 	// Read before the delete: the cascade removes the menu entries that say who held it.
 	menuUserIDs, err := q.ListMenuUserIDsForRecipe(ctx, recipeID)
 	if err != nil {
@@ -516,8 +521,8 @@ func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, caller
 		return nil, nil, fmt.Errorf("failed to delete recipe: %w", err)
 	}
 	var orphan *string
-	if existing.ImageFilename.Valid {
-		if orphan, err = orphanedImage(ctx, q, existing.ImageFilename, recipeID); err != nil {
+	if imageFilename.Valid {
+		if orphan, err = orphanedImage(ctx, q, imageFilename, recipeID); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -539,25 +544,15 @@ func (r *PostgresRecipeRepository) DeleteUnapprovedByCreator(ctx context.Context
 
 	holders := map[string]struct{}{}
 	for _, d := range drafts {
-		ids, err := q.ListMenuUserIDsForRecipe(ctx, d.ID)
+		ids, orphan, err := deleteRecipeRow(ctx, q, d.ID, d.ImageFilename)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to list menus holding recipe: %w", err)
+			return nil, nil, err
 		}
-		for _, id := range uuidStrings(ids) {
+		for _, id := range ids {
 			holders[id] = struct{}{}
 		}
-
-		if err := q.DeleteRecipe(ctx, d.ID); err != nil {
-			return nil, nil, fmt.Errorf("failed to delete recipe: %w", err)
-		}
-		if d.ImageFilename.Valid {
-			orphan, err := orphanedImage(ctx, q, d.ImageFilename, d.ID)
-			if err != nil {
-				return nil, nil, err
-			}
-			if orphan != nil {
-				orphanedImages = append(orphanedImages, *orphan)
-			}
+		if orphan != nil {
+			orphanedImages = append(orphanedImages, *orphan)
 		}
 	}
 

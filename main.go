@@ -101,7 +101,7 @@ func main() {
 		PhotoLimiter: limiter.New(memory.NewStore(), photoRateLimit),
 		NewID:        uuid.NewString,
 	})
-	accountHandler := handler.NewAccountHandler(userRepo, recipeRepo, shoppingListRepo, transactor, imageStore, imageScope, cfg)
+	accountHandler := handler.NewAccountHandler(userRepo, refreshTokenRepo, emailSender, recipeRepo, shoppingListRepo, transactor, imageStore, imageScope, cfg)
 	menuHandler := handler.NewMenuHandler(menuRepo, shoppingListRepo, transactor)
 	shoppingListHandler := handler.NewShoppingListHandler(shoppingListRepo, transactor)
 	regularHandler := handler.NewRegularHandler(regularRepo)
@@ -153,15 +153,15 @@ func main() {
 	authed := server.Group("/")
 	authed.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess))
 	{
-		authed.GET("/me", authHandler.Me)
-		authed.PATCH("/me", authHandler.UpdateMe)
+		authed.GET("/me", accountHandler.Me)
+		authed.PATCH("/me", accountHandler.UpdateMe)
 	}
 
 	// Signed-in endpoints that check a password get the auth limit, so a stolen session can't guess at speed.
 	meTight := server.Group("/me")
 	meTight.Use(middleware.NewRateLimitMiddleware(memory.NewStore(), authRateLimit).Handler(), middleware.AuthMiddleware(cfg.JWTSecretAccess))
 	{
-		meTight.POST("/password", authHandler.ChangePassword)
+		meTight.POST("/password", accountHandler.ChangePassword)
 		meTight.DELETE("", accountHandler.DeleteMe)
 	}
 

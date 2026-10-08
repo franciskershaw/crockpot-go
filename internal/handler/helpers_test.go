@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
@@ -32,3 +33,8 @@ func jsonRequestBody(body any) *bytes.Reader {
 	b, _ := json.Marshal(body)
 	return bytes.NewReader(b)
 }
+
+// inTxKey marks a context as inside the mock transactor's WithinTx, so a test can assert a call ran in the transaction.
+type inTxKey struct{}
+
+func inTx(ctx context.Context) bool { return ctx.Value(inTxKey{}) != nil }
