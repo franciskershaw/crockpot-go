@@ -116,6 +116,7 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 	authed.Use(middleware.AuthMiddleware(testutil.TestAccessSecret))
 	authed.GET("/me", h.Me)
 	authed.PATCH("/me", h.UpdateMe)
+	authed.POST("/me/password", h.ChangePassword)
 	return m
 }
 
@@ -1691,6 +1692,151 @@ func TestUpdateMe_Fails(t *testing.T) {
 
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])
+		})
+	}
+}
+
+// --- ChangePassword ---
+
+const changedPasswordPlaintext = "brand-new-horse"
+
+var changePasswordUser = &models.User{
+	ID: uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc"), Email: "change@example.com",
+	Name: ptr("Change Me"), PasswordHash: ptr(loginUserPasswordHash), Role: "FREE",
+}
+
+func doChangePassword(t *testing.T, r *gin.Engine, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var reqBody *bytes.Reader
+	if raw, ok := body.(string); ok {
+		reqBody = bytes.NewReader([]byte(raw))
+	} else {
+		b, _ := json.Marshal(body)
+		reqBody = bytes.NewReader(b)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/me/password", reqBody)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", testutil.AuthHeader(t, changePasswordUser.Email, changePasswordUser.ID.String(), changePasswordUser.Role))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+// expectPasswordChangeWrites records the order of the transaction's writes and the hash it saved.
+func expectPasswordChangeWrites(m *mocks, order *[]string, savedHash *string) {
+	userID := changePasswordUser.ID.String()
+	m.userRepo.EXPECT().UpdatePassword(mock.Anything, userID, mock.AnythingOfType("string")).
+		Run(func(_ context.Context, _ string, hash string) {
+			*order = append(*order, "UpdatePassword")
+			*savedHash = hash
+		}).
+		Return(changePasswordUser, nil)
+	m.refreshTokenRepo.EXPECT().RevokeAllFamiliesForUser(mock.Anything, userID).
+		Run(func(context.Context, string) { *order = append(*order, "RevokeAllFamiliesForUser") }).
+		Return(nil)
+	m.refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, userID).
+		Run(func(context.Context, string) { *order = append(*order, "DeleteStaleFamiliesForUser") }).
+		Return(nil)
+	m.refreshTokenRepo.EXPECT().CreateFamily(mock.Anything, mock.AnythingOfType("string"), userID, mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).
+		Run(func(context.Context, string, string, string, time.Time) { *order = append(*order, "CreateFamily") }).
+		Return(&models.RefreshTokenFamily{ID: uuid.New(), UserID: changePasswordUser.ID}, nil)
+}
+
+func TestChangePassword_Success(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	var order []string
+	var savedHash string
+	m.userRepo.EXPECT().FindByID(mock.Anything, changePasswordUser.ID.String()).Return(changePasswordUser, nil)
+	expectPasswordChangeWrites(m, &order, &savedHash)
+	m.emailSender.EXPECT().SendPasswordChanged(mock.Anything, changePasswordUser.Email, "http://localhost:5173/forgot-password").
+		Run(func(context.Context, string, string) { order = append(order, "SendPasswordChanged") }).
+		Return(nil)
+
+	w := doChangePassword(t, m.router, map[string]string{"currentPassword": loginUserPassword, "newPassword": changedPasswordPlaintext})
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotEmpty(t, decodeJSONBody(t, w)["accessToken"])
+	require.NotNil(t, refreshCookieFrom(w), "expected refreshToken cookie to be set")
+	assert.Equal(t, []string{"UpdatePassword", "RevokeAllFamiliesForUser", "DeleteStaleFamiliesForUser", "CreateFamily", "SendPasswordChanged"}, order)
+	assert.NoError(t, bcrypt.CompareHashAndPassword([]byte(savedHash), []byte(changedPasswordPlaintext)), "saved hash should match the new password")
+}
+
+func TestChangePassword_EmailFailureStillSucceeds(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	var order []string
+	var savedHash string
+	m.userRepo.EXPECT().FindByID(mock.Anything, changePasswordUser.ID.String()).Return(changePasswordUser, nil)
+	expectPasswordChangeWrites(m, &order, &savedHash)
+	m.emailSender.EXPECT().SendPasswordChanged(mock.Anything, changePasswordUser.Email, mock.AnythingOfType("string")).Return(errors.New("resend unreachable"))
+
+	w := doChangePassword(t, m.router, map[string]string{"currentPassword": loginUserPassword, "newPassword": changedPasswordPlaintext})
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotEmpty(t, decodeJSONBody(t, w)["accessToken"])
+	assert.NotNil(t, refreshCookieFrom(w))
+}
+
+func TestChangePassword_Fails(t *testing.T) {
+	googleUser := &models.User{ID: changePasswordUser.ID, Email: changePasswordUser.Email, GoogleID: ptr("google-change"), Role: "FREE"}
+	findsUser := func(u *models.User) func(m *mocks) {
+		return func(m *mocks) {
+			m.userRepo.EXPECT().FindByID(mock.Anything, changePasswordUser.ID.String()).Return(u, nil).Maybe()
+		}
+	}
+	valid := map[string]string{"currentPassword": loginUserPassword, "newPassword": changedPasswordPlaintext}
+
+	cases := []struct {
+		name      string
+		body      any
+		setup     func(m *mocks)
+		wantCode  int
+		wantError string
+	}{
+		{name: "malformed body", body: "{not json", wantCode: http.StatusBadRequest, wantError: "invalid_request"},
+		{name: "current password missing", body: map[string]string{"newPassword": changedPasswordPlaintext}, wantCode: http.StatusBadRequest, wantError: "invalid_request"},
+		{name: "new password missing", body: map[string]string{"currentPassword": loginUserPassword}, wantCode: http.StatusBadRequest, wantError: "invalid_request"},
+		{
+			name: "new password too short", body: map[string]string{"currentPassword": loginUserPassword, "newPassword": "short"},
+			setup: findsUser(changePasswordUser), wantCode: http.StatusBadRequest, wantError: "password_too_short",
+		},
+		{
+			name: "new password too long", body: map[string]string{"currentPassword": loginUserPassword, "newPassword": strings.Repeat("a", 73)},
+			setup: findsUser(changePasswordUser), wantCode: http.StatusBadRequest, wantError: "password_too_long",
+		},
+		{
+			name: "wrong current password", body: map[string]string{"currentPassword": "not-the-password", "newPassword": changedPasswordPlaintext},
+			setup: findsUser(changePasswordUser), wantCode: http.StatusForbidden, wantError: "invalid_password",
+		},
+		{name: "google account", body: valid, setup: findsUser(googleUser), wantCode: http.StatusConflict, wantError: "no_password"},
+		{
+			name: "user no longer exists", body: valid,
+			setup: func(m *mocks) {
+				m.userRepo.EXPECT().FindByID(mock.Anything, changePasswordUser.ID.String()).Return(nil, models.ErrUserNotFound)
+			},
+			wantCode: http.StatusUnauthorized, wantError: "unauthorized",
+		},
+		{
+			name: "write fails", body: valid,
+			setup: func(m *mocks) {
+				m.userRepo.EXPECT().FindByID(mock.Anything, changePasswordUser.ID.String()).Return(changePasswordUser, nil)
+				m.userRepo.EXPECT().UpdatePassword(mock.Anything, changePasswordUser.ID.String(), mock.AnythingOfType("string")).Return(nil, errors.New("db exploded"))
+			},
+			wantCode: http.StatusInternalServerError, wantError: "server_error",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMocks(t, config.EnvDevelopment)
+			if tc.setup != nil {
+				tc.setup(m)
+			}
+
+			w := doChangePassword(t, m.router, tc.body)
+
+			assert.Equal(t, tc.wantCode, w.Code)
+			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])
+			assert.Nil(t, refreshCookieFrom(w), "a failed change must not set a refresh cookie")
 		})
 	}
 }

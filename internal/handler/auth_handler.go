@@ -83,6 +83,7 @@ type OAuthManager interface {
 type EmailSender interface {
 	SendConfirmationCode(ctx context.Context, toEmail, code string) error
 	SendPasswordResetLink(ctx context.Context, toEmail, resetURL string) error
+	SendPasswordChanged(ctx context.Context, toEmail, forgotPasswordURL string) error
 }
 
 type AuthHandler struct {
@@ -663,17 +664,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 			return fmt.Errorf("failed to mark email confirmed: %w", err)
 		}
 
-		if err := h.refreshTokenRepo.RevokeAllFamiliesForUser(ctx, userID); err != nil {
-			return fmt.Errorf("failed to revoke existing sessions: %w", err)
-		}
-
-		if err := h.refreshTokenRepo.DeleteStaleFamiliesForUser(ctx, userID); err != nil {
-			return fmt.Errorf("failed to clean up refresh tokens: %w", err)
-		}
-		if _, err := h.refreshTokenRepo.CreateFamily(ctx, familyID, userID, auth.HashToken(refreshToken), time.Now().Add(refreshTokenTTL)); err != nil {
-			return fmt.Errorf("failed to persist refresh token: %w", err)
-		}
-		return nil
+		return h.replaceAllSessions(ctx, userID, familyID, refreshToken)
 	})
 	if txErr != nil {
 		if errors.Is(txErr, errPasswordResetTokenAlreadyClaimed) {
@@ -695,6 +686,20 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	h.setRefreshCookie(c, refreshToken, int(refreshTokenTTL.Seconds()))
 
 	c.JSON(http.StatusOK, gin.H{"accessToken": accessToken})
+}
+
+// replaceAllSessions revokes every refresh family the user has and starts familyID as the only one; run it inside the caller's transaction.
+func (h *AuthHandler) replaceAllSessions(ctx context.Context, userID, familyID, refreshToken string) error {
+	if err := h.refreshTokenRepo.RevokeAllFamiliesForUser(ctx, userID); err != nil {
+		return fmt.Errorf("failed to revoke existing sessions: %w", err)
+	}
+	if err := h.refreshTokenRepo.DeleteStaleFamiliesForUser(ctx, userID); err != nil {
+		return fmt.Errorf("failed to clean up refresh tokens: %w", err)
+	}
+	if _, err := h.refreshTokenRepo.CreateFamily(ctx, familyID, userID, auth.HashToken(refreshToken), time.Now().Add(refreshTokenTTL)); err != nil {
+		return fmt.Errorf("failed to persist refresh token: %w", err)
+	}
+	return nil
 }
 
 // errPasswordResetTokenAlreadyClaimed signals MarkUsed's atomic claim lost a race to a concurrent ResetPassword call.
@@ -848,6 +853,87 @@ func (h *AuthHandler) UpdateMe(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, meResponse(user))
+}
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"currentPassword" binding:"required"`
+	NewPassword     string `json:"newPassword" binding:"required"`
+}
+
+func (h *AuthHandler) ChangePassword(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+
+	var req changePasswordRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	if !validateNewPassword(c, req.NewPassword) {
+		return
+	}
+
+	ctx := c.Request.Context()
+	user, err := h.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			unauthorized(c, "unauthorized")
+			return
+		}
+		internalError(c, "failed to look up user", err)
+		return
+	}
+	if user.PasswordHash == nil {
+		conflict(c, "no_password")
+		return
+	}
+	// 403, not 401: the frontend treats a 401 on a signed-in request as an expired session.
+	if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+		forbidden(c, "invalid_password")
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		internalError(c, "failed to hash password", err)
+		return
+	}
+
+	familyID := uuid.NewString()
+	refreshToken, err := auth.GenerateRefreshToken(userID, familyID, h.cfg.JWTSecretRefresh)
+	if err != nil {
+		internalError(c, "failed to generate refresh token", err)
+		return
+	}
+
+	txErr := h.transactor.WithinTx(ctx, func(ctx context.Context) error {
+		if _, err := h.userRepo.UpdatePassword(ctx, userID, string(hash)); err != nil {
+			return fmt.Errorf("failed to update password: %w", err)
+		}
+		return h.replaceAllSessions(ctx, userID, familyID, refreshToken)
+	})
+	if txErr != nil {
+		_ = c.Error(txErr)
+		serverError(c)
+		return
+	}
+
+	accessToken, err := auth.GenerateAccessToken(user.Email, user.ID.String(), user.Role, h.cfg.JWTSecretAccess)
+	if err != nil {
+		internalError(c, "failed to generate access token", err)
+		return
+	}
+
+	h.setRefreshCookie(c, refreshToken, int(refreshTokenTTL.Seconds()))
+
+	forgotURL := fmt.Sprintf("%s/forgot-password", h.cfg.FrontendURL)
+	if err := h.emailSender.SendPasswordChanged(context.WithoutCancel(ctx), user.Email, forgotURL); err != nil {
+		_ = c.Error(fmt.Errorf("failed to send password changed email: %w", err))
+	}
+
+	c.JSON(http.StatusOK, gin.H{"accessToken": accessToken})
 }
 
 func meResponse(user *models.User) gin.H {

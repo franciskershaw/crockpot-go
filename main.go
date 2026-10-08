@@ -154,6 +154,13 @@ func main() {
 		authed.PATCH("/me", authHandler.UpdateMe)
 	}
 
+	// Signed-in endpoints that check a password get the auth limit, so a stolen session can't guess at speed.
+	meTight := server.Group("/me")
+	meTight.Use(middleware.NewRateLimitMiddleware(memory.NewStore(), authRateLimit).Handler(), middleware.AuthMiddleware(cfg.JWTSecretAccess))
+	{
+		meTight.POST("/password", authHandler.ChangePassword)
+	}
+
 	// Public read: reference data, visible to anonymous browse/filter.
 	server.GET("/item-categories", itemCategoryHandler.List)
 

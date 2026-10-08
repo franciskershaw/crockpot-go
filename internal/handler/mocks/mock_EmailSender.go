@@ -69,6 +69,54 @@ func (_c *MockEmailSender_SendConfirmationCode_Call) RunAndReturn(run func(conte
 	return _c
 }
 
+// SendPasswordChanged provides a mock function with given fields: ctx, toEmail, forgotPasswordURL
+func (_m *MockEmailSender) SendPasswordChanged(ctx context.Context, toEmail string, forgotPasswordURL string) error {
+	ret := _m.Called(ctx, toEmail, forgotPasswordURL)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SendPasswordChanged")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, toEmail, forgotPasswordURL)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockEmailSender_SendPasswordChanged_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SendPasswordChanged'
+type MockEmailSender_SendPasswordChanged_Call struct {
+	*mock.Call
+}
+
+// SendPasswordChanged is a helper method to define mock.On call
+//   - ctx context.Context
+//   - toEmail string
+//   - forgotPasswordURL string
+func (_e *MockEmailSender_Expecter) SendPasswordChanged(ctx interface{}, toEmail interface{}, forgotPasswordURL interface{}) *MockEmailSender_SendPasswordChanged_Call {
+	return &MockEmailSender_SendPasswordChanged_Call{Call: _e.mock.On("SendPasswordChanged", ctx, toEmail, forgotPasswordURL)}
+}
+
+func (_c *MockEmailSender_SendPasswordChanged_Call) Run(run func(ctx context.Context, toEmail string, forgotPasswordURL string)) *MockEmailSender_SendPasswordChanged_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockEmailSender_SendPasswordChanged_Call) Return(_a0 error) *MockEmailSender_SendPasswordChanged_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockEmailSender_SendPasswordChanged_Call) RunAndReturn(run func(context.Context, string, string) error) *MockEmailSender_SendPasswordChanged_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SendPasswordResetLink provides a mock function with given fields: ctx, toEmail, resetURL
 func (_m *MockEmailSender) SendPasswordResetLink(ctx context.Context, toEmail string, resetURL string) error {
 	ret := _m.Called(ctx, toEmail, resetURL)
