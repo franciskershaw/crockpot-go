@@ -223,23 +223,31 @@ func TestCreateRecipe_FullWithImageUnitNotesAndApproved(t *testing.T) {
 	assert.Equal(t, 800.0, recipe.Ingredients[0].Quantity)
 }
 
-func TestCreateRecipe_PopulatesCreatedByNameFromUsersRow(t *testing.T) {
+func TestGetByID_BylineFollowsCreatorRename(t *testing.T) {
 	ctx := context.Background()
-	userID := insertTestUser(t, "Distinctive Name 12345")
-	catID := insertTestItemCategory(t, "repo-test-category-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
-	itemID := insertTestItem(t, "repo-test-item-"+uuid.NewString(), catID)
-	recipeCatID := insertTestRecipeCategory(t, "repo-test-recipe-category-"+uuid.NewString())
+	userID := insertTestUser(t, "Name Before Rename")
+	id := createTestRecipe(t, recipeOpts{createdBy: userID, approved: true})
 
-	recipe, err := recipeRepo.Create(ctx, baseRecipeInput(userID, itemID, recipeCatID))
+	_, err := db.DB.Exec(ctx, `UPDATE users SET name = 'Name After Rename' WHERE id = $1`, userID)
 	require.NoError(t, err)
-	cleanupExec(t, `DELETE FROM recipes WHERE id = $1`, recipe.ID)
 
-	require.NotNil(t, recipe.CreatedByName)
-	assert.Equal(t, "Distinctive Name 12345", *recipe.CreatedByName)
+	got, err := recipeRepo.GetByID(ctx, id.String(), nil, false)
+	require.NoError(t, err)
+	require.NotNil(t, got.CreatedByName)
+	assert.Equal(t, "Name After Rename", *got.CreatedByName)
+}
 
-	var dbName string
-	require.NoError(t, db.DB.QueryRow(ctx, `SELECT created_by_name FROM recipes WHERE id = $1`, recipe.ID).Scan(&dbName))
-	assert.Equal(t, "Distinctive Name 12345", dbName)
+func TestGetByID_BylineNullAfterCreatorDeleted(t *testing.T) {
+	ctx := context.Background()
+	userID := insertTestUser(t, "Soon Deleted")
+	id := createTestRecipe(t, recipeOpts{createdBy: userID, approved: true})
+
+	_, err := db.DB.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
+	require.NoError(t, err)
+
+	got, err := recipeRepo.GetByID(ctx, id.String(), nil, false)
+	require.NoError(t, err)
+	assert.Nil(t, got.CreatedByName)
 }
 
 func TestCreateRecipe_PreservesIngredientOrder(t *testing.T) {

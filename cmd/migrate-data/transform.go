@@ -32,11 +32,6 @@ type transformNote struct {
 	Detail string
 }
 
-type resolvedCreator struct {
-	ID   uuid.UUID
-	Name string
-}
-
 type userRow struct {
 	SourceID        oid
 	ID              uuid.UUID
@@ -77,7 +72,6 @@ type recipeRow struct {
 	Notes         []string
 	Approved      bool
 	CreatedByID   *uuid.UUID
-	CreatedByName *string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	Ingredients   []ingredientRow
@@ -111,7 +105,7 @@ type recipeDeps struct {
 	itemAllowed map[oid][]uuid.UUID
 	categories  *refResolver
 	units       *refResolver
-	creators    map[oid]resolvedCreator
+	creators    map[oid]uuid.UUID
 }
 
 type transformInput struct {
@@ -319,14 +313,10 @@ func buildUsers(users []mongoUser, subs map[oid]string, allowMissingSub bool) ([
 	return rows, notes, nil
 }
 
-func creatorLookup(users []userRow) map[oid]resolvedCreator {
-	m := make(map[oid]resolvedCreator, len(users))
+func creatorLookup(users []userRow) map[oid]uuid.UUID {
+	m := make(map[oid]uuid.UUID, len(users))
 	for _, u := range users {
-		name := ""
-		if u.Name != nil {
-			name = *u.Name
-		}
-		m[u.SourceID] = resolvedCreator{ID: u.ID, Name: name}
+		m[u.SourceID] = u.ID
 	}
 	return m
 }
@@ -428,7 +418,7 @@ func buildRecipes(recipes []mongoRecipe, d recipeDeps) ([]recipeRow, []transform
 func transformRecipe(mr mongoRecipe, d recipeDeps) (recipeRow, []transformNote, bool) {
 	var notes []transformNote
 
-	createdByID, createdByName, cnote := resolveCreator(mr, d.creators)
+	createdByID, cnote := resolveCreator(mr, d.creators)
 	if cnote != nil {
 		notes = append(notes, *cnote)
 	}
@@ -496,7 +486,6 @@ func transformRecipe(mr mongoRecipe, d recipeDeps) (recipeRow, []transformNote, 
 		Notes:         recNotes,
 		Approved:      mr.Approved,
 		CreatedByID:   createdByID,
-		CreatedByName: createdByName,
 		CreatedAt:     created,
 		UpdatedAt:     updated,
 		Ingredients:   ings,
@@ -504,18 +493,16 @@ func transformRecipe(mr mongoRecipe, d recipeDeps) (recipeRow, []transformNote, 
 	}, notes, false
 }
 
-func resolveCreator(mr mongoRecipe, creators map[oid]resolvedCreator) (*uuid.UUID, *string, *transformNote) {
+func resolveCreator(mr mongoRecipe, creators map[oid]uuid.UUID) (*uuid.UUID, *transformNote) {
 	if mr.CreatedByID == nil {
-		return nil, nil, &transformNote{Kind: noteCreatorUnresolved, Entity: mr.Name, Detail: "no createdById"}
+		return nil, &transformNote{Kind: noteCreatorUnresolved, Entity: mr.Name, Detail: "no createdById"}
 	}
-	c, ok := creators[*mr.CreatedByID]
+	id, ok := creators[*mr.CreatedByID]
 	if !ok {
-		return nil, nil, &transformNote{Kind: noteCreatorUnresolved, Entity: mr.Name,
+		return nil, &transformNote{Kind: noteCreatorUnresolved, Entity: mr.Name,
 			Detail: "createdById " + string(*mr.CreatedByID) + " not among migrated users"}
 	}
-	id := c.ID
-	name := c.Name
-	return &id, &name, nil
+	return &id, nil
 }
 
 func resolveIngredients(mr mongoRecipe, d recipeDeps) ([]ingredientRow, []transformNote, bool) {

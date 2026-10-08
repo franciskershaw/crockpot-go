@@ -102,14 +102,14 @@ const migrateInsertRecipe = `-- name: MigrateInsertRecipe :exec
 INSERT INTO recipes (
     id, name, time_in_minutes, image_url, image_filename,
     instructions, notes, approved, serves,
-    created_by_id, created_by_name, created_at, updated_at
+    created_by_id, created_at, updated_at
 )
 VALUES (
     $1, $2, $3,
     $4, $5,
     $6, $7, $8, $9,
-    $10, $11,
-    $12, $13
+    $10,
+    $11, $12
 )
 `
 
@@ -124,7 +124,6 @@ type MigrateInsertRecipeParams struct {
 	Approved      bool
 	Serves        int32
 	CreatedByID   pgtype.UUID
-	CreatedByName pgtype.Text
 	CreatedAt     pgtype.Timestamptz
 	UpdatedAt     pgtype.Timestamptz
 }
@@ -141,7 +140,6 @@ func (q *Queries) MigrateInsertRecipe(ctx context.Context, arg MigrateInsertReci
 		arg.Approved,
 		arg.Serves,
 		arg.CreatedByID,
-		arg.CreatedByName,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -225,9 +223,9 @@ type MigrateInsertUserParams struct {
 	UpdatedAt       pgtype.Timestamptz
 }
 
-// Queries for cmd/migrate-data only. Every column is explicit (id, timestamps,
-// created_by_name) so the one-off import can preserve the source's real values
-// instead of the API's server-assigned defaults. See docs/handoffs/CROC-024.md.
+// Queries for cmd/migrate-data only. Every column is explicit (id, timestamps)
+// so the one-off import can preserve the source's real values instead of the
+// API's server-assigned defaults. See docs/handoffs/CROC-024.md.
 func (q *Queries) MigrateInsertUser(ctx context.Context, arg MigrateInsertUserParams) error {
 	_, err := q.db.Exec(ctx, migrateInsertUser,
 		arg.ID,

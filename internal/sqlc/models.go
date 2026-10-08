@@ -80,7 +80,6 @@ type Recipe struct {
 	Approved      bool
 	Serves        int32
 	CreatedByID   pgtype.UUID
-	CreatedByName pgtype.Text
 	CreatedAt     pgtype.Timestamptz
 	UpdatedAt     pgtype.Timestamptz
 }

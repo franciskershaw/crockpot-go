@@ -140,6 +140,18 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 	return i, err
 }
 
+const getUserName = `-- name: GetUserName :one
+SELECT name FROM users
+WHERE id = $1
+`
+
+func (q *Queries) GetUserName(ctx context.Context, id pgtype.UUID) (pgtype.Text, error) {
+	row := q.db.QueryRow(ctx, getUserName, id)
+	var name pgtype.Text
+	err := row.Scan(&name)
+	return name, err
+}
+
 const markUserEmailConfirmed = `-- name: MarkUserEmailConfirmed :one
 UPDATE users
 SET email_verified_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP

@@ -9,8 +9,7 @@ INSERT INTO recipes (
     image_url,
     image_filename,
     approved,
-    created_by_id,
-    created_by_name
+    created_by_id
 )
 VALUES (
     sqlc.arg(name),
@@ -22,8 +21,7 @@ VALUES (
     sqlc.narg(image_url),
     sqlc.narg(image_filename),
     sqlc.arg(approved),
-    sqlc.arg(created_by_id),
-    (SELECT name FROM users WHERE id = sqlc.arg(created_by_id))
+    sqlc.arg(created_by_id)
 )
 RETURNING *;
 

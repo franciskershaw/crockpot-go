@@ -229,9 +229,9 @@ func recipeDepsFixture() recipeDeps {
 		itemAllowed: map[oid][]uuid.UUID{"bacon": {uGrams}},
 		categories:  resolver(map[oid]uuid.UUID{"easy": uEasyCat}),
 		units:       resolver(map[oid]uuid.UUID{"ugrams": uGrams, "utbsp": uTbsp}, "ujunk"),
-		creators: map[oid]resolvedCreator{
-			ghostCreatorID: {ID: objectIDToUUID(ghostCreatorID), Name: "Crockpot"},
-			realAdmins[0]:  {ID: objectIDToUUID(realAdmins[0]), Name: "Francis Kershaw"},
+		creators: map[oid]uuid.UUID{
+			ghostCreatorID: objectIDToUUID(ghostCreatorID),
+			realAdmins[0]:  objectIDToUUID(realAdmins[0]),
 		},
 	}
 }
@@ -250,24 +250,21 @@ func TestBuildRecipesGhostCreator(t *testing.T) {
 	if rows[0].CreatedByID == nil || *rows[0].CreatedByID != objectIDToUUID(ghostCreatorID) {
 		t.Fatalf("createdByID = %v", rows[0].CreatedByID)
 	}
-	if rows[0].CreatedByName == nil || *rows[0].CreatedByName != "Crockpot" {
-		t.Fatalf("createdByName = %v", rows[0].CreatedByName)
-	}
 }
 
 func TestBuildRecipesRealCreator(t *testing.T) {
 	r := mRecipe("r1", "X", optr(realAdmins[0]), []mongoIngredient{baconIng()}, []oid{"easy"})
 	rows, _, _ := buildRecipes([]mongoRecipe{r}, recipeDepsFixture())
-	if rows[0].CreatedByName == nil || *rows[0].CreatedByName != "Francis Kershaw" {
-		t.Fatalf("createdByName = %v", rows[0].CreatedByName)
+	if rows[0].CreatedByID == nil || *rows[0].CreatedByID != objectIDToUUID(realAdmins[0]) {
+		t.Fatalf("createdByID = %v", rows[0].CreatedByID)
 	}
 }
 
 func TestBuildRecipesUnknownCreator(t *testing.T) {
 	r := mRecipe("r1", "X", optr("cccccccccccccccccccccccc"), []mongoIngredient{baconIng()}, []oid{"easy"})
 	rows, notes, _ := buildRecipes([]mongoRecipe{r}, recipeDepsFixture())
-	if rows[0].CreatedByID != nil || rows[0].CreatedByName != nil {
-		t.Fatalf("want nil creator, got %v / %v", rows[0].CreatedByID, rows[0].CreatedByName)
+	if rows[0].CreatedByID != nil {
+		t.Fatalf("want nil creator, got %v", rows[0].CreatedByID)
 	}
 	if !hasNote(notes, noteCreatorUnresolved) {
 		t.Fatalf("notes = %+v", notes)
@@ -445,8 +442,8 @@ func TestTransformAgainstFixture(t *testing.T) {
 	if r.Name != "Bean and Halloumi Tacos" {
 		t.Fatalf("recipe name = %q", r.Name)
 	}
-	if r.CreatedByName == nil || *r.CreatedByName != "Crockpot" {
-		t.Fatalf("createdByName = %v", r.CreatedByName)
+	if r.CreatedByID == nil || *r.CreatedByID != objectIDToUUID(ghostCreatorID) {
+		t.Fatalf("createdByID = %v", r.CreatedByID)
 	}
 	if len(r.Ingredients) != 1 || r.Ingredients[0].UnitID == nil || *r.Ingredients[0].UnitID != uGrams {
 		t.Fatalf("ingredient = %+v", r.Ingredients)

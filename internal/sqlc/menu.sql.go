@@ -51,7 +51,7 @@ func (q *Queries) GetOrCreateMenu(ctx context.Context, userID pgtype.UUID) (pgty
 }
 
 const listMenuEntries = `-- name: ListMenuEntries :many
-SELECT rme.serves AS menu_serves, r.id, r.name, r.description, r.time_in_minutes, r.image_url, r.image_filename, r.instructions, r.notes, r.approved, r.serves, r.created_by_id, r.created_by_name, r.created_at, r.updated_at
+SELECT rme.serves AS menu_serves, r.id, r.name, r.description, r.time_in_minutes, r.image_url, r.image_filename, r.instructions, r.notes, r.approved, r.serves, r.created_by_id, r.created_at, r.updated_at
 FROM recipe_menu_entries rme
 JOIN recipes r ON r.id = rme.recipe_id
 WHERE rme.recipe_menu_id = $1
@@ -71,7 +71,6 @@ type ListMenuEntriesRow struct {
 	Approved      bool
 	Serves        int32
 	CreatedByID   pgtype.UUID
-	CreatedByName pgtype.Text
 	CreatedAt     pgtype.Timestamptz
 	UpdatedAt     pgtype.Timestamptz
 }
@@ -98,7 +97,6 @@ func (q *Queries) ListMenuEntries(ctx context.Context, recipeMenuID pgtype.UUID)
 			&i.Approved,
 			&i.Serves,
 			&i.CreatedByID,
-			&i.CreatedByName,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

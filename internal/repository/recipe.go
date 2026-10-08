@@ -285,6 +285,17 @@ func buildRecipeDetail(ctx context.Context, q *sqlc.Queries, row sqlc.Recipe, ci
 		}
 	}
 
+	var createdByName *string
+	if row.CreatedByID.Valid {
+		name, err := q.GetUserName(ctx, row.CreatedByID)
+		switch {
+		case err == nil:
+			createdByName = textPtr(name)
+		case !errors.Is(err, pgx.ErrNoRows):
+			return nil, fmt.Errorf("failed to load recipe creator name: %w", err)
+		}
+	}
+
 	return &models.RecipeDetail{
 		RecipeCard: models.RecipeCard{
 			ID:                   uuidValue(row.ID),
@@ -304,7 +315,7 @@ func buildRecipeDetail(ctx context.Context, q *sqlc.Queries, row sqlc.Recipe, ci
 		Notes:         notes,
 		Ingredients:   ingredients,
 		CreatedByID:   uuidValue(row.CreatedByID),
-		CreatedByName: textPtr(row.CreatedByName),
+		CreatedByName: createdByName,
 		UpdatedAt:     row.UpdatedAt.Time,
 	}, nil
 }
