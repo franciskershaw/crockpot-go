@@ -680,3 +680,8 @@ implementation quality until CROC-001 lands.
 - Three handoff claims were wrong (decision 6's `issueRefreshSession` sets the cookie before commit, a misnamed revoke method, two of three planned repo methods already existed), each caught at its piece. Review moved the current-password check under the row lock, and the next review flagged bcrypt holding that lock; settled as check-before-lock plus a hash re-check inside. Account delete copied recipe delete's steps although the handoff said reuse; review extracted `deleteRecipeRow`.
 - **Pattern**: when a fix moves a check under a lock, list what now runs under it; keep slow work outside and re-check a cheap value inside.
 - **Pattern**: when a handoff says "reuse X's internals", extract the shared function in that piece rather than copying.
+
+## 2026-10-08 — Fifth whole-codebase tech-debt pass
+
+- Covered `internal/`, `db/migrations/`, `config/`, `main.go`, `lifecycle.go` (`cmd/migrate-data` excluded), after `CROC-065`/`051`/`030`. 3 findings: one new ticket (`CROC-072`, test plumbing), and two that widen open tickets (`CROC-068`: photo destroys run before the response; `CROC-071`: the token tables' partial `user_id` indexes can't serve the new user-delete cascade). Full detail in `docs/findings/2026-10-08-tech-debt.md`.
+- **Pattern**: when a ticket turns a rare operation into a user-facing path (here, deleting a user), re-check the indexes and timeouts every cascade and best-effort step under it now depends on.
