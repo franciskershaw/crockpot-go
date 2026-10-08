@@ -151,6 +151,7 @@ func main() {
 	authed.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess))
 	{
 		authed.GET("/me", authHandler.Me)
+		authed.PATCH("/me", authHandler.UpdateMe)
 	}
 
 	// Public read: reference data, visible to anonymous browse/filter.

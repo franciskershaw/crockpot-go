@@ -115,6 +115,7 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 	authed := m.router.Group("/")
 	authed.Use(middleware.AuthMiddleware(testutil.TestAccessSecret))
 	authed.GET("/me", h.Me)
+	authed.PATCH("/me", h.UpdateMe)
 	return m
 }
 
@@ -1525,10 +1526,18 @@ var (
 	meTestUserID = uuid.MustParse("55555555-5555-5555-5555-555555555555")
 	meTestName   = "Me Test User"
 	meTestUser   = &models.User{
-		ID:    meTestUserID,
-		Email: "me@example.com",
-		Name:  &meTestName,
-		Role:  "FREE",
+		ID:           meTestUserID,
+		Email:        "me@example.com",
+		Name:         &meTestName,
+		Role:         "FREE",
+		PasswordHash: ptr("bcrypt-hash-placeholder"),
+	}
+	meTestGoogleUser = &models.User{
+		ID:       meTestUserID,
+		Email:    "me@example.com",
+		Name:     &meTestName,
+		Role:     "FREE",
+		GoogleID: ptr("google-me"),
 	}
 )
 
@@ -1555,6 +1564,17 @@ func TestMe_ReturnsProfile(t *testing.T) {
 	assert.Equal(t, meTestName, body["name"])
 	assert.NotContains(t, body, "image")
 	assert.Equal(t, meTestUser.Role, body["role"])
+	assert.Equal(t, "password", body["authProvider"])
+}
+
+func TestMe_ReportsGoogleAuthProvider(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	m.userRepo.EXPECT().FindByID(mock.Anything, meTestUserID.String()).Return(meTestGoogleUser, nil)
+
+	w := doMe(m.router, testutil.AuthHeader(t, meTestUser.Email, meTestUserID.String(), meTestUser.Role))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "google", decodeJSONBodyAny(t, w)["authProvider"])
 }
 
 func TestMe_ReturnsUnauthorizedWhenUserNotFound(t *testing.T) {
@@ -1591,4 +1611,86 @@ func TestMe_ReturnsUnauthorizedWhenUserIDMissingFromContext(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Equal(t, "unauthorized", decodeJSONBody(t, w)["error"])
+}
+
+// --- UpdateMe ---
+
+func doUpdateMe(t *testing.T, r *gin.Engine, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var reqBody *bytes.Reader
+	if raw, ok := body.(string); ok {
+		reqBody = bytes.NewReader([]byte(raw))
+	} else {
+		b, _ := json.Marshal(body)
+		reqBody = bytes.NewReader(b)
+	}
+	req := httptest.NewRequest(http.MethodPatch, "/me", reqBody)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", testutil.AuthHeader(t, meTestUser.Email, meTestUserID.String(), meTestUser.Role))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestUpdateMe_SavesTrimmedNameAndReturnsProfile(t *testing.T) {
+	m := newMocks(t, config.EnvDevelopment)
+	renamed := *meTestGoogleUser
+	renamed.Name = ptr("New Name")
+	m.userRepo.EXPECT().UpdateName(mock.Anything, meTestUserID.String(), "New Name").Return(&renamed, nil)
+
+	w := doUpdateMe(t, m.router, map[string]string{"name": "  New Name  "})
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := decodeJSONBodyAny(t, w)
+	assert.Equal(t, meTestUserID.String(), body["id"])
+	assert.Equal(t, "New Name", body["name"])
+	assert.Equal(t, "google", body["authProvider"])
+}
+
+func TestUpdateMe_Fails(t *testing.T) {
+	cases := []struct {
+		name      string
+		body      any
+		setup     func(userRepo *genmocks.MockUserRepository)
+		wantCode  int
+		wantError string
+	}{
+		{name: "malformed body", body: "{not json", wantCode: http.StatusBadRequest, wantError: "invalid_request"},
+		{name: "name missing", body: map[string]string{}, wantCode: http.StatusBadRequest, wantError: "invalid_name"},
+		{name: "empty name", body: map[string]string{"name": ""}, wantCode: http.StatusBadRequest, wantError: "invalid_name"},
+		{name: "whitespace-only name", body: map[string]string{"name": "   "}, wantCode: http.StatusBadRequest, wantError: "invalid_name"},
+		{name: "51-character name", body: map[string]string{"name": strings.Repeat("a", 51)}, wantCode: http.StatusBadRequest, wantError: "invalid_name"},
+		{
+			name: "user no longer exists",
+			body: map[string]string{"name": "New Name"},
+			setup: func(userRepo *genmocks.MockUserRepository) {
+				userRepo.EXPECT().UpdateName(mock.Anything, meTestUserID.String(), "New Name").Return(nil, models.ErrUserNotFound)
+			},
+			wantCode:  http.StatusUnauthorized,
+			wantError: "unauthorized",
+		},
+		{
+			name: "repository error",
+			body: map[string]string{"name": "New Name"},
+			setup: func(userRepo *genmocks.MockUserRepository) {
+				userRepo.EXPECT().UpdateName(mock.Anything, meTestUserID.String(), "New Name").Return(nil, errors.New("db exploded"))
+			},
+			wantCode:  http.StatusInternalServerError,
+			wantError: "server_error",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMocks(t, config.EnvDevelopment)
+			if tc.setup != nil {
+				tc.setup(m.userRepo)
+			}
+
+			w := doUpdateMe(t, m.router, tc.body)
+
+			assert.Equal(t, tc.wantCode, w.Code)
+			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])
+		})
+	}
 }

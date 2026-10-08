@@ -814,10 +814,56 @@ func (h *AuthHandler) Me(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"id":    user.ID.String(),
-		"email": user.Email,
-		"name":  user.Name,
-		"role":  user.Role,
-	})
+	c.JSON(http.StatusOK, meResponse(user))
+}
+
+type updateMeRequest struct {
+	Name string `json:"name"`
+}
+
+func (h *AuthHandler) UpdateMe(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+
+	var req updateMeRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	name, ok := validateUserName(c, req.Name)
+	if !ok {
+		return
+	}
+
+	user, err := h.userRepo.UpdateName(c.Request.Context(), userID, name)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			unauthorized(c, "unauthorized")
+			return
+		}
+		internalError(c, "failed to update name", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, meResponse(user))
+}
+
+func meResponse(user *models.User) gin.H {
+	return gin.H{
+		"id":           user.ID.String(),
+		"email":        user.Email,
+		"name":         user.Name,
+		"role":         user.Role,
+		"authProvider": authProvider(user),
+	}
+}
+
+// authProvider relies on the users CHECK constraint: exactly one of google_id and password_hash is set.
+func authProvider(user *models.User) string {
+	if user.GoogleID != nil {
+		return "google"
+	}
+	return "password"
 }
