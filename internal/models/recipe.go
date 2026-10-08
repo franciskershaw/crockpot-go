@@ -52,7 +52,7 @@ type RecipeDetail struct {
 	Instructions  []string             `json:"instructions"`
 	Notes         []string             `json:"notes"`
 	Ingredients   []HydratedIngredient `json:"ingredients"`
-	CreatedByID   uuid.UUID            `json:"createdById"`
+	CreatedByID   *uuid.UUID           `json:"createdById"`
 	CreatedByName *string              `json:"createdByName"`
 	UpdatedAt     time.Time            `json:"updatedAt"`
 }

@@ -35,7 +35,7 @@ func (r *PostgresUserRepository) GetOrCreateUser(ctx context.Context, email, goo
 	created, err := queriesFor(ctx, r.db).CreateGoogleUser(ctx, sqlc.CreateGoogleUserParams{
 		Email:    email,
 		GoogleID: textParam(googleID),
-		Name:     textParam(displayName),
+		Name:     optionalTextParam(displayName),
 	})
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -103,6 +103,22 @@ func (r *PostgresUserRepository) FindByID(ctx context.Context, userID string) (*
 			return nil, models.ErrUserNotFound
 		}
 		return nil, fmt.Errorf("failed to find user by id: %w", err)
+	}
+	return toModelUser(found), nil
+}
+
+// FindByIDForUpdate is FindByID that also row-locks the user until the caller's transaction ends.
+func (r *PostgresUserRepository) FindByIDForUpdate(ctx context.Context, userID string) (*models.User, error) {
+	userUUID, err := uuidParam(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	found, err := queriesFor(ctx, r.db).GetUserByIDForUpdate(ctx, userUUID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, models.ErrUserNotFound
+		}
+		return nil, fmt.Errorf("failed to find user by id for update: %w", err)
 	}
 	return toModelUser(found), nil
 }

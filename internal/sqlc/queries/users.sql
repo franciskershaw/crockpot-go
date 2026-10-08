@@ -2,6 +2,11 @@
 SELECT * FROM users
 WHERE google_id = $1;
 
+-- name: GetUserByIDForUpdate :one
+SELECT * FROM users
+WHERE id = $1
+FOR UPDATE;
+
 -- name: GetUserByEmail :one
 SELECT * FROM users
 WHERE email = $1;

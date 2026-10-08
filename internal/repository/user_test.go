@@ -301,3 +301,69 @@ func TestUpdateName_ReturnsErrUserNotFound(t *testing.T) {
 	assert.Nil(t, updated)
 	assert.ErrorIs(t, err, models.ErrUserNotFound)
 }
+
+func TestGetOrCreateUser_EmptyNameStoredAsNull(t *testing.T) {
+	ctx := context.Background()
+	user, err := userRepo.GetOrCreateUser(ctx, "repo-test-"+uuid.NewString()+"@example.com", "repo-test-google-"+uuid.NewString(), "")
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, user.ID)
+
+	assert.Nil(t, user.Name, "an empty Google name is no name, not an empty string a byline would render")
+}
+
+func TestFindByIDForUpdate_ReturnsUser(t *testing.T) {
+	userID := insertTestUser(t, "Locked Reader")
+
+	err := transactor.WithinTx(context.Background(), func(ctx context.Context) error {
+		user, err := userRepo.FindByIDForUpdate(ctx, userID.String())
+		require.NoError(t, err)
+		assert.Equal(t, userID, user.ID)
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+func TestFindByIDForUpdate_ReturnsErrUserNotFound(t *testing.T) {
+	err := transactor.WithinTx(context.Background(), func(ctx context.Context) error {
+		_, err := userRepo.FindByIDForUpdate(ctx, uuid.NewString())
+		return err
+	})
+	assert.ErrorIs(t, err, models.ErrUserNotFound)
+}
+
+func TestFindByIDForUpdate_BlocksConcurrentWriteUntilCommit(t *testing.T) {
+	ctx := context.Background()
+	userID := insertTestUser(t, "Locked User")
+
+	locked := make(chan struct{})
+	release := make(chan struct{})
+	t.Cleanup(func() { releaseOnce(release) })
+	holdErr := make(chan error, 1)
+	go func() {
+		holdErr <- transactor.WithinTx(ctx, func(ctx context.Context) error {
+			if _, err := userRepo.FindByIDForUpdate(ctx, userID.String()); err != nil {
+				return err
+			}
+			close(locked)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-locked:
+	case err := <-holdErr:
+		t.Fatalf("lookup failed before holding its transaction open: %v", err)
+	}
+
+	written := make(chan error, 1)
+	go func() {
+		_, err := userRepo.UpdateName(ctx, userID.String(), "Written While Locked")
+		written <- err
+	}()
+
+	waitForLockWait(t)
+	releaseOnce(release)
+
+	require.NoError(t, <-holdErr)
+	require.NoError(t, <-written)
+}

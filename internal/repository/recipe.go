@@ -285,8 +285,11 @@ func buildRecipeDetail(ctx context.Context, q *sqlc.Queries, row sqlc.Recipe, ci
 		}
 	}
 
+	var creatorID *uuid.UUID
 	var createdByName *string
 	if row.CreatedByID.Valid {
+		id := uuidValue(row.CreatedByID)
+		creatorID = &id
 		name, err := q.GetUserName(ctx, row.CreatedByID)
 		switch {
 		case err == nil:
@@ -314,7 +317,7 @@ func buildRecipeDetail(ctx context.Context, q *sqlc.Queries, row sqlc.Recipe, ci
 		Instructions:  instructions,
 		Notes:         notes,
 		Ingredients:   ingredients,
-		CreatedByID:   uuidValue(row.CreatedByID),
+		CreatedByID:   creatorID,
 		CreatedByName: createdByName,
 		UpdatedAt:     row.UpdatedAt.Time,
 	}, nil

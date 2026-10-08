@@ -33,10 +33,21 @@ func validateName(c *gin.Context, raw string) (string, bool) {
 	return trimmed, true
 }
 
+// googleDisplayName applies the user-name rule to Google's name claim without rejecting it: trimmed, cut to 50 characters, "" when blank.
+func googleDisplayName(raw string) string {
+	name := strings.TrimSpace(raw)
+	if utf8.RuneCountInString(name) > maxUserNameLength {
+		name = strings.TrimSpace(string([]rune(name)[:maxUserNameLength]))
+	}
+	return name
+}
+
+const maxUserNameLength = 50
+
 // validateUserName trims a person's display name and checks it is 1-50 characters, writing 400 invalid_name and returning ok=false if not.
 func validateUserName(c *gin.Context, raw string) (string, bool) {
 	trimmed := strings.TrimSpace(raw)
-	if n := utf8.RuneCountInString(trimmed); n < 1 || n > 50 {
+	if n := utf8.RuneCountInString(trimmed); n < 1 || n > maxUserNameLength {
 		badRequest(c, "invalid_name")
 		return "", false
 	}

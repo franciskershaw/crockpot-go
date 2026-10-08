@@ -148,7 +148,8 @@ func TestCreateRecipe_MinimalPersistsAllParts(t *testing.T) {
 	assert.Nil(t, recipe.ImageURL)
 	assert.Nil(t, recipe.ImageFilename)
 	assert.Nil(t, recipe.Description)
-	assert.Equal(t, userID, recipe.CreatedByID)
+	require.NotNil(t, recipe.CreatedByID)
+	assert.Equal(t, userID, *recipe.CreatedByID)
 	require.NotNil(t, recipe.CreatedByName)
 	assert.Equal(t, "Jane Cook", *recipe.CreatedByName)
 	require.Len(t, recipe.Categories, 1)
@@ -248,6 +249,7 @@ func TestGetByID_BylineNullAfterCreatorDeleted(t *testing.T) {
 	got, err := recipeRepo.GetByID(ctx, id.String(), nil, false)
 	require.NoError(t, err)
 	assert.Nil(t, got.CreatedByName)
+	assert.Nil(t, got.CreatedByID, "a deleted creator is null, not the zero UUID")
 }
 
 func TestCreateRecipe_PreservesIngredientOrder(t *testing.T) {

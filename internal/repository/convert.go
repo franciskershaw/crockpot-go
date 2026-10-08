@@ -12,6 +12,11 @@ func textParam(s string) pgtype.Text {
 	return pgtype.Text{String: s, Valid: true}
 }
 
+// optionalTextParam stores "" as NULL.
+func optionalTextParam(s string) pgtype.Text {
+	return pgtype.Text{String: s, Valid: s != ""}
+}
+
 func textPtrParam(s *string) pgtype.Text {
 	if s == nil {
 		return pgtype.Text{Valid: false}

@@ -79,6 +79,11 @@ type mocks struct {
 	router           *gin.Engine
 }
 
+// inTxKey marks a context as inside the mock transactor's WithinTx, so a test can assert a call ran in the transaction.
+type inTxKey struct{}
+
+func inTx(ctx context.Context) bool { return ctx.Value(inTxKey{}) != nil }
+
 func newMocks(t *testing.T, env config.Environment) *mocks {
 	m := &mocks{
 		userRepo:         genmocks.NewMockUserRepository(t),
@@ -92,7 +97,9 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 	// Every test gets a transactor that just runs the wrapped function directly — real transaction
 	// behavior is covered by repository-layer tests against the real DB, not these handler mocks.
 	m.transactor.EXPECT().WithinTx(mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) }).
+		RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+			return fn(context.WithValue(ctx, inTxKey{}, true))
+		}).
 		Maybe()
 	h := handler.NewAuthHandler(m.userRepo, m.oauthMgr, m.refreshTokenRepo, m.emailTokenRepo, m.resetTokenRepo, m.emailSender, m.transactor, &config.Config{
 		Environment:         env,
@@ -222,6 +229,43 @@ func TestGoogleCallback_HappyPath(t *testing.T) {
 }
 
 // --- GoogleCallback: rejected before or during state validation ---
+
+func TestGoogleCallback_NormalisesDisplayNameOnCreate(t *testing.T) {
+	cases := []struct {
+		name     string
+		claim    string
+		wantName string
+	}{
+		{"surrounding whitespace trimmed", "  Jo Bloggs  ", "Jo Bloggs"},
+		{"cut to 50 characters", strings.Repeat("é", 60), strings.Repeat("é", 50)},
+		{"no trailing space after the cut", strings.Repeat("a", 49) + " tail", strings.Repeat("a", 49)},
+		{"blank becomes empty", "   ", ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMocks(t, config.EnvDevelopment)
+			claims := *fakeClaims
+			claims.DisplayName = tc.claim
+			m.oauthMgr.EXPECT().ValidateState("valid-state").Return(true)
+			m.oauthMgr.EXPECT().ExchangeCodeForToken(mock.Anything, "auth-code").Return(fakeToken, nil)
+			m.oauthMgr.EXPECT().VerifyIDToken(mock.Anything, fakeToken).Return(&claims, nil)
+			var gotName string
+			m.userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, mock.AnythingOfType("string")).
+				Run(func(_ context.Context, _, _, displayName string) { gotName = displayName }).
+				Return(fakeUser, nil)
+			m.refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, fakeUser.ID.String()).Return(nil)
+			m.refreshTokenRepo.EXPECT().CreateFamily(mock.Anything, mock.AnythingOfType("string"), fakeUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).
+				Return(&models.RefreshTokenFamily{ID: uuid.New(), UserID: fakeUser.ID}, nil)
+
+			cookie := "valid-state"
+			w := doCallback(m.router, "auth-code", "valid-state", &cookie)
+
+			assert.Equal(t, http.StatusTemporaryRedirect, w.Code)
+			assert.Equal(t, tc.wantName, gotName)
+		})
+	}
+}
 
 func TestGoogleCallback_RejectedAtStateValidation(t *testing.T) {
 	cases := []struct {
@@ -1618,14 +1662,7 @@ func TestMe_ReturnsUnauthorizedWhenUserIDMissingFromContext(t *testing.T) {
 
 func doUpdateMe(t *testing.T, r *gin.Engine, body any) *httptest.ResponseRecorder {
 	t.Helper()
-	var reqBody *bytes.Reader
-	if raw, ok := body.(string); ok {
-		reqBody = bytes.NewReader([]byte(raw))
-	} else {
-		b, _ := json.Marshal(body)
-		reqBody = bytes.NewReader(b)
-	}
-	req := httptest.NewRequest(http.MethodPatch, "/me", reqBody)
+	req := httptest.NewRequest(http.MethodPatch, "/me", jsonRequestBody(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", testutil.AuthHeader(t, meTestUser.Email, meTestUserID.String(), meTestUser.Role))
 	w := httptest.NewRecorder()
@@ -1707,14 +1744,7 @@ var changePasswordUser = &models.User{
 
 func doChangePassword(t *testing.T, r *gin.Engine, body any) *httptest.ResponseRecorder {
 	t.Helper()
-	var reqBody *bytes.Reader
-	if raw, ok := body.(string); ok {
-		reqBody = bytes.NewReader([]byte(raw))
-	} else {
-		b, _ := json.Marshal(body)
-		reqBody = bytes.NewReader(b)
-	}
-	req := httptest.NewRequest(http.MethodPost, "/me/password", reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/me/password", jsonRequestBody(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", testutil.AuthHeader(t, changePasswordUser.Email, changePasswordUser.ID.String(), changePasswordUser.Role))
 	w := httptest.NewRecorder()
@@ -1722,13 +1752,14 @@ func doChangePassword(t *testing.T, r *gin.Engine, body any) *httptest.ResponseR
 	return w
 }
 
-// expectPasswordChangeWrites records the order of the transaction's writes and the hash it saved.
-func expectPasswordChangeWrites(m *mocks, order *[]string, savedHash *string) {
+// expectPasswordChangeWrites records the order of the transaction's writes, the hash it saved, and whether the write ran inside the transaction.
+func expectPasswordChangeWrites(m *mocks, order *[]string, savedHash *string, writeInTx *bool) {
 	userID := changePasswordUser.ID.String()
 	m.userRepo.EXPECT().UpdatePassword(mock.Anything, userID, mock.AnythingOfType("string")).
-		Run(func(_ context.Context, _ string, hash string) {
+		Run(func(ctx context.Context, _ string, hash string) {
 			*order = append(*order, "UpdatePassword")
 			*savedHash = hash
+			*writeInTx = inTx(ctx)
 		}).
 		Return(changePasswordUser, nil)
 	m.refreshTokenRepo.EXPECT().RevokeAllFamiliesForUser(mock.Anything, userID).
@@ -1746,8 +1777,11 @@ func TestChangePassword_Success(t *testing.T) {
 	m := newMocks(t, config.EnvDevelopment)
 	var order []string
 	var savedHash string
-	m.userRepo.EXPECT().FindByID(mock.Anything, changePasswordUser.ID.String()).Return(changePasswordUser, nil)
-	expectPasswordChangeWrites(m, &order, &savedHash)
+	var lookupInTx, writeInTx bool
+	m.userRepo.EXPECT().FindByIDForUpdate(mock.Anything, changePasswordUser.ID.String()).
+		Run(func(ctx context.Context, _ string) { lookupInTx = inTx(ctx) }).
+		Return(changePasswordUser, nil)
+	expectPasswordChangeWrites(m, &order, &savedHash, &writeInTx)
 	m.emailSender.EXPECT().SendPasswordChanged(mock.Anything, changePasswordUser.Email, "http://localhost:5173/forgot-password").
 		Run(func(context.Context, string, string) { order = append(order, "SendPasswordChanged") }).
 		Return(nil)
@@ -1759,14 +1793,17 @@ func TestChangePassword_Success(t *testing.T) {
 	require.NotNil(t, refreshCookieFrom(w), "expected refreshToken cookie to be set")
 	assert.Equal(t, []string{"UpdatePassword", "RevokeAllFamiliesForUser", "DeleteStaleFamiliesForUser", "CreateFamily", "SendPasswordChanged"}, order)
 	assert.NoError(t, bcrypt.CompareHashAndPassword([]byte(savedHash), []byte(changedPasswordPlaintext)), "saved hash should match the new password")
+	assert.True(t, lookupInTx, "the current-password check must read the user inside the transaction that writes")
+	assert.True(t, writeInTx)
 }
 
 func TestChangePassword_EmailFailureStillSucceeds(t *testing.T) {
 	m := newMocks(t, config.EnvDevelopment)
 	var order []string
 	var savedHash string
-	m.userRepo.EXPECT().FindByID(mock.Anything, changePasswordUser.ID.String()).Return(changePasswordUser, nil)
-	expectPasswordChangeWrites(m, &order, &savedHash)
+	var writeInTx bool
+	m.userRepo.EXPECT().FindByIDForUpdate(mock.Anything, changePasswordUser.ID.String()).Return(changePasswordUser, nil)
+	expectPasswordChangeWrites(m, &order, &savedHash, &writeInTx)
 	m.emailSender.EXPECT().SendPasswordChanged(mock.Anything, changePasswordUser.Email, mock.AnythingOfType("string")).Return(errors.New("resend unreachable"))
 
 	w := doChangePassword(t, m.router, map[string]string{"currentPassword": loginUserPassword, "newPassword": changedPasswordPlaintext})
@@ -1780,7 +1817,7 @@ func TestChangePassword_Fails(t *testing.T) {
 	googleUser := &models.User{ID: changePasswordUser.ID, Email: changePasswordUser.Email, GoogleID: ptr("google-change"), Role: "FREE"}
 	findsUser := func(u *models.User) func(m *mocks) {
 		return func(m *mocks) {
-			m.userRepo.EXPECT().FindByID(mock.Anything, changePasswordUser.ID.String()).Return(u, nil).Maybe()
+			m.userRepo.EXPECT().FindByIDForUpdate(mock.Anything, changePasswordUser.ID.String()).Return(u, nil).Maybe()
 		}
 	}
 	valid := map[string]string{"currentPassword": loginUserPassword, "newPassword": changedPasswordPlaintext}
@@ -1811,14 +1848,14 @@ func TestChangePassword_Fails(t *testing.T) {
 		{
 			name: "user no longer exists", body: valid,
 			setup: func(m *mocks) {
-				m.userRepo.EXPECT().FindByID(mock.Anything, changePasswordUser.ID.String()).Return(nil, models.ErrUserNotFound)
+				m.userRepo.EXPECT().FindByIDForUpdate(mock.Anything, changePasswordUser.ID.String()).Return(nil, models.ErrUserNotFound)
 			},
 			wantCode: http.StatusUnauthorized, wantError: "unauthorized",
 		},
 		{
 			name: "write fails", body: valid,
 			setup: func(m *mocks) {
-				m.userRepo.EXPECT().FindByID(mock.Anything, changePasswordUser.ID.String()).Return(changePasswordUser, nil)
+				m.userRepo.EXPECT().FindByIDForUpdate(mock.Anything, changePasswordUser.ID.String()).Return(changePasswordUser, nil)
 				m.userRepo.EXPECT().UpdatePassword(mock.Anything, changePasswordUser.ID.String(), mock.AnythingOfType("string")).Return(nil, errors.New("db exploded"))
 			},
 			wantCode: http.StatusInternalServerError, wantError: "server_error",

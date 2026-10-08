@@ -35,6 +35,7 @@ type UserRepository interface {
 	MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error)
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
 	FindByID(ctx context.Context, userID string) (*models.User, error)
+	FindByIDForUpdate(ctx context.Context, userID string) (*models.User, error)
 	UpdateLastLogin(ctx context.Context, userID string) (*models.User, error)
 	UpdatePassword(ctx context.Context, userID, passwordHash string) (*models.User, error)
 	UpdateName(ctx context.Context, userID, name string) (*models.User, error)
@@ -221,7 +222,7 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userRepo.GetOrCreateUser(ctx, idTokenClaims.Email, idTokenClaims.GoogleID, idTokenClaims.DisplayName)
+	user, err := h.userRepo.GetOrCreateUser(ctx, idTokenClaims.Email, idTokenClaims.GoogleID, googleDisplayName(idTokenClaims.DisplayName))
 	if err != nil {
 		if errors.Is(err, models.ErrEmailRegisteredWithPassword) {
 			h.redirectWithError(c, "email_registered_with_password")
@@ -876,25 +877,6 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	user, err := h.userRepo.FindByID(ctx, userID)
-	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) {
-			unauthorized(c, "unauthorized")
-			return
-		}
-		internalError(c, "failed to look up user", err)
-		return
-	}
-	if user.PasswordHash == nil {
-		conflict(c, "no_password")
-		return
-	}
-	// 403, not 401: the frontend treats a 401 on a signed-in request as an expired session.
-	if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
-		forbidden(c, "invalid_password")
-		return
-	}
-
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
 		internalError(c, "failed to hash password", err)
@@ -908,13 +890,38 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
+	// The check reads the hash under a row lock, so a concurrent reset or change can't land between check and write.
+	var user *models.User
 	txErr := h.transactor.WithinTx(ctx, func(ctx context.Context) error {
+		var err error
+		user, err = h.userRepo.FindByIDForUpdate(ctx, userID)
+		if err != nil {
+			return fmt.Errorf("failed to look up user: %w", err)
+		}
+		if user.PasswordHash == nil {
+			return errNoPassword
+		}
+		if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+			return errInvalidPassword
+		}
 		if _, err := h.userRepo.UpdatePassword(ctx, userID, string(hash)); err != nil {
 			return fmt.Errorf("failed to update password: %w", err)
 		}
 		return h.replaceAllSessions(ctx, userID, familyID, refreshToken)
 	})
-	if txErr != nil {
+	switch {
+	case txErr == nil:
+	case errors.Is(txErr, models.ErrUserNotFound):
+		unauthorized(c, "unauthorized")
+		return
+	case errors.Is(txErr, errNoPassword):
+		conflict(c, "no_password")
+		return
+	case errors.Is(txErr, errInvalidPassword):
+		// 403, not 401: the frontend treats a 401 on a signed-in request as an expired session.
+		forbidden(c, "invalid_password")
+		return
+	default:
 		_ = c.Error(txErr)
 		serverError(c)
 		return
@@ -935,6 +942,11 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"accessToken": accessToken})
 }
+
+var (
+	errNoPassword      = errors.New("account has no password")
+	errInvalidPassword = errors.New("current password does not match")
+)
 
 func meResponse(user *models.User) gin.H {
 	return gin.H{

@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
@@ -21,4 +22,13 @@ func decodeJSONBodyAny(t *testing.T, w *httptest.ResponseRecorder) map[string]an
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	return body
+}
+
+// jsonRequestBody sends a string as-is (for malformed-body cases) and JSON-encodes anything else.
+func jsonRequestBody(body any) *bytes.Reader {
+	if raw, ok := body.(string); ok {
+		return bytes.NewReader([]byte(raw))
+	}
+	b, _ := json.Marshal(body)
+	return bytes.NewReader(b)
 }
