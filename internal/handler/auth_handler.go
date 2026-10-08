@@ -877,6 +877,26 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
+	user, err := h.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			unauthorized(c, "unauthorized")
+			return
+		}
+		internalError(c, "failed to look up user", err)
+		return
+	}
+	if user.PasswordHash == nil {
+		conflict(c, "no_password")
+		return
+	}
+	// bcrypt runs before the transaction so a wrong guess never holds the user row lock.
+	if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+		// 403, not 401: the frontend treats a 401 on a signed-in request as an expired session.
+		forbidden(c, "invalid_password")
+		return
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
 		internalError(c, "failed to hash password", err)
@@ -890,18 +910,13 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	// The check reads the hash under a row lock, so a concurrent reset or change can't land between check and write.
-	var user *models.User
 	txErr := h.transactor.WithinTx(ctx, func(ctx context.Context) error {
-		var err error
-		user, err = h.userRepo.FindByIDForUpdate(ctx, userID)
+		locked, err := h.userRepo.FindByIDForUpdate(ctx, userID)
 		if err != nil {
 			return fmt.Errorf("failed to look up user: %w", err)
 		}
-		if user.PasswordHash == nil {
-			return errNoPassword
-		}
-		if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+		// A reset or change that landed after the check above makes the checked password stale.
+		if !samePasswordHash(locked.PasswordHash, user.PasswordHash) {
 			return errInvalidPassword
 		}
 		if _, err := h.userRepo.UpdatePassword(ctx, userID, string(hash)); err != nil {
@@ -914,11 +929,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	case errors.Is(txErr, models.ErrUserNotFound):
 		unauthorized(c, "unauthorized")
 		return
-	case errors.Is(txErr, errNoPassword):
-		conflict(c, "no_password")
-		return
 	case errors.Is(txErr, errInvalidPassword):
-		// 403, not 401: the frontend treats a 401 on a signed-in request as an expired session.
 		forbidden(c, "invalid_password")
 		return
 	default:
@@ -943,10 +954,14 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"accessToken": accessToken})
 }
 
-var (
-	errNoPassword      = errors.New("account has no password")
-	errInvalidPassword = errors.New("current password does not match")
-)
+var errInvalidPassword = errors.New("current password does not match")
+
+func samePasswordHash(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
 
 func meResponse(user *models.User) gin.H {
 	return gin.H{

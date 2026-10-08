@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/franciskershaw/crockpot-go/config"
@@ -13,6 +14,7 @@ import (
 )
 
 type AccountUserRepository interface {
+	FindByID(ctx context.Context, userID string) (*models.User, error)
 	FindByIDForUpdate(ctx context.Context, userID string) (*models.User, error)
 	Delete(ctx context.Context, userID string) error
 }
@@ -49,26 +51,47 @@ func (h *AccountHandler) DeleteMe(c *gin.Context) {
 		return
 	}
 
-	// Google accounts send no body.
+	// Google accounts send no body, which can arrive with an unknown length rather than zero.
 	var req deleteMeRequest
-	if c.Request.ContentLength != 0 && !bindJSON(c, &req) {
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		badRequest(c, "invalid_request")
 		return
 	}
 
-	// Locking the user first makes any insert that references them wait, then fail its foreign key once this commits.
+	ctx := c.Request.Context()
+	user, err := h.users.FindByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			unauthorized(c, "unauthorized")
+			return
+		}
+		internalError(c, "failed to look up user", err)
+		return
+	}
+	if user.Role == "ADMIN" {
+		forbidden(c, "admin_cannot_self_delete")
+		return
+	}
+	// bcrypt runs before the transaction so a wrong guess never holds the user row lock.
+	if user.PasswordHash != nil {
+		if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.Password)); err != nil {
+			forbidden(c, "invalid_password")
+			return
+		}
+	}
+
+	// Locking the user makes any insert that references them wait, then fail its foreign key once this commits.
 	var orphans []string
-	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
-		user, err := h.users.FindByIDForUpdate(ctx, userID)
+	txErr := h.transactor.WithinTx(ctx, func(ctx context.Context) error {
+		locked, err := h.users.FindByIDForUpdate(ctx, userID)
 		if err != nil {
 			return fmt.Errorf("failed to look up user: %w", err)
 		}
-		if user.Role == "ADMIN" {
+		if locked.Role == "ADMIN" {
 			return errAdminCannotSelfDelete
 		}
-		if user.PasswordHash != nil {
-			if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.Password)); err != nil {
-				return errInvalidPassword
-			}
+		if !samePasswordHash(locked.PasswordHash, user.PasswordHash) {
+			return errInvalidPassword
 		}
 
 		var holders []string

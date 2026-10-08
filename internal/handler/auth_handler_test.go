@@ -1778,6 +1778,7 @@ func TestChangePassword_Success(t *testing.T) {
 	var order []string
 	var savedHash string
 	var lookupInTx, writeInTx bool
+	m.userRepo.EXPECT().FindByID(mock.Anything, changePasswordUser.ID.String()).Return(changePasswordUser, nil)
 	m.userRepo.EXPECT().FindByIDForUpdate(mock.Anything, changePasswordUser.ID.String()).
 		Run(func(ctx context.Context, _ string) { lookupInTx = inTx(ctx) }).
 		Return(changePasswordUser, nil)
@@ -1802,6 +1803,7 @@ func TestChangePassword_EmailFailureStillSucceeds(t *testing.T) {
 	var order []string
 	var savedHash string
 	var writeInTx bool
+	m.userRepo.EXPECT().FindByID(mock.Anything, changePasswordUser.ID.String()).Return(changePasswordUser, nil)
 	m.userRepo.EXPECT().FindByIDForUpdate(mock.Anything, changePasswordUser.ID.String()).Return(changePasswordUser, nil)
 	expectPasswordChangeWrites(m, &order, &savedHash, &writeInTx)
 	m.emailSender.EXPECT().SendPasswordChanged(mock.Anything, changePasswordUser.Email, mock.AnythingOfType("string")).Return(errors.New("resend unreachable"))
@@ -1814,49 +1816,68 @@ func TestChangePassword_EmailFailureStillSucceeds(t *testing.T) {
 }
 
 func TestChangePassword_Fails(t *testing.T) {
+	userID := changePasswordUser.ID.String()
 	googleUser := &models.User{ID: changePasswordUser.ID, Email: changePasswordUser.Email, GoogleID: ptr("google-change"), Role: "FREE"}
-	findsUser := func(u *models.User) func(m *mocks) {
-		return func(m *mocks) {
-			m.userRepo.EXPECT().FindByIDForUpdate(mock.Anything, changePasswordUser.ID.String()).Return(u, nil).Maybe()
+	changedMeanwhile := &models.User{ID: changePasswordUser.ID, Email: changePasswordUser.Email, PasswordHash: ptr(mustHash("someone-elses-new-password")), Role: "FREE"}
+	// rejectedBeforeLock serves the unlocked read and records whether the locking read was ever reached.
+	rejectedBeforeLock := func(u *models.User) func(m *mocks, locked *bool) {
+		return func(m *mocks, locked *bool) {
+			m.userRepo.EXPECT().FindByID(mock.Anything, userID).Return(u, nil).Maybe()
+			m.userRepo.EXPECT().FindByIDForUpdate(mock.Anything, userID).
+				Run(func(context.Context, string) { *locked = true }).
+				Return(u, nil).Maybe()
 		}
 	}
 	valid := map[string]string{"currentPassword": loginUserPassword, "newPassword": changedPasswordPlaintext}
 
 	cases := []struct {
-		name      string
-		body      any
-		setup     func(m *mocks)
-		wantCode  int
-		wantError string
+		name       string
+		body       any
+		setup      func(m *mocks, locked *bool)
+		wantCode   int
+		wantError  string
+		wantNoLock bool
 	}{
 		{name: "malformed body", body: "{not json", wantCode: http.StatusBadRequest, wantError: "invalid_request"},
 		{name: "current password missing", body: map[string]string{"newPassword": changedPasswordPlaintext}, wantCode: http.StatusBadRequest, wantError: "invalid_request"},
 		{name: "new password missing", body: map[string]string{"currentPassword": loginUserPassword}, wantCode: http.StatusBadRequest, wantError: "invalid_request"},
 		{
 			name: "new password too short", body: map[string]string{"currentPassword": loginUserPassword, "newPassword": "short"},
-			setup: findsUser(changePasswordUser), wantCode: http.StatusBadRequest, wantError: "password_too_short",
+			setup: rejectedBeforeLock(changePasswordUser), wantCode: http.StatusBadRequest, wantError: "password_too_short", wantNoLock: true,
 		},
 		{
 			name: "new password too long", body: map[string]string{"currentPassword": loginUserPassword, "newPassword": strings.Repeat("a", 73)},
-			setup: findsUser(changePasswordUser), wantCode: http.StatusBadRequest, wantError: "password_too_long",
+			setup: rejectedBeforeLock(changePasswordUser), wantCode: http.StatusBadRequest, wantError: "password_too_long", wantNoLock: true,
 		},
 		{
 			name: "wrong current password", body: map[string]string{"currentPassword": "not-the-password", "newPassword": changedPasswordPlaintext},
-			setup: findsUser(changePasswordUser), wantCode: http.StatusForbidden, wantError: "invalid_password",
+			setup: rejectedBeforeLock(changePasswordUser), wantCode: http.StatusForbidden, wantError: "invalid_password", wantNoLock: true,
 		},
-		{name: "google account", body: valid, setup: findsUser(googleUser), wantCode: http.StatusConflict, wantError: "no_password"},
+		{name: "google account", body: valid, setup: rejectedBeforeLock(googleUser), wantCode: http.StatusConflict, wantError: "no_password", wantNoLock: true},
 		{
 			name: "user no longer exists", body: valid,
-			setup: func(m *mocks) {
-				m.userRepo.EXPECT().FindByIDForUpdate(mock.Anything, changePasswordUser.ID.String()).Return(nil, models.ErrUserNotFound)
+			setup: func(m *mocks, locked *bool) {
+				m.userRepo.EXPECT().FindByID(mock.Anything, userID).Return(nil, models.ErrUserNotFound).Maybe()
+				m.userRepo.EXPECT().FindByIDForUpdate(mock.Anything, userID).
+					Run(func(context.Context, string) { *locked = true }).
+					Return(nil, models.ErrUserNotFound).Maybe()
 			},
-			wantCode: http.StatusUnauthorized, wantError: "unauthorized",
+			wantCode: http.StatusUnauthorized, wantError: "unauthorized", wantNoLock: true,
+		},
+		{
+			name: "password changed between the check and the lock", body: valid,
+			setup: func(m *mocks, _ *bool) {
+				m.userRepo.EXPECT().FindByID(mock.Anything, userID).Return(changePasswordUser, nil).Maybe()
+				m.userRepo.EXPECT().FindByIDForUpdate(mock.Anything, userID).Return(changedMeanwhile, nil)
+			},
+			wantCode: http.StatusForbidden, wantError: "invalid_password",
 		},
 		{
 			name: "write fails", body: valid,
-			setup: func(m *mocks) {
-				m.userRepo.EXPECT().FindByIDForUpdate(mock.Anything, changePasswordUser.ID.String()).Return(changePasswordUser, nil)
-				m.userRepo.EXPECT().UpdatePassword(mock.Anything, changePasswordUser.ID.String(), mock.AnythingOfType("string")).Return(nil, errors.New("db exploded"))
+			setup: func(m *mocks, _ *bool) {
+				m.userRepo.EXPECT().FindByID(mock.Anything, userID).Return(changePasswordUser, nil).Maybe()
+				m.userRepo.EXPECT().FindByIDForUpdate(mock.Anything, userID).Return(changePasswordUser, nil)
+				m.userRepo.EXPECT().UpdatePassword(mock.Anything, userID, mock.AnythingOfType("string")).Return(nil, errors.New("db exploded"))
 			},
 			wantCode: http.StatusInternalServerError, wantError: "server_error",
 		},
@@ -1865,8 +1886,9 @@ func TestChangePassword_Fails(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newMocks(t, config.EnvDevelopment)
+			var locked bool
 			if tc.setup != nil {
-				tc.setup(m)
+				tc.setup(m, &locked)
 			}
 
 			w := doChangePassword(t, m.router, tc.body)
@@ -1874,6 +1896,9 @@ func TestChangePassword_Fails(t *testing.T) {
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])
 			assert.Nil(t, refreshCookieFrom(w), "a failed change must not set a refresh cookie")
+			if tc.wantNoLock {
+				assert.False(t, locked, "rejected before taking the user row lock")
+			}
 		})
 	}
 }

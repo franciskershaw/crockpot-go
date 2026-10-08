@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/franciskershaw/crockpot-go/config"
@@ -86,6 +87,9 @@ func TestDeleteMe_PasswordAccountDeletesAndCleansUp(t *testing.T) {
 	var order []string
 	var deleteInTx bool
 
+	m.users.EXPECT().FindByID(mock.Anything, userID).
+		Run(func(context.Context, string) { order = append(order, "FindByID") }).
+		Return(deletingUser, nil)
 	m.users.EXPECT().FindByIDForUpdate(mock.Anything, userID).
 		Run(func(context.Context, string) { order = append(order, "FindByIDForUpdate") }).
 		Return(deletingUser, nil)
@@ -109,7 +113,7 @@ func TestDeleteMe_PasswordAccountDeletesAndCleansUp(t *testing.T) {
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
 	assertRefreshCookieCleared(t, w)
-	assert.Equal(t, []string{"FindByIDForUpdate", "DeleteUnapprovedByCreator", "Regenerate", "Delete", "Destroy"}, order,
+	assert.Equal(t, []string{"FindByID", "FindByIDForUpdate", "DeleteUnapprovedByCreator", "Regenerate", "Delete", "Destroy"}, order,
 		"the leaving user's own list isn't rebuilt (it cascades), and photos are destroyed only after the writes")
 	assert.True(t, deleteInTx)
 }
@@ -117,6 +121,7 @@ func TestDeleteMe_PasswordAccountDeletesAndCleansUp(t *testing.T) {
 func TestDeleteMe_GoogleAccountNeedsNoBody(t *testing.T) {
 	m := newAccountMocks(t)
 	userID := deletingUserID.String()
+	m.users.EXPECT().FindByID(mock.Anything, userID).Return(deletingGoogle, nil)
 	m.users.EXPECT().FindByIDForUpdate(mock.Anything, userID).Return(deletingGoogle, nil)
 	m.recipes.EXPECT().DeleteUnapprovedByCreator(mock.Anything, userID).Return(nil, nil, nil)
 	m.users.EXPECT().Delete(mock.Anything, userID).Return(nil)
@@ -127,9 +132,28 @@ func TestDeleteMe_GoogleAccountNeedsNoBody(t *testing.T) {
 	assertRefreshCookieCleared(t, w)
 }
 
+// An empty body of unknown length (chunked, or HTTP/2 without END_STREAM on the headers) is still no body.
+func TestDeleteMe_GoogleAccountEmptyBodyOfUnknownLength(t *testing.T) {
+	m := newAccountMocks(t)
+	userID := deletingUserID.String()
+	m.users.EXPECT().FindByID(mock.Anything, userID).Return(deletingGoogle, nil).Maybe()
+	m.users.EXPECT().FindByIDForUpdate(mock.Anything, userID).Return(deletingGoogle, nil).Maybe()
+	m.recipes.EXPECT().DeleteUnapprovedByCreator(mock.Anything, userID).Return(nil, nil, nil).Maybe()
+	m.users.EXPECT().Delete(mock.Anything, userID).Return(nil).Maybe()
+
+	req := httptest.NewRequest(http.MethodDelete, "/me", strings.NewReader(""))
+	req.ContentLength = -1
+	req.Header.Set("Authorization", testutil.AuthHeader(t, deletingUser.Email, userID, "FREE"))
+	w := httptest.NewRecorder()
+	m.router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
 func TestDeleteMe_PhotoDestroyFailureStillSucceeds(t *testing.T) {
 	m := newAccountMocks(t)
 	userID := deletingUserID.String()
+	m.users.EXPECT().FindByID(mock.Anything, userID).Return(deletingUser, nil)
 	m.users.EXPECT().FindByIDForUpdate(mock.Anything, userID).Return(deletingUser, nil)
 	m.recipes.EXPECT().DeleteUnapprovedByCreator(mock.Anything, userID).Return(nil, []string{"dev/recipes/draft-photo"}, nil)
 	m.users.EXPECT().Delete(mock.Anything, userID).Return(nil)
@@ -143,39 +167,62 @@ func TestDeleteMe_PhotoDestroyFailureStillSucceeds(t *testing.T) {
 
 func TestDeleteMe_Fails(t *testing.T) {
 	userID := deletingUserID.String()
-	finds := func(u *models.User) func(m *accountMocks) {
-		return func(m *accountMocks) {
-			m.users.EXPECT().FindByIDForUpdate(mock.Anything, userID).Return(u, nil)
+	changedMeanwhile := &models.User{ID: deletingUserID, Email: deletingUser.Email, PasswordHash: ptr(mustHash("someone-elses-new-password")), Role: "FREE"}
+	// rejectedBeforeLock serves the unlocked read and records whether the locking read was ever reached.
+	rejectedBeforeLock := func(u *models.User, err error) func(m *accountMocks, locked *bool) {
+		return func(m *accountMocks, locked *bool) {
+			m.users.EXPECT().FindByID(mock.Anything, userID).Return(u, err).Maybe()
+			m.users.EXPECT().FindByIDForUpdate(mock.Anything, userID).
+				Run(func(context.Context, string) { *locked = true }).
+				Return(u, err).Maybe()
 		}
 	}
 
 	cases := []struct {
-		name      string
-		body      any
-		setup     func(m *accountMocks)
-		wantCode  int
-		wantError string
+		name       string
+		body       any
+		setup      func(m *accountMocks, locked *bool)
+		wantCode   int
+		wantError  string
+		wantNoLock bool
 	}{
 		{name: "malformed body", body: "{not json", wantCode: http.StatusBadRequest, wantError: "invalid_request"},
 		{
 			name: "wrong password", body: map[string]string{"password": "not-the-password"},
-			setup: finds(deletingUser), wantCode: http.StatusForbidden, wantError: "invalid_password",
+			setup: rejectedBeforeLock(deletingUser, nil), wantCode: http.StatusForbidden, wantError: "invalid_password", wantNoLock: true,
 		},
-		{name: "password account sends no password", body: nil, setup: finds(deletingUser), wantCode: http.StatusForbidden, wantError: "invalid_password"},
+		{
+			name: "password account sends no password", body: nil,
+			setup: rejectedBeforeLock(deletingUser, nil), wantCode: http.StatusForbidden, wantError: "invalid_password", wantNoLock: true,
+		},
 		{
 			name: "admin", body: map[string]string{"password": loginUserPassword},
-			setup: finds(deletingAdmin), wantCode: http.StatusForbidden, wantError: "admin_cannot_self_delete",
+			setup: rejectedBeforeLock(deletingAdmin, nil), wantCode: http.StatusForbidden, wantError: "admin_cannot_self_delete", wantNoLock: true,
 		},
 		{
 			name: "user no longer exists", body: map[string]string{"password": loginUserPassword},
-			setup: func(m *accountMocks) {
-				m.users.EXPECT().FindByIDForUpdate(mock.Anything, userID).Return(nil, models.ErrUserNotFound)
+			setup: rejectedBeforeLock(nil, models.ErrUserNotFound), wantCode: http.StatusUnauthorized, wantError: "unauthorized", wantNoLock: true,
+		},
+		{
+			name: "password changed between the check and the lock", body: map[string]string{"password": loginUserPassword},
+			setup: func(m *accountMocks, _ *bool) {
+				m.users.EXPECT().FindByID(mock.Anything, userID).Return(deletingUser, nil).Maybe()
+				m.users.EXPECT().FindByIDForUpdate(mock.Anything, userID).Return(changedMeanwhile, nil)
 			},
-			wantCode: http.StatusUnauthorized, wantError: "unauthorized",
+			wantCode: http.StatusForbidden, wantError: "invalid_password",
+		},
+		{
+			name: "promoted to admin between the check and the lock", body: map[string]string{"password": loginUserPassword},
+			setup: func(m *accountMocks, _ *bool) {
+				m.users.EXPECT().FindByID(mock.Anything, userID).Return(deletingUser, nil).Maybe()
+				m.users.EXPECT().FindByIDForUpdate(mock.Anything, userID).Return(deletingAdmin, nil)
+			},
+			wantCode: http.StatusForbidden, wantError: "admin_cannot_self_delete",
 		},
 		{
 			name: "user delete fails", body: map[string]string{"password": loginUserPassword},
-			setup: func(m *accountMocks) {
+			setup: func(m *accountMocks, _ *bool) {
+				m.users.EXPECT().FindByID(mock.Anything, userID).Return(deletingUser, nil).Maybe()
 				m.users.EXPECT().FindByIDForUpdate(mock.Anything, userID).Return(deletingUser, nil)
 				m.recipes.EXPECT().DeleteUnapprovedByCreator(mock.Anything, userID).Return(nil, []string{"dev/recipes/draft-photo"}, nil)
 				m.users.EXPECT().Delete(mock.Anything, userID).Return(errors.New("db exploded"))
@@ -187,8 +234,9 @@ func TestDeleteMe_Fails(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newAccountMocks(t)
+			var locked bool
 			if tc.setup != nil {
-				tc.setup(m)
+				tc.setup(m, &locked)
 			}
 
 			w := doDeleteMe(t, m.router, tc.body)
@@ -196,6 +244,9 @@ func TestDeleteMe_Fails(t *testing.T) {
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.Equal(t, tc.wantError, decodeJSONBody(t, w)["error"])
 			assert.Nil(t, refreshCookieFrom(w), "a failed delete must leave the session alone")
+			if tc.wantNoLock {
+				assert.False(t, locked, "rejected before taking the user row lock")
+			}
 		})
 	}
 }
