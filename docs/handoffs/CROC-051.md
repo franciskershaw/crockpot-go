@@ -136,3 +136,10 @@ as one epic. Build this before `CROC-030`, which relies on the live byline.
 - **Email:** one real change against a dev account, with the email checked
   in the inbox.
 - **Limits:** fire 11 `POST /me/password` from REST Client and see the 429.
+
+Completed 2026-10-08. Built differently from the decisions above: the
+password change follows `ResetPassword`'s transaction shape, since
+`issueRefreshSession` sets the cookie before commit; the current password
+is checked before the row lock and the hash re-checked inside it; a first
+Google sign-in applies the 1–50 name rule (blank stored as NULL); the
+`/me` routes live in `AccountHandler`.

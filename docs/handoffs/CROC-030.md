@@ -119,3 +119,7 @@ byline scrub depends on its live name lookup.
   reaches Gin.
 - **Limits:** 11 `DELETE /me` calls with a wrong password from REST Client;
   the 11th returns 429.
+
+Completed 2026-10-08. The role and password are checked before the user
+row lock, then re-checked (role, unchanged hash) inside it. Drafts are
+deleted through `deleteRecipeRow`, shared with recipe delete.
