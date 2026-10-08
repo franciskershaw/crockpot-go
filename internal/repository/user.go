@@ -127,6 +127,24 @@ func (r *PostgresUserRepository) UpdateLastLogin(ctx context.Context, userID str
 	return r.markLogin(ctx, userUUID)
 }
 
+func (r *PostgresUserRepository) UpdateName(ctx context.Context, userID, name string) (*models.User, error) {
+	userUUID, err := uuidParam(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	updated, err := queriesFor(ctx, r.db).UpdateUserName(ctx, sqlc.UpdateUserNameParams{
+		ID:   userUUID,
+		Name: textParam(name),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, models.ErrUserNotFound
+		}
+		return nil, fmt.Errorf("failed to update name: %w", err)
+	}
+	return toModelUser(updated), nil
+}
+
 func (r *PostgresUserRepository) markLogin(ctx context.Context, id pgtype.UUID) (*models.User, error) {
 	updated, err := queriesFor(ctx, r.db).UpdateUserLastLogin(ctx, id)
 	if err != nil {

@@ -279,3 +279,25 @@ func TestUpdatePassword_SetsNewPasswordHash(t *testing.T) {
 	require.NotNil(t, updated.PasswordHash)
 	assert.Equal(t, newHash, *updated.PasswordHash)
 }
+
+func TestUpdateName_SetsName(t *testing.T) {
+	ctx := context.Background()
+	userID := insertTestUser(t, "Name Before")
+
+	updated, err := userRepo.UpdateName(ctx, userID.String(), "Name After")
+	require.NoError(t, err)
+	require.NotNil(t, updated.Name)
+	assert.Equal(t, "Name After", *updated.Name)
+	assert.Equal(t, userID, updated.ID)
+
+	fetched, err := userRepo.FindByID(ctx, userID.String())
+	require.NoError(t, err)
+	require.NotNil(t, fetched.Name)
+	assert.Equal(t, "Name After", *fetched.Name)
+}
+
+func TestUpdateName_ReturnsErrUserNotFound(t *testing.T) {
+	updated, err := userRepo.UpdateName(context.Background(), uuid.NewString(), "Nobody")
+	assert.Nil(t, updated)
+	assert.ErrorIs(t, err, models.ErrUserNotFound)
+}

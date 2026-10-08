@@ -37,6 +37,7 @@ type UserRepository interface {
 	FindByID(ctx context.Context, userID string) (*models.User, error)
 	UpdateLastLogin(ctx context.Context, userID string) (*models.User, error)
 	UpdatePassword(ctx context.Context, userID, passwordHash string) (*models.User, error)
+	UpdateName(ctx context.Context, userID, name string) (*models.User, error)
 }
 
 type RefreshTokenRepository interface {

@@ -202,6 +202,36 @@ func (q *Queries) UpdateUserLastLogin(ctx context.Context, id pgtype.UUID) (User
 	return i, err
 }
 
+const updateUserName = `-- name: UpdateUserName :one
+UPDATE users
+SET name = $2, updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+RETURNING id, google_id, password_hash, email, name, role, email_verified_at, last_login_at, created_at, updated_at
+`
+
+type UpdateUserNameParams struct {
+	ID   pgtype.UUID
+	Name pgtype.Text
+}
+
+func (q *Queries) UpdateUserName(ctx context.Context, arg UpdateUserNameParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserName, arg.ID, arg.Name)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.GoogleID,
+		&i.PasswordHash,
+		&i.Email,
+		&i.Name,
+		&i.Role,
+		&i.EmailVerifiedAt,
+		&i.LastLoginAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateUserPassword = `-- name: UpdateUserPassword :one
 UPDATE users
 SET password_hash = $2, updated_at = CURRENT_TIMESTAMP

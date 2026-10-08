@@ -38,6 +38,12 @@ SET password_hash = $2, updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
 RETURNING *;
 
+-- name: UpdateUserName :one
+UPDATE users
+SET name = $2, updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+RETURNING *;
+
 -- name: GetUserName :one
 SELECT name FROM users
 WHERE id = $1;
