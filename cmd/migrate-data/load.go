@@ -161,7 +161,6 @@ func insertUsers(ctx context.Context, q *sqlc.Queries, users []userRow) error {
 			Email:           u.Email,
 			GoogleID:        pgText(u.GoogleID),
 			Name:            pgTextPtr(u.Name),
-			Image:           pgTextPtr(u.Image),
 			Role:            u.Role,
 			EmailVerifiedAt: pgTimestamptzPtr(u.EmailVerifiedAt),
 			CreatedAt:       pgTimestamptz(u.CreatedAt),
@@ -211,7 +210,6 @@ func insertRecipes(ctx context.Context, q *sqlc.Queries, recipes []recipeRow) er
 			Approved:      r.Approved,
 			Serves:        int32(r.Serves),
 			CreatedByID:   pgUUIDPtr(r.CreatedByID),
-			CreatedByName: pgTextPtr(r.CreatedByName),
 			CreatedAt:     pgTimestamptz(r.CreatedAt),
 			UpdatedAt:     pgTimestamptz(r.UpdatedAt),
 		})

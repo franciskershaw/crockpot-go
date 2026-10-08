@@ -202,9 +202,9 @@ func (_c *MockUserRepository_FindByID_Call) RunAndReturn(run func(context.Contex
 	return _c
 }
 
-// GetOrCreateUser provides a mock function with given fields: ctx, email, googleID, displayName, avatarURL
-func (_m *MockUserRepository) GetOrCreateUser(ctx context.Context, email string, googleID string, displayName string, avatarURL string) (*models.User, error) {
-	ret := _m.Called(ctx, email, googleID, displayName, avatarURL)
+// GetOrCreateUser provides a mock function with given fields: ctx, email, googleID, displayName
+func (_m *MockUserRepository) GetOrCreateUser(ctx context.Context, email string, googleID string, displayName string) (*models.User, error) {
+	ret := _m.Called(ctx, email, googleID, displayName)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetOrCreateUser")
@@ -212,19 +212,19 @@ func (_m *MockUserRepository) GetOrCreateUser(ctx context.Context, email string,
 
 	var r0 *models.User
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) (*models.User, error)); ok {
-		return rf(ctx, email, googleID, displayName, avatarURL)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (*models.User, error)); ok {
+		return rf(ctx, email, googleID, displayName)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) *models.User); ok {
-		r0 = rf(ctx, email, googleID, displayName, avatarURL)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) *models.User); ok {
+		r0 = rf(ctx, email, googleID, displayName)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*models.User)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string) error); ok {
-		r1 = rf(ctx, email, googleID, displayName, avatarURL)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(ctx, email, googleID, displayName)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -242,14 +242,13 @@ type MockUserRepository_GetOrCreateUser_Call struct {
 //   - email string
 //   - googleID string
 //   - displayName string
-//   - avatarURL string
-func (_e *MockUserRepository_Expecter) GetOrCreateUser(ctx interface{}, email interface{}, googleID interface{}, displayName interface{}, avatarURL interface{}) *MockUserRepository_GetOrCreateUser_Call {
-	return &MockUserRepository_GetOrCreateUser_Call{Call: _e.mock.On("GetOrCreateUser", ctx, email, googleID, displayName, avatarURL)}
+func (_e *MockUserRepository_Expecter) GetOrCreateUser(ctx interface{}, email interface{}, googleID interface{}, displayName interface{}) *MockUserRepository_GetOrCreateUser_Call {
+	return &MockUserRepository_GetOrCreateUser_Call{Call: _e.mock.On("GetOrCreateUser", ctx, email, googleID, displayName)}
 }
 
-func (_c *MockUserRepository_GetOrCreateUser_Call) Run(run func(ctx context.Context, email string, googleID string, displayName string, avatarURL string)) *MockUserRepository_GetOrCreateUser_Call {
+func (_c *MockUserRepository_GetOrCreateUser_Call) Run(run func(ctx context.Context, email string, googleID string, displayName string)) *MockUserRepository_GetOrCreateUser_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
 	})
 	return _c
 }
@@ -259,7 +258,7 @@ func (_c *MockUserRepository_GetOrCreateUser_Call) Return(_a0 *models.User, _a1 
 	return _c
 }
 
-func (_c *MockUserRepository_GetOrCreateUser_Call) RunAndReturn(run func(context.Context, string, string, string, string) (*models.User, error)) *MockUserRepository_GetOrCreateUser_Call {
+func (_c *MockUserRepository_GetOrCreateUser_Call) RunAndReturn(run func(context.Context, string, string, string) (*models.User, error)) *MockUserRepository_GetOrCreateUser_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -159,3 +159,69 @@ func TestSendPasswordResetLink_ReturnsErrorWhenRequestFails(t *testing.T) {
 		t.Fatal("expected an error when the request can't be made, got nil")
 	}
 }
+
+func TestSendPasswordChanged_SendsExpectedRequest(t *testing.T) {
+	var gotMethod, gotAuth string
+	var gotBody map[string]string
+	var decodeErr error
+
+	forgotURL := "https://app.example.com/forgot-password"
+
+	client := newTestResendClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotAuth = r.Header.Get("Authorization")
+		decodeErr = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	if err := client.SendPasswordChanged(context.Background(), "user@example.com", forgotURL); err != nil {
+		t.Fatalf("SendPasswordChanged returned unexpected error: %v", err)
+	}
+
+	if decodeErr != nil {
+		t.Fatalf("failed to decode request body: %v", decodeErr)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("method = %q, want %q", gotMethod, http.MethodPost)
+	}
+	if gotAuth != "Bearer test-api-key" {
+		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer test-api-key")
+	}
+	if gotBody["to"] != "user@example.com" {
+		t.Errorf("to = %q, want %q", gotBody["to"], "user@example.com")
+	}
+	if gotBody["subject"] != "Your Crockpot password was changed" {
+		t.Errorf("subject = %q", gotBody["subject"])
+	}
+	if !strings.Contains(gotBody["html"], forgotURL) {
+		t.Errorf("html body does not contain the forgot-password URL: %q", gotBody["html"])
+	}
+	if !strings.Contains(gotBody["text"], forgotURL) {
+		t.Errorf("text body does not contain the forgot-password URL: %q", gotBody["text"])
+	}
+}
+
+func TestSendPasswordChanged_ReturnsErrorOnNonSuccessStatus(t *testing.T) {
+	client := newTestResendClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"statusCode":422,"message":"domain is not verified","name":"validation_error"}`))
+	})
+
+	err := client.SendPasswordChanged(context.Background(), "user@example.com", "https://app.example.com/forgot-password")
+	if err == nil {
+		t.Fatal("expected an error for a non-2xx response, got nil")
+	}
+	if !strings.Contains(err.Error(), "domain is not verified") {
+		t.Errorf("expected error to include Resend's response body, got: %v", err)
+	}
+}
+
+func TestSendPasswordChanged_ReturnsErrorWhenRequestFails(t *testing.T) {
+	client := newTestResendClient(t, func(w http.ResponseWriter, r *http.Request) {})
+	client.apiURL = "http://127.0.0.1:0" // nothing listening here
+
+	err := client.SendPasswordChanged(context.Background(), "user@example.com", "https://app.example.com/forgot-password")
+	if err == nil {
+		t.Fatal("expected an error when the request can't be made, got nil")
+	}
+}

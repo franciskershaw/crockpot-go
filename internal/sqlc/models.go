@@ -80,7 +80,6 @@ type Recipe struct {
 	Approved      bool
 	Serves        int32
 	CreatedByID   pgtype.UUID
-	CreatedByName pgtype.Text
 	CreatedAt     pgtype.Timestamptz
 	UpdatedAt     pgtype.Timestamptz
 }
@@ -189,7 +188,6 @@ type User struct {
 	PasswordHash    pgtype.Text
 	Email           string
 	Name            pgtype.Text
-	Image           pgtype.Text
 	Role            string
 	EmailVerifiedAt pgtype.Timestamptz
 	LastLoginAt     pgtype.Timestamptz

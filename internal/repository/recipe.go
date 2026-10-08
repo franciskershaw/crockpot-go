@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/sqlc"
@@ -285,6 +286,20 @@ func buildRecipeDetail(ctx context.Context, q *sqlc.Queries, row sqlc.Recipe, ci
 		}
 	}
 
+	var creatorID *uuid.UUID
+	var createdByName *string
+	if row.CreatedByID.Valid {
+		id := uuidValue(row.CreatedByID)
+		creatorID = &id
+		name, err := q.GetUserName(ctx, row.CreatedByID)
+		switch {
+		case err == nil:
+			createdByName = textPtr(name)
+		case !errors.Is(err, pgx.ErrNoRows):
+			return nil, fmt.Errorf("failed to load recipe creator name: %w", err)
+		}
+	}
+
 	return &models.RecipeDetail{
 		RecipeCard: models.RecipeCard{
 			ID:                   uuidValue(row.ID),
@@ -303,8 +318,8 @@ func buildRecipeDetail(ctx context.Context, q *sqlc.Queries, row sqlc.Recipe, ci
 		Instructions:  instructions,
 		Notes:         notes,
 		Ingredients:   ingredients,
-		CreatedByID:   uuidValue(row.CreatedByID),
-		CreatedByName: textPtr(row.CreatedByName),
+		CreatedByID:   creatorID,
+		CreatedByName: createdByName,
 		UpdatedAt:     row.UpdatedAt.Time,
 	}, nil
 }
@@ -491,6 +506,11 @@ func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, caller
 		return nil, nil, err
 	}
 
+	return deleteRecipeRow(ctx, q, recipeID, existing.ImageFilename)
+}
+
+// deleteRecipeRow deletes a recipe the caller has already locked, returning the users whose menus held it and its photo if no other recipe uses it.
+func deleteRecipeRow(ctx context.Context, q *sqlc.Queries, recipeID pgtype.UUID, imageFilename pgtype.Text) ([]string, *string, error) {
 	// Read before the delete: the cascade removes the menu entries that say who held it.
 	menuUserIDs, err := q.ListMenuUserIDsForRecipe(ctx, recipeID)
 	if err != nil {
@@ -501,12 +521,46 @@ func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, caller
 		return nil, nil, fmt.Errorf("failed to delete recipe: %w", err)
 	}
 	var orphan *string
-	if existing.ImageFilename.Valid {
-		if orphan, err = orphanedImage(ctx, q, existing.ImageFilename, recipeID); err != nil {
+	if imageFilename.Valid {
+		if orphan, err = orphanedImage(ctx, q, imageFilename, recipeID); err != nil {
 			return nil, nil, err
 		}
 	}
 	return uuidStrings(menuUserIDs), orphan, nil
+}
+
+// DeleteUnapprovedByCreator deletes every unapproved recipe creatorID made, returning the users whose menus held one and the photos no recipe uses any more.
+func (r *PostgresRecipeRepository) DeleteUnapprovedByCreator(ctx context.Context, creatorID string) (menuUserIDs []string, orphanedImages []string, err error) {
+	q := queriesFor(ctx, r.db)
+
+	cid, err := uuidParam(creatorID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid creator id: %w", err)
+	}
+	drafts, err := q.ListUnapprovedRecipesForWriteByCreator(ctx, cid)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list unapproved recipes: %w", err)
+	}
+
+	holders := map[string]struct{}{}
+	for _, d := range drafts {
+		ids, orphan, err := deleteRecipeRow(ctx, q, d.ID, d.ImageFilename)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, id := range ids {
+			holders[id] = struct{}{}
+		}
+		if orphan != nil {
+			orphanedImages = append(orphanedImages, *orphan)
+		}
+	}
+
+	for id := range holders {
+		menuUserIDs = append(menuUserIDs, id)
+	}
+	sort.Strings(menuUserIDs)
+	return menuUserIDs, orphanedImages, nil
 }
 
 // orphanedImage returns publicID when no recipe other than recipeID still uses it.

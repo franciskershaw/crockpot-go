@@ -16,7 +16,6 @@ import (
 	"github.com/franciskershaw/crockpot-go/internal/auth"
 	"github.com/franciskershaw/crockpot-go/internal/handler"
 	genmocks "github.com/franciskershaw/crockpot-go/internal/handler/mocks"
-	"github.com/franciskershaw/crockpot-go/internal/middleware"
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/testutil"
 	"github.com/gin-gonic/gin"
@@ -40,7 +39,6 @@ var (
 		ID:       uuid.MustParse("11111111-1111-1111-1111-111111111111"),
 		Email:    "test@example.com",
 		Name:     ptr("Test User"),
-		Image:    ptr("https://example.com/avatar.png"),
 		GoogleID: ptr("google-123"),
 		Role:     "FREE",
 	}
@@ -49,7 +47,6 @@ var (
 		EmailVerified: true,
 		GoogleID:      *fakeUser.GoogleID,
 		DisplayName:   *fakeUser.Name,
-		AvatarURL:     *fakeUser.Image,
 	}
 )
 
@@ -94,7 +91,9 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 	// Every test gets a transactor that just runs the wrapped function directly — real transaction
 	// behavior is covered by repository-layer tests against the real DB, not these handler mocks.
 	m.transactor.EXPECT().WithinTx(mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) }).
+		RunAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+			return fn(context.WithValue(ctx, inTxKey{}, true))
+		}).
 		Maybe()
 	h := handler.NewAuthHandler(m.userRepo, m.oauthMgr, m.refreshTokenRepo, m.emailTokenRepo, m.resetTokenRepo, m.emailSender, m.transactor, &config.Config{
 		Environment:         env,
@@ -114,9 +113,6 @@ func newMocks(t *testing.T, env config.Environment) *mocks {
 	m.router.POST("/auth/reset-password", h.ResetPassword)
 	m.router.POST("/auth/refresh", h.RefreshToken)
 	m.router.POST("/auth/logout", h.Logout)
-	authed := m.router.Group("/")
-	authed.Use(middleware.AuthMiddleware(testutil.TestAccessSecret))
-	authed.GET("/me", h.Me)
 	return m
 }
 
@@ -129,7 +125,7 @@ func mockSuccessfulExchange(oauthMgr *genmocks.MockOAuthManager) {
 
 // mockSuccessfulUserAndFamily wires GetOrCreateUser/DeleteStaleFamiliesForUser/CreateFamily to all succeed.
 func mockSuccessfulUserAndFamily(userRepo *genmocks.MockUserRepository, refreshTokenRepo *genmocks.MockRefreshTokenRepository) {
-	userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).Return(fakeUser, nil)
+	userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName).Return(fakeUser, nil)
 	refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, fakeUser.ID.String()).Return(nil)
 	refreshTokenRepo.EXPECT().CreateFamily(mock.Anything, mock.AnythingOfType("string"), fakeUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).
 		Return(&models.RefreshTokenFamily{ID: uuid.New(), UserID: fakeUser.ID}, nil)
@@ -222,6 +218,43 @@ func TestGoogleCallback_HappyPath(t *testing.T) {
 }
 
 // --- GoogleCallback: rejected before or during state validation ---
+
+func TestGoogleCallback_NormalisesDisplayNameOnCreate(t *testing.T) {
+	cases := []struct {
+		name     string
+		claim    string
+		wantName string
+	}{
+		{"surrounding whitespace trimmed", "  Jo Bloggs  ", "Jo Bloggs"},
+		{"cut to 50 characters", strings.Repeat("é", 60), strings.Repeat("é", 50)},
+		{"no trailing space after the cut", strings.Repeat("a", 49) + " tail", strings.Repeat("a", 49)},
+		{"blank becomes empty", "   ", ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMocks(t, config.EnvDevelopment)
+			claims := *fakeClaims
+			claims.DisplayName = tc.claim
+			m.oauthMgr.EXPECT().ValidateState("valid-state").Return(true)
+			m.oauthMgr.EXPECT().ExchangeCodeForToken(mock.Anything, "auth-code").Return(fakeToken, nil)
+			m.oauthMgr.EXPECT().VerifyIDToken(mock.Anything, fakeToken).Return(&claims, nil)
+			var gotName string
+			m.userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, mock.AnythingOfType("string")).
+				Run(func(_ context.Context, _, _, displayName string) { gotName = displayName }).
+				Return(fakeUser, nil)
+			m.refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, fakeUser.ID.String()).Return(nil)
+			m.refreshTokenRepo.EXPECT().CreateFamily(mock.Anything, mock.AnythingOfType("string"), fakeUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).
+				Return(&models.RefreshTokenFamily{ID: uuid.New(), UserID: fakeUser.ID}, nil)
+
+			cookie := "valid-state"
+			w := doCallback(m.router, "auth-code", "valid-state", &cookie)
+
+			assert.Equal(t, http.StatusTemporaryRedirect, w.Code)
+			assert.Equal(t, tc.wantName, gotName)
+		})
+	}
+}
 
 func TestGoogleCallback_RejectedAtStateValidation(t *testing.T) {
 	cases := []struct {
@@ -320,7 +353,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 				oauthMgr.EXPECT().ExchangeCodeForToken(mock.Anything, "auth-code").Return(fakeToken, nil)
 				unverifiedClaims := &auth.IDTokenClaims{
 					Email: fakeClaims.Email, EmailVerified: false,
-					GoogleID: fakeClaims.GoogleID, DisplayName: fakeClaims.DisplayName, AvatarURL: fakeClaims.AvatarURL,
+					GoogleID: fakeClaims.GoogleID, DisplayName: fakeClaims.DisplayName,
 				}
 				oauthMgr.EXPECT().VerifyIDToken(mock.Anything, fakeToken).Return(unverifiedClaims, nil)
 			},
@@ -330,7 +363,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 			name: "email already registered with password",
 			setup: func(oauthMgr *genmocks.MockOAuthManager, userRepo *genmocks.MockUserRepository, _ *genmocks.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
-				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).
+				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName).
 					Return(nil, models.ErrEmailRegisteredWithPassword)
 			},
 			wantError: "email_registered_with_password",
@@ -339,7 +372,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 			name: "GetOrCreateUser generic error",
 			setup: func(oauthMgr *genmocks.MockOAuthManager, userRepo *genmocks.MockUserRepository, _ *genmocks.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
-				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).
+				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName).
 					Return(nil, errors.New("db exploded"))
 			},
 			wantError: "server_error",
@@ -348,7 +381,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 			name: "DeleteStaleFamiliesForUser fails",
 			setup: func(oauthMgr *genmocks.MockOAuthManager, userRepo *genmocks.MockUserRepository, refreshTokenRepo *genmocks.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
-				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).Return(fakeUser, nil)
+				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName).Return(fakeUser, nil)
 				refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, fakeUser.ID.String()).Return(errors.New("delete failed"))
 			},
 			wantError: "server_error",
@@ -357,7 +390,7 @@ func TestGoogleCallback_FailsAfterStateValidation(t *testing.T) {
 			name: "CreateFamily fails",
 			setup: func(oauthMgr *genmocks.MockOAuthManager, userRepo *genmocks.MockUserRepository, refreshTokenRepo *genmocks.MockRefreshTokenRepository) {
 				mockSuccessfulExchange(oauthMgr)
-				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName, fakeClaims.AvatarURL).Return(fakeUser, nil)
+				userRepo.EXPECT().GetOrCreateUser(mock.Anything, fakeClaims.Email, fakeClaims.GoogleID, fakeClaims.DisplayName).Return(fakeUser, nil)
 				refreshTokenRepo.EXPECT().DeleteStaleFamiliesForUser(mock.Anything, fakeUser.ID.String()).Return(nil)
 				refreshTokenRepo.EXPECT().CreateFamily(mock.Anything, mock.AnythingOfType("string"), fakeUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).
 					Return(nil, errors.New("insert failed"))
@@ -487,7 +520,45 @@ func TestRegister_UnconfirmedRetry_WithinCooldown(t *testing.T) {
 	assertRetryAfterMatchesBody(t, w)
 }
 
+func TestRegister_NormalisesName(t *testing.T) {
+	cases := []struct {
+		name     string
+		raw      string
+		wantName string
+	}{
+		{"surrounding whitespace trimmed", "  New User  ", "New User"},
+		{"50 characters accepted", strings.Repeat("a", 50), strings.Repeat("a", 50)},
+		{"50 multi-byte characters accepted", strings.Repeat("é", 50), strings.Repeat("é", 50)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newMocks(t, config.EnvDevelopment)
+			newUser := &models.User{ID: uuid.MustParse("22222222-2222-2222-2222-222222222222"), Email: "new@example.com"}
+			var gotName string
+			m.userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, "new@example.com", mock.AnythingOfType("string"), mock.AnythingOfType("string")).
+				Run(func(_ context.Context, _, _, name string) { gotName = name }).
+				Return(newUser, nil)
+			m.emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, newUser.ID.String()).Return(nil, models.ErrNoActiveEmailVerificationToken)
+			m.emailTokenRepo.EXPECT().DeleteActiveForUser(mock.Anything, newUser.ID.String()).Return(nil)
+			m.emailTokenRepo.EXPECT().Create(mock.Anything, newUser.ID.String(), mock.AnythingOfType("string"), mock.AnythingOfType("time.Time")).Return(&models.EmailVerificationToken{}, nil)
+			m.emailSender.EXPECT().SendConfirmationCode(mock.Anything, "new@example.com", mock.AnythingOfType("string")).Return(nil)
+
+			w := doRegister(m.router, map[string]string{"email": "new@example.com", "password": "correcthorse", "name": tc.raw})
+
+			assert.Equal(t, http.StatusCreated, w.Code)
+			assert.Equal(t, tc.wantName, gotName)
+		})
+	}
+}
+
 // --- Register: fails ---
+
+// unreachableCreateUnconfirmedUser lets a validation case reach the repo without a mock panic, so a missing check shows as a status diff.
+func unreachableCreateUnconfirmedUser(userRepo *genmocks.MockUserRepository) {
+	userRepo.EXPECT().CreateUnconfirmedUser(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, models.ErrEmailRegisteredWithPassword).Maybe()
+}
 
 func TestRegister_Fails(t *testing.T) {
 	cases := []struct {
@@ -508,6 +579,27 @@ func TestRegister_Fails(t *testing.T) {
 			body:      map[string]string{"email": "new@example.com", "password": strings.Repeat("a", 73), "name": "New User"},
 			wantCode:  http.StatusBadRequest,
 			wantError: "password_too_long",
+		},
+		{
+			name:      "empty name",
+			body:      map[string]string{"email": "new@example.com", "password": "correcthorse", "name": ""},
+			setup:     unreachableCreateUnconfirmedUser,
+			wantCode:  http.StatusBadRequest,
+			wantError: "invalid_name",
+		},
+		{
+			name:      "whitespace-only name",
+			body:      map[string]string{"email": "new@example.com", "password": "correcthorse", "name": "   "},
+			setup:     unreachableCreateUnconfirmedUser,
+			wantCode:  http.StatusBadRequest,
+			wantError: "invalid_name",
+		},
+		{
+			name:      "51-character name",
+			body:      map[string]string{"email": "new@example.com", "password": "correcthorse", "name": strings.Repeat("a", 51)},
+			setup:     unreachableCreateUnconfirmedUser,
+			wantCode:  http.StatusBadRequest,
+			wantError: "invalid_name",
 		},
 		{
 			name:      "invalid email",
@@ -1460,80 +1552,4 @@ func TestLogout_ClearsCookieEvenWithoutValidRefreshToken(t *testing.T) {
 			assert.True(t, cookie.MaxAge < 0)
 		})
 	}
-}
-
-// --- Me ---
-
-var (
-	meTestUserID = uuid.MustParse("55555555-5555-5555-5555-555555555555")
-	meTestName   = "Me Test User"
-	meTestImage  = "https://example.com/avatar.png"
-	meTestUser   = &models.User{
-		ID:    meTestUserID,
-		Email: "me@example.com",
-		Name:  &meTestName,
-		Image: &meTestImage,
-		Role:  "FREE",
-	}
-)
-
-func doMe(r *gin.Engine, authHeaderValue string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, "/me", nil)
-	if authHeaderValue != "" {
-		req.Header.Set("Authorization", authHeaderValue)
-	}
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	return w
-}
-
-func TestMe_ReturnsProfile(t *testing.T) {
-	m := newMocks(t, config.EnvDevelopment)
-	m.userRepo.EXPECT().FindByID(mock.Anything, meTestUserID.String()).Return(meTestUser, nil)
-
-	w := doMe(m.router, testutil.AuthHeader(t, meTestUser.Email, meTestUserID.String(), meTestUser.Role))
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	body := decodeJSONBodyAny(t, w)
-	assert.Equal(t, meTestUserID.String(), body["id"])
-	assert.Equal(t, meTestUser.Email, body["email"])
-	assert.Equal(t, meTestName, body["name"])
-	assert.Equal(t, meTestImage, body["image"])
-	assert.Equal(t, meTestUser.Role, body["role"])
-}
-
-func TestMe_ReturnsUnauthorizedWhenUserNotFound(t *testing.T) {
-	m := newMocks(t, config.EnvDevelopment)
-	m.userRepo.EXPECT().FindByID(mock.Anything, meTestUserID.String()).Return(nil, models.ErrUserNotFound)
-
-	w := doMe(m.router, testutil.AuthHeader(t, meTestUser.Email, meTestUserID.String(), meTestUser.Role))
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	assert.Equal(t, "unauthorized", decodeJSONBody(t, w)["error"])
-}
-
-func TestMe_ReturnsServerErrorOnOtherRepositoryError(t *testing.T) {
-	m := newMocks(t, config.EnvDevelopment)
-	m.userRepo.EXPECT().FindByID(mock.Anything, meTestUserID.String()).Return(nil, errors.New("db exploded"))
-
-	w := doMe(m.router, testutil.AuthHeader(t, meTestUser.Email, meTestUserID.String(), meTestUser.Role))
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, "server_error", decodeJSONBody(t, w)["error"])
-}
-
-// Defensive branch: unreachable through the wired router (AuthMiddleware always sets userID
-// before Me runs), exercised by calling the handler directly against a bare context instead.
-func TestMe_ReturnsUnauthorizedWhenUserIDMissingFromContext(t *testing.T) {
-	m := newMocks(t, config.EnvDevelopment)
-	h := handler.NewAuthHandler(m.userRepo, m.oauthMgr, m.refreshTokenRepo, m.emailTokenRepo, m.resetTokenRepo, m.emailSender, m.transactor, &config.Config{})
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/me", nil)
-
-	h.Me(c)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	assert.Equal(t, "unauthorized", decodeJSONBody(t, w)["error"])
 }

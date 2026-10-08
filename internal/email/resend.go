@@ -15,7 +15,7 @@ import (
 
 const resendAPIURL = "https://api.resend.com/emails"
 
-//go:embed templates/confirmation.html templates/confirmation.txt templates/reset.html templates/reset.txt
+//go:embed templates/confirmation.html templates/confirmation.txt templates/reset.html templates/reset.txt templates/password_changed.html templates/password_changed.txt
 var templateFS embed.FS
 
 var (
@@ -23,6 +23,8 @@ var (
 	confirmationTextTemplate = texttemplate.Must(texttemplate.ParseFS(templateFS, "templates/confirmation.txt"))
 	resetHTMLTemplate        = htmltemplate.Must(htmltemplate.ParseFS(templateFS, "templates/reset.html"))
 	resetTextTemplate        = texttemplate.Must(texttemplate.ParseFS(templateFS, "templates/reset.txt"))
+	changedHTMLTemplate      = htmltemplate.Must(htmltemplate.ParseFS(templateFS, "templates/password_changed.html"))
+	changedTextTemplate      = texttemplate.Must(texttemplate.ParseFS(templateFS, "templates/password_changed.txt"))
 )
 
 type confirmationEmailData struct {
@@ -31,6 +33,10 @@ type confirmationEmailData struct {
 
 type passwordResetEmailData struct {
 	ResetURL string
+}
+
+type passwordChangedEmailData struct {
+	ForgotPasswordURL string
 }
 
 type ResendClient struct {
@@ -83,6 +89,21 @@ func (c *ResendClient) SendPasswordResetLink(ctx context.Context, toEmail, reset
 	}
 
 	return c.send(ctx, toEmail, "Reset your Crockpot password", html.String(), text.String())
+}
+
+// SendPasswordChanged tells the owner their password changed, linking to forgot-password in case it wasn't them.
+func (c *ResendClient) SendPasswordChanged(ctx context.Context, toEmail, forgotPasswordURL string) error {
+	data := passwordChangedEmailData{ForgotPasswordURL: forgotPasswordURL}
+
+	var html, text bytes.Buffer
+	if err := changedHTMLTemplate.Execute(&html, data); err != nil {
+		return fmt.Errorf("resend: render html template: %w", err)
+	}
+	if err := changedTextTemplate.Execute(&text, data); err != nil {
+		return fmt.Errorf("resend: render text template: %w", err)
+	}
+
+	return c.send(ctx, toEmail, "Your Crockpot password was changed", html.String(), text.String())
 }
 
 func (c *ResendClient) send(ctx context.Context, toEmail, subject, html, text string) error {

@@ -55,7 +55,7 @@ func fakeCreatedRecipe() *models.RecipeDetail {
 		Instructions:  []string{"Brown the beef", "Add everything else"},
 		Notes:         []string{"Freezes well"},
 		Ingredients:   []models.HydratedIngredient{{ItemID: recipeItemID, ItemName: "Beef", ItemCategoryID: uuid.New(), ItemCategoryName: "Meat", UnitID: &recipeUnitID, Quantity: 800}},
-		CreatedByID:   recipeUserID,
+		CreatedByID:   &recipeUserID,
 		CreatedByName: &byName,
 	}
 }

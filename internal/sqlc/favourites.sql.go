@@ -56,7 +56,7 @@ func (q *Queries) IsRecipeFavourited(ctx context.Context, arg IsRecipeFavourited
 }
 
 const listFavouriteRecipes = `-- name: ListFavouriteRecipes :many
-SELECT r.id, r.name, r.description, r.time_in_minutes, r.image_url, r.image_filename, r.instructions, r.notes, r.approved, r.serves, r.created_by_id, r.created_by_name, r.created_at, r.updated_at
+SELECT r.id, r.name, r.description, r.time_in_minutes, r.image_url, r.image_filename, r.instructions, r.notes, r.approved, r.serves, r.created_by_id, r.created_at, r.updated_at
 FROM recipes r
 JOIN recipe_favourites f ON f.recipe_id = r.id
 WHERE f.user_id = $1
@@ -91,7 +91,6 @@ func (q *Queries) ListFavouriteRecipes(ctx context.Context, arg ListFavouriteRec
 			&i.Approved,
 			&i.Serves,
 			&i.CreatedByID,
-			&i.CreatedByName,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

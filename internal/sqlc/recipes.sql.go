@@ -62,8 +62,7 @@ INSERT INTO recipes (
     image_url,
     image_filename,
     approved,
-    created_by_id,
-    created_by_name
+    created_by_id
 )
 VALUES (
     $1,
@@ -75,10 +74,9 @@ VALUES (
     $7,
     $8,
     $9,
-    $10,
-    (SELECT name FROM users WHERE id = $10)
+    $10
 )
-RETURNING id, name, description, time_in_minutes, image_url, image_filename, instructions, notes, approved, serves, created_by_id, created_by_name, created_at, updated_at
+RETURNING id, name, description, time_in_minutes, image_url, image_filename, instructions, notes, approved, serves, created_by_id, created_at, updated_at
 `
 
 type CreateRecipeParams struct {
@@ -120,7 +118,6 @@ func (q *Queries) CreateRecipe(ctx context.Context, arg CreateRecipeParams) (Rec
 		&i.Approved,
 		&i.Serves,
 		&i.CreatedByID,
-		&i.CreatedByName,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -194,7 +191,7 @@ func (q *Queries) DeleteRecipeIngredients(ctx context.Context, recipeID pgtype.U
 }
 
 const getRecipeForReader = `-- name: GetRecipeForReader :one
-SELECT r.id, r.name, r.description, r.time_in_minutes, r.image_url, r.image_filename, r.instructions, r.notes, r.approved, r.serves, r.created_by_id, r.created_by_name, r.created_at, r.updated_at
+SELECT r.id, r.name, r.description, r.time_in_minutes, r.image_url, r.image_filename, r.instructions, r.notes, r.approved, r.serves, r.created_by_id, r.created_at, r.updated_at
 FROM recipes r
 WHERE r.id = $1
     AND recipe_visible_to(r.approved, r.created_by_id, $2::uuid, $3::boolean)
@@ -221,7 +218,6 @@ func (q *Queries) GetRecipeForReader(ctx context.Context, arg GetRecipeForReader
 		&i.Approved,
 		&i.Serves,
 		&i.CreatedByID,
-		&i.CreatedByName,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -402,7 +398,7 @@ func (q *Queries) ListRecipeIngredientsHydrated(ctx context.Context, recipeID pg
 const listRecipes = `-- name: ListRecipes :many
 WITH candidates AS (
     SELECT
-        r.id, r.name, r.description, r.time_in_minutes, r.image_url, r.image_filename, r.instructions, r.notes, r.approved, r.serves, r.created_by_id, r.created_by_name, r.created_at, r.updated_at,
+        r.id, r.name, r.description, r.time_in_minutes, r.image_url, r.image_filename, r.instructions, r.notes, r.approved, r.serves, r.created_by_id, r.created_at, r.updated_at,
         (SELECT count(*) FROM recipe_ingredients x WHERE x.recipe_id = r.id)::int AS total_ingredient_count,
         (
             SELECT count(*) FROM recipe_ingredients x
@@ -441,7 +437,7 @@ WITH candidates AS (
         )
 ), scored AS (
     SELECT
-        candidates.id, candidates.name, candidates.description, candidates.time_in_minutes, candidates.image_url, candidates.image_filename, candidates.instructions, candidates.notes, candidates.approved, candidates.serves, candidates.created_by_id, candidates.created_by_name, candidates.created_at, candidates.updated_at, candidates.total_ingredient_count, candidates.matched_ingredient_count, candidates.matched_category_count,
+        candidates.id, candidates.name, candidates.description, candidates.time_in_minutes, candidates.image_url, candidates.image_filename, candidates.instructions, candidates.notes, candidates.approved, candidates.serves, candidates.created_by_id, candidates.created_at, candidates.updated_at, candidates.total_ingredient_count, candidates.matched_ingredient_count, candidates.matched_category_count,
         (CASE
             WHEN NOT $1::boolean
                 THEN 0::float8
@@ -454,7 +450,7 @@ WITH candidates AS (
         END)::float8 AS score
     FROM candidates
 )
-SELECT scored.id, scored.name, scored.description, scored.time_in_minutes, scored.image_url, scored.image_filename, scored.instructions, scored.notes, scored.approved, scored.serves, scored.created_by_id, scored.created_by_name, scored.created_at, scored.updated_at, scored.total_ingredient_count, scored.matched_ingredient_count, scored.matched_category_count, scored.score, count(*) OVER ()::int AS total
+SELECT scored.id, scored.name, scored.description, scored.time_in_minutes, scored.image_url, scored.image_filename, scored.instructions, scored.notes, scored.approved, scored.serves, scored.created_by_id, scored.created_at, scored.updated_at, scored.total_ingredient_count, scored.matched_ingredient_count, scored.matched_category_count, scored.score, count(*) OVER ()::int AS total
 FROM scored
 ORDER BY
     (CASE
@@ -499,7 +495,6 @@ type ListRecipesRow struct {
 	Approved               bool
 	Serves                 int32
 	CreatedByID            pgtype.UUID
-	CreatedByName          pgtype.Text
 	CreatedAt              pgtype.Timestamptz
 	UpdatedAt              pgtype.Timestamptz
 	TotalIngredientCount   int32
@@ -545,7 +540,6 @@ func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]Lis
 			&i.Approved,
 			&i.Serves,
 			&i.CreatedByID,
-			&i.CreatedByName,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.TotalIngredientCount,
@@ -554,6 +548,40 @@ func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]Lis
 			&i.Score,
 			&i.Total,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnapprovedRecipesForWriteByCreator = `-- name: ListUnapprovedRecipesForWriteByCreator :many
+SELECT id, image_filename
+FROM recipes
+WHERE created_by_id = $1 AND NOT approved
+ORDER BY id
+FOR UPDATE
+`
+
+type ListUnapprovedRecipesForWriteByCreatorRow struct {
+	ID            pgtype.UUID
+	ImageFilename pgtype.Text
+}
+
+// FOR UPDATE re-checks approved after any wait, so a recipe approved concurrently drops out instead of being deleted.
+func (q *Queries) ListUnapprovedRecipesForWriteByCreator(ctx context.Context, creatorID pgtype.UUID) ([]ListUnapprovedRecipesForWriteByCreatorRow, error) {
+	rows, err := q.db.Query(ctx, listUnapprovedRecipesForWriteByCreator, creatorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUnapprovedRecipesForWriteByCreatorRow
+	for rows.Next() {
+		var i ListUnapprovedRecipesForWriteByCreatorRow
+		if err := rows.Scan(&i.ID, &i.ImageFilename); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -587,7 +615,7 @@ UPDATE recipes SET
     approved = $9,
     updated_at = now()
 WHERE id = $10
-RETURNING id, name, description, time_in_minutes, image_url, image_filename, instructions, notes, approved, serves, created_by_id, created_by_name, created_at, updated_at
+RETURNING id, name, description, time_in_minutes, image_url, image_filename, instructions, notes, approved, serves, created_by_id, created_at, updated_at
 `
 
 type UpdateRecipeParams struct {
@@ -629,7 +657,6 @@ func (q *Queries) UpdateRecipe(ctx context.Context, arg UpdateRecipeParams) (Rec
 		&i.Approved,
 		&i.Serves,
 		&i.CreatedByID,
-		&i.CreatedByName,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

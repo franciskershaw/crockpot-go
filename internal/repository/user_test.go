@@ -18,7 +18,7 @@ func TestGetOrCreateUser_CreatesNewUser(t *testing.T) {
 	googleID := "repo-test-google-" + uuid.NewString()
 	email := "repo-test-" + uuid.NewString() + "@example.com"
 
-	user, err := userRepo.GetOrCreateUser(ctx, email, googleID, "Test User", "http://example.com/avatar.png")
+	user, err := userRepo.GetOrCreateUser(ctx, email, googleID, "Test User")
 	require.NoError(t, err)
 	require.NotNil(t, user)
 	cleanupExec(t, `DELETE FROM users WHERE id = $1`, user.ID)
@@ -29,54 +29,31 @@ func TestGetOrCreateUser_CreatesNewUser(t *testing.T) {
 	assert.Equal(t, email, user.Email)
 	require.NotNil(t, user.Name)
 	assert.Equal(t, "Test User", *user.Name)
-	require.NotNil(t, user.Image)
-	assert.Equal(t, "http://example.com/avatar.png", *user.Image)
 	assert.Equal(t, "FREE", user.Role)
 	assert.NotNil(t, user.EmailVerifiedAt, "Google signups should be verified immediately")
 	assert.NotNil(t, user.LastLoginAt, "creation counts as the first login")
 }
 
-func TestGetOrCreateUser_ReturnsExistingAndRefreshesProfile(t *testing.T) {
+func TestGetOrCreateUser_ReturnsExistingAndKeepsStoredName(t *testing.T) {
 	ctx := context.Background()
 	googleID := "repo-test-google-" + uuid.NewString()
 	email := "repo-test-" + uuid.NewString() + "@example.com"
 
-	created, err := userRepo.GetOrCreateUser(ctx, email, googleID, "Original Name", "http://example.com/original.png")
+	created, err := userRepo.GetOrCreateUser(ctx, email, googleID, "Original Name")
 	require.NoError(t, err)
 	cleanupExec(t, `DELETE FROM users WHERE id = $1`, created.ID)
 	time.Sleep(10 * time.Millisecond)
 
-	fetched, err := userRepo.GetOrCreateUser(ctx, email, googleID, "Updated Name", "http://example.com/updated.png")
+	fetched, err := userRepo.GetOrCreateUser(ctx, email, googleID, "Name From Google")
 	require.NoError(t, err)
 	require.NotNil(t, fetched)
 
 	assert.Equal(t, created.ID, fetched.ID, "expected the same user record, not a new one")
 	require.NotNil(t, fetched.Name)
-	assert.Equal(t, "Updated Name", *fetched.Name, "expected name to refresh from the latest Google claims")
-	require.NotNil(t, fetched.Image)
-	assert.Equal(t, "http://example.com/updated.png", *fetched.Image, "expected image to refresh from the latest Google claims")
+	assert.Equal(t, "Original Name", *fetched.Name, "a returning sign-in must not overwrite the stored name")
 	require.NotNil(t, created.LastLoginAt)
 	require.NotNil(t, fetched.LastLoginAt)
 	assert.True(t, fetched.LastLoginAt.After(*created.LastLoginAt), "expected last_login_at to advance on repeat login")
-}
-
-func TestGetOrCreateUser_ReturnsExistingAndPreservesProfileOnEmptyClaims(t *testing.T) {
-	ctx := context.Background()
-	googleID := "repo-test-google-" + uuid.NewString()
-	email := "repo-test-" + uuid.NewString() + "@example.com"
-
-	created, err := userRepo.GetOrCreateUser(ctx, email, googleID, "Original Name", "http://example.com/original.png")
-	require.NoError(t, err)
-	cleanupExec(t, `DELETE FROM users WHERE id = $1`, created.ID)
-
-	fetched, err := userRepo.GetOrCreateUser(ctx, email, googleID, "", "")
-	require.NoError(t, err)
-	require.NotNil(t, fetched)
-
-	require.NotNil(t, fetched.Name)
-	assert.Equal(t, "Original Name", *fetched.Name, "empty claim should not blank out a previously stored name")
-	require.NotNil(t, fetched.Image)
-	assert.Equal(t, "http://example.com/original.png", *fetched.Image, "empty claim should not blank out a previously stored image")
 }
 
 func TestGetOrCreateUser_ConcurrentFirstLoginsForSameAccountBothSucceed(t *testing.T) {
@@ -91,7 +68,7 @@ func TestGetOrCreateUser_ConcurrentFirstLoginsForSameAccountBothSucceed(t *testi
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			results[i], errs[i] = userRepo.GetOrCreateUser(ctx, email, googleID, "Test User", "http://example.com/avatar.png")
+			results[i], errs[i] = userRepo.GetOrCreateUser(ctx, email, googleID, "Test User")
 		}(i)
 	}
 	wg.Wait()
@@ -116,7 +93,7 @@ func TestGetOrCreateUser_EmailAlreadyRegisteredWithPassword(t *testing.T) {
 	require.NoError(t, err)
 	cleanupExec(t, `DELETE FROM users WHERE id = $1`, passwordUserID)
 
-	user, err := userRepo.GetOrCreateUser(ctx, email, "repo-test-google-"+uuid.NewString(), "Test User", "")
+	user, err := userRepo.GetOrCreateUser(ctx, email, "repo-test-google-"+uuid.NewString(), "Test User")
 	assert.Nil(t, user)
 	assert.ErrorIs(t, err, models.ErrEmailRegisteredWithPassword)
 }
@@ -301,4 +278,92 @@ func TestUpdatePassword_SetsNewPasswordHash(t *testing.T) {
 	require.NotNil(t, updated)
 	require.NotNil(t, updated.PasswordHash)
 	assert.Equal(t, newHash, *updated.PasswordHash)
+}
+
+func TestUpdateName_SetsName(t *testing.T) {
+	ctx := context.Background()
+	userID := insertTestUser(t, "Name Before")
+
+	updated, err := userRepo.UpdateName(ctx, userID.String(), "Name After")
+	require.NoError(t, err)
+	require.NotNil(t, updated.Name)
+	assert.Equal(t, "Name After", *updated.Name)
+	assert.Equal(t, userID, updated.ID)
+
+	fetched, err := userRepo.FindByID(ctx, userID.String())
+	require.NoError(t, err)
+	require.NotNil(t, fetched.Name)
+	assert.Equal(t, "Name After", *fetched.Name)
+}
+
+func TestUpdateName_ReturnsErrUserNotFound(t *testing.T) {
+	updated, err := userRepo.UpdateName(context.Background(), uuid.NewString(), "Nobody")
+	assert.Nil(t, updated)
+	assert.ErrorIs(t, err, models.ErrUserNotFound)
+}
+
+func TestGetOrCreateUser_EmptyNameStoredAsNull(t *testing.T) {
+	ctx := context.Background()
+	user, err := userRepo.GetOrCreateUser(ctx, "repo-test-"+uuid.NewString()+"@example.com", "repo-test-google-"+uuid.NewString(), "")
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, user.ID)
+
+	assert.Nil(t, user.Name, "an empty Google name is no name, not an empty string a byline would render")
+}
+
+func TestFindByIDForUpdate_ReturnsUser(t *testing.T) {
+	userID := insertTestUser(t, "Locked Reader")
+
+	err := transactor.WithinTx(context.Background(), func(ctx context.Context) error {
+		user, err := userRepo.FindByIDForUpdate(ctx, userID.String())
+		require.NoError(t, err)
+		assert.Equal(t, userID, user.ID)
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+func TestFindByIDForUpdate_ReturnsErrUserNotFound(t *testing.T) {
+	err := transactor.WithinTx(context.Background(), func(ctx context.Context) error {
+		_, err := userRepo.FindByIDForUpdate(ctx, uuid.NewString())
+		return err
+	})
+	assert.ErrorIs(t, err, models.ErrUserNotFound)
+}
+
+func TestFindByIDForUpdate_BlocksConcurrentWriteUntilCommit(t *testing.T) {
+	ctx := context.Background()
+	userID := insertTestUser(t, "Locked User")
+
+	locked := make(chan struct{})
+	release := make(chan struct{})
+	t.Cleanup(func() { releaseOnce(release) })
+	holdErr := make(chan error, 1)
+	go func() {
+		holdErr <- transactor.WithinTx(ctx, func(ctx context.Context) error {
+			if _, err := userRepo.FindByIDForUpdate(ctx, userID.String()); err != nil {
+				return err
+			}
+			close(locked)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-locked:
+	case err := <-holdErr:
+		t.Fatalf("lookup failed before holding its transaction open: %v", err)
+	}
+
+	written := make(chan error, 1)
+	go func() {
+		_, err := userRepo.UpdateName(ctx, userID.String(), "Written While Locked")
+		written <- err
+	}()
+
+	waitForLockWait(t)
+	releaseOnce(release)
+
+	require.NoError(t, <-holdErr)
+	require.NoError(t, <-written)
 }

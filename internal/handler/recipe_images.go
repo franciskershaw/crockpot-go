@@ -66,8 +66,8 @@ func (h *RecipeHandler) uploadPhoto(c *gin.Context, userID string, photo []byte)
 }
 
 // destroyImage is best-effort: the recipe change has already committed (or rolled back), so a failure is logged, never returned.
-func (h *RecipeHandler) destroyImage(c *gin.Context, publicID string) {
-	if err := h.images.Store.Destroy(context.WithoutCancel(c.Request.Context()), publicID); err != nil {
+func destroyImage(c *gin.Context, store ImageStore, publicID string) {
+	if err := store.Destroy(context.WithoutCancel(c.Request.Context()), publicID); err != nil {
 		_ = c.Error(fmt.Errorf("failed to destroy image %s: %w", publicID, err))
 	}
 }
@@ -80,12 +80,19 @@ func (h *RecipeHandler) destroyUnusedUpload(c *gin.Context, publicID string) {
 		return
 	}
 	if !inUse {
-		h.destroyImage(c, publicID)
+		destroyImage(c, h.images.Store, publicID)
 	}
 }
 
 func (h *RecipeHandler) destroyOrphan(c *gin.Context, publicID *string) {
-	if publicID != nil && h.images.Scope.CanDestroy(*publicID) {
-		h.destroyImage(c, *publicID)
+	if publicID != nil {
+		destroyImageInScope(c, h.images.Store, h.images.Scope, *publicID)
+	}
+}
+
+// destroyImageInScope destroys publicID only if scope owns it, so a dev config can't remove another environment's photos.
+func destroyImageInScope(c *gin.Context, store ImageStore, scope ImageScope, publicID string) {
+	if scope.CanDestroy(publicID) {
+		destroyImage(c, store, publicID)
 	}
 }

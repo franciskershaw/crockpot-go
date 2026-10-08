@@ -9,8 +9,7 @@ INSERT INTO recipes (
     image_url,
     image_filename,
     approved,
-    created_by_id,
-    created_by_name
+    created_by_id
 )
 VALUES (
     sqlc.arg(name),
@@ -22,8 +21,7 @@ VALUES (
     sqlc.narg(image_url),
     sqlc.narg(image_filename),
     sqlc.arg(approved),
-    sqlc.arg(created_by_id),
-    (SELECT name FROM users WHERE id = sqlc.arg(created_by_id))
+    sqlc.arg(created_by_id)
 )
 RETURNING *;
 
@@ -32,6 +30,14 @@ RETURNING *;
 SELECT id, created_by_id, approved, image_url, image_filename
 FROM recipes
 WHERE id = sqlc.arg(id)
+FOR UPDATE;
+
+-- name: ListUnapprovedRecipesForWriteByCreator :many
+-- FOR UPDATE re-checks approved after any wait, so a recipe approved concurrently drops out instead of being deleted.
+SELECT id, image_filename
+FROM recipes
+WHERE created_by_id = sqlc.arg(creator_id) AND NOT approved
+ORDER BY id
 FOR UPDATE;
 
 -- name: LockImage :exec

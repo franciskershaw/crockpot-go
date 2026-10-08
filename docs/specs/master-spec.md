@@ -393,6 +393,12 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
     the user edited.
   - **A password check on a signed-in request returns 403 when wrong**, never
     401, because the frontend reads a 401 there as an expired session.
+  - **Password checks run before the user row lock.** bcrypt checks an
+    unlocked read; the write transaction then locks the row and requires
+    the same hash, so a concurrent reset or change can't slip between
+    check and write, and a wrong guess never holds the lock.
+  - **`AccountHandler` serves every `/me` route**; `AuthHandler` serves only
+    `/auth/*`. A null creator is `createdById: null` in recipe detail.
 
 ## Non-functional expectations
 
@@ -852,18 +858,14 @@ change, a session list and "sign out everywhere" are out. Decisions:
 is in `crockpot-react`'s `docs/handoffs/CFE-055.md`. Build `CROC-051`, then
 `CROC-030`.
 
-- **CROC-051** — Profile and password: `PATCH /me` (name, trimmed 1–50,
-  same rule on register); `POST /me/password` (current password, revokes
-  every session then signs in the caller again, sends a change email, 403
-  `invalid_password`); `/me` gains `authProvider`; Google sign-in stops
-  overwriting the name; the byline becomes a live lookup
-  (`created_by_name` dropped); `users.image` dropped (absorbs `CROC-044`).
-  AI-driven. Open.
-- **CROC-030** — Self-service account deletion: `DELETE /me`, hard delete
-  in one transaction that locks the user row; unapproved recipes deleted
-  (lists rebuilt, photos destroyed); approved recipes stay, unnamed;
-  password required for password accounts; ADMIN blocked. AI-driven.
-  Open, after `CROC-051`.
+- **CROC-051** — **Done** (2026-10-08). `PATCH /me` (name, trimmed 1–50,
+  same rule on register and a first Google sign-in), `POST /me/password`
+  (revokes every session, signs the caller in again, sends a change
+  email), `/me` gains `authProvider`, live byline, `users.image` dropped.
+  `docs/handoffs/CROC-051.md`.
+- **CROC-030** — **Done** (2026-10-08). `DELETE /me`: hard delete under a
+  user row lock; drafts deleted (lists rebuilt, photos destroyed),
+  approved recipes kept with a null creator. `docs/handoffs/CROC-030.md`.
 
 ### Tech Debt & Production Readiness
 *From the first whole-codebase tech-debt pass, 2026-08-30. Full detail:

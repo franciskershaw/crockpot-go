@@ -1,15 +1,15 @@
--- Queries for cmd/migrate-data only. Every column is explicit (id, timestamps,
--- created_by_name) so the one-off import can preserve the source's real values
--- instead of the API's server-assigned defaults. See docs/handoffs/CROC-024.md.
+-- Queries for cmd/migrate-data only. Every column is explicit (id, timestamps)
+-- so the one-off import can preserve the source's real values instead of the
+-- API's server-assigned defaults. See docs/handoffs/CROC-024.md.
 
 -- name: MigrateInsertUser :exec
 INSERT INTO users (
-    id, email, google_id, name, image, role, email_verified_at,
+    id, email, google_id, name, role, email_verified_at,
     created_at, updated_at
 )
 VALUES (
     sqlc.arg(id), sqlc.arg(email), sqlc.arg(google_id), sqlc.narg(name),
-    sqlc.narg(image), sqlc.arg(role), sqlc.narg(email_verified_at),
+    sqlc.arg(role), sqlc.narg(email_verified_at),
     sqlc.arg(created_at), sqlc.arg(updated_at)
 );
 
@@ -28,13 +28,13 @@ VALUES (sqlc.arg(item_id), sqlc.arg(unit_id));
 INSERT INTO recipes (
     id, name, time_in_minutes, image_url, image_filename,
     instructions, notes, approved, serves,
-    created_by_id, created_by_name, created_at, updated_at
+    created_by_id, created_at, updated_at
 )
 VALUES (
     sqlc.arg(id), sqlc.arg(name), sqlc.arg(time_in_minutes),
     sqlc.narg(image_url), sqlc.narg(image_filename),
     sqlc.arg(instructions), sqlc.arg(notes), sqlc.arg(approved), sqlc.arg(serves),
-    sqlc.narg(created_by_id), sqlc.narg(created_by_name),
+    sqlc.narg(created_by_id),
     sqlc.arg(created_at), sqlc.arg(updated_at)
 );
 

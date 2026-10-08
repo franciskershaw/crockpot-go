@@ -20,12 +20,12 @@ func NewPostgresUserRepository(db sqlc.DBTX) *PostgresUserRepository {
 	return &PostgresUserRepository{db: db}
 }
 
-// GetOrCreateUser refreshes name/image/last_login_at on a google_id match (empty claims leave the stored value untouched), creates one otherwise, or returns models.ErrEmailRegisteredWithPassword on an email conflict.
-func (r *PostgresUserRepository) GetOrCreateUser(ctx context.Context, email, googleID, displayName, avatarURL string) (*models.User, error) {
+// GetOrCreateUser updates only last_login_at on a google_id match (the stored name is the user's to edit), creates one otherwise, or returns models.ErrEmailRegisteredWithPassword on an email conflict.
+func (r *PostgresUserRepository) GetOrCreateUser(ctx context.Context, email, googleID, displayName string) (*models.User, error) {
 	existing, err := queriesFor(ctx, r.db).GetUserByGoogleID(ctx, textParam(googleID))
 	switch {
 	case err == nil:
-		return r.refreshLoginProfile(ctx, existing.ID, displayName, avatarURL)
+		return r.markLogin(ctx, existing.ID)
 	case errors.Is(err, pgx.ErrNoRows):
 		// fall through to create
 	default:
@@ -35,15 +35,14 @@ func (r *PostgresUserRepository) GetOrCreateUser(ctx context.Context, email, goo
 	created, err := queriesFor(ctx, r.db).CreateGoogleUser(ctx, sqlc.CreateGoogleUserParams{
 		Email:    email,
 		GoogleID: textParam(googleID),
-		Name:     textParam(displayName),
-		Image:    textParam(avatarURL),
+		Name:     optionalTextParam(displayName),
 	})
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			// Re-check by google_id regardless of which constraint fired — a concurrent first login for the same account can trip either.
 			if existing, findErr := queriesFor(ctx, r.db).GetUserByGoogleID(ctx, textParam(googleID)); findErr == nil {
-				return r.refreshLoginProfile(ctx, existing.ID, displayName, avatarURL)
+				return r.markLogin(ctx, existing.ID)
 			}
 			if pgErr.ConstraintName == "users_email_key" {
 				return nil, models.ErrEmailRegisteredWithPassword
@@ -108,6 +107,22 @@ func (r *PostgresUserRepository) FindByID(ctx context.Context, userID string) (*
 	return toModelUser(found), nil
 }
 
+// FindByIDForUpdate is FindByID that also row-locks the user until the caller's transaction ends.
+func (r *PostgresUserRepository) FindByIDForUpdate(ctx context.Context, userID string) (*models.User, error) {
+	userUUID, err := uuidParam(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	found, err := queriesFor(ctx, r.db).GetUserByIDForUpdate(ctx, userUUID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, models.ErrUserNotFound
+		}
+		return nil, fmt.Errorf("failed to find user by id for update: %w", err)
+	}
+	return toModelUser(found), nil
+}
+
 func (r *PostgresUserRepository) MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error) {
 	userUUID, err := uuidParam(userID)
 	if err != nil {
@@ -125,7 +140,45 @@ func (r *PostgresUserRepository) UpdateLastLogin(ctx context.Context, userID str
 	if err != nil {
 		return nil, fmt.Errorf("invalid user id: %w", err)
 	}
-	updated, err := queriesFor(ctx, r.db).UpdateUserLastLogin(ctx, userUUID)
+	return r.markLogin(ctx, userUUID)
+}
+
+func (r *PostgresUserRepository) UpdateName(ctx context.Context, userID, name string) (*models.User, error) {
+	userUUID, err := uuidParam(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	updated, err := queriesFor(ctx, r.db).UpdateUserName(ctx, sqlc.UpdateUserNameParams{
+		ID:   userUUID,
+		Name: textParam(name),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, models.ErrUserNotFound
+		}
+		return nil, fmt.Errorf("failed to update name: %w", err)
+	}
+	return toModelUser(updated), nil
+}
+
+// Delete removes the user; every table that references them cascades, and recipes they created keep a null creator.
+func (r *PostgresUserRepository) Delete(ctx context.Context, userID string) error {
+	userUUID, err := uuidParam(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+	n, err := queriesFor(ctx, r.db).DeleteUser(ctx, userUUID)
+	if err != nil {
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+	if n == 0 {
+		return models.ErrUserNotFound
+	}
+	return nil
+}
+
+func (r *PostgresUserRepository) markLogin(ctx context.Context, id pgtype.UUID) (*models.User, error) {
+	updated, err := queriesFor(ctx, r.db).UpdateUserLastLogin(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update last login: %w", err)
 	}
@@ -147,18 +200,6 @@ func (r *PostgresUserRepository) UpdatePassword(ctx context.Context, userID, pas
 	return toModelUser(updated), nil
 }
 
-func (r *PostgresUserRepository) refreshLoginProfile(ctx context.Context, id pgtype.UUID, displayName, avatarURL string) (*models.User, error) {
-	updated, err := queriesFor(ctx, r.db).UpdateUserLoginProfile(ctx, sqlc.UpdateUserLoginProfileParams{
-		ID:          id,
-		DisplayName: displayName,
-		AvatarUrl:   avatarURL,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to update login profile: %w", err)
-	}
-	return toModelUser(updated), nil
-}
-
 func toModelUser(u sqlc.User) *models.User {
 	return &models.User{
 		ID:              uuidValue(u.ID),
@@ -166,7 +207,6 @@ func toModelUser(u sqlc.User) *models.User {
 		PasswordHash:    textPtr(u.PasswordHash),
 		Email:           u.Email,
 		Name:            textPtr(u.Name),
-		Image:           textPtr(u.Image),
 		Role:            u.Role,
 		EmailVerifiedAt: timePtr(u.EmailVerifiedAt),
 		LastLoginAt:     timePtr(u.LastLoginAt),

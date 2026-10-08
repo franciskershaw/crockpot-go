@@ -674,3 +674,9 @@ implementation quality until CROC-001 lands.
 
 - No rework in code. The grill corrected two things: the finding missed that `TestListRecipes_CountMatchesListLength` already existed, and my window-count recommendation broke a CROC-015 contract (correct `total` on an over-range page) that a test locked. I caught it only after the founder had agreed. The red stub moved from `NOT approved` to `NULL` so no truth-table row passed by coincidence. A migration stub applied to the shared dev DB needs `migrate down 1` before the real body goes in.
 - **Pattern**: before recommending a change that gives up a behaviour, grep handoffs, spec and tests for that behaviour first, not after agreement.
+
+## 2026-10-08 — CROC-051 + CROC-030 — Account management shipped; the password-check race took two review rounds
+
+- Three handoff claims were wrong (decision 6's `issueRefreshSession` sets the cookie before commit, a misnamed revoke method, two of three planned repo methods already existed), each caught at its piece. Review moved the current-password check under the row lock, and the next review flagged bcrypt holding that lock; settled as check-before-lock plus a hash re-check inside. Account delete copied recipe delete's steps although the handoff said reuse; review extracted `deleteRecipeRow`.
+- **Pattern**: when a fix moves a check under a lock, list what now runs under it; keep slow work outside and re-check a cheap value inside.
+- **Pattern**: when a handoff says "reuse X's internals", extract the shared function in that piece rather than copying.

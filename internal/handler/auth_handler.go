@@ -30,7 +30,7 @@ const (
 )
 
 type UserRepository interface {
-	GetOrCreateUser(ctx context.Context, email, googleID, displayName, avatarURL string) (*models.User, error)
+	GetOrCreateUser(ctx context.Context, email, googleID, displayName string) (*models.User, error)
 	CreateUnconfirmedUser(ctx context.Context, email, passwordHash, name string) (*models.User, error)
 	MarkEmailConfirmed(ctx context.Context, userID string) (*models.User, error)
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
@@ -82,6 +82,7 @@ type OAuthManager interface {
 type EmailSender interface {
 	SendConfirmationCode(ctx context.Context, toEmail, code string) error
 	SendPasswordResetLink(ctx context.Context, toEmail, resetURL string) error
+	SendPasswordChanged(ctx context.Context, toEmail, forgotPasswordURL string) error
 }
 
 type AuthHandler struct {
@@ -108,13 +109,13 @@ func NewAuthHandler(userRepo UserRepository, oauthManager OAuthManager, refreshT
 	}
 }
 
-func (h *AuthHandler) setRefreshCookie(c *gin.Context, value string, maxAge int) {
+func setRefreshCookie(c *gin.Context, cfg *config.Config, value string, maxAge int) {
 	sameSite := http.SameSiteLaxMode
-	if h.cfg.Environment == config.EnvProduction {
+	if cfg.Environment == config.EnvProduction {
 		sameSite = http.SameSiteNoneMode
 	}
 	c.SetSameSite(sameSite)
-	c.SetCookie("refreshToken", value, maxAge, "/", "", h.cfg.Environment == config.EnvProduction, true)
+	c.SetCookie("refreshToken", value, maxAge, "/", "", cfg.Environment == config.EnvProduction, true)
 }
 
 func (h *AuthHandler) setOAuthStateCookie(c *gin.Context, value string) {
@@ -147,7 +148,7 @@ func (h *AuthHandler) issueRefreshSession(ctx context.Context, c *gin.Context, u
 		return fmt.Errorf("failed to persist refresh token: %w", err)
 	}
 
-	h.setRefreshCookie(c, refreshToken, int(refreshTokenTTL.Seconds()))
+	setRefreshCookie(c, h.cfg, refreshToken, int(refreshTokenTTL.Seconds()))
 	return nil
 }
 
@@ -219,7 +220,7 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userRepo.GetOrCreateUser(ctx, idTokenClaims.Email, idTokenClaims.GoogleID, idTokenClaims.DisplayName, idTokenClaims.AvatarURL)
+	user, err := h.userRepo.GetOrCreateUser(ctx, idTokenClaims.Email, idTokenClaims.GoogleID, googleDisplayName(idTokenClaims.DisplayName))
 	if err != nil {
 		if errors.Is(err, models.ErrEmailRegisteredWithPassword) {
 			h.redirectWithError(c, "email_registered_with_password")
@@ -243,7 +244,7 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 type registerRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required"`
-	Name     string `json:"name" binding:"required"`
+	Name     string `json:"name"`
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -251,13 +252,12 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	if !bindJSON(c, &req) {
 		return
 	}
-
-	if len(req.Password) < minPasswordLength {
-		badRequest(c, "password_too_short")
+	name, ok := validateUserName(c, req.Name)
+	if !ok {
 		return
 	}
-	if len(req.Password) > maxPasswordBytes {
-		badRequest(c, "password_too_long")
+
+	if !validateNewPassword(c, req.Password) {
 		return
 	}
 
@@ -268,7 +268,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	user, err := h.userRepo.CreateUnconfirmedUser(ctx, req.Email, string(hash), req.Name)
+	user, err := h.userRepo.CreateUnconfirmedUser(ctx, req.Email, string(hash), name)
 	if err != nil {
 		switch {
 		case errors.Is(err, models.ErrEmailRegisteredWithGoogle):
@@ -626,12 +626,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	if len(req.NewPassword) < minPasswordLength {
-		badRequest(c, "password_too_short")
-		return
-	}
-	if len(req.NewPassword) > maxPasswordBytes {
-		badRequest(c, "password_too_long")
+	if !validateNewPassword(c, req.NewPassword) {
 		return
 	}
 
@@ -668,17 +663,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 			return fmt.Errorf("failed to mark email confirmed: %w", err)
 		}
 
-		if err := h.refreshTokenRepo.RevokeAllFamiliesForUser(ctx, userID); err != nil {
-			return fmt.Errorf("failed to revoke existing sessions: %w", err)
-		}
-
-		if err := h.refreshTokenRepo.DeleteStaleFamiliesForUser(ctx, userID); err != nil {
-			return fmt.Errorf("failed to clean up refresh tokens: %w", err)
-		}
-		if _, err := h.refreshTokenRepo.CreateFamily(ctx, familyID, userID, auth.HashToken(refreshToken), time.Now().Add(refreshTokenTTL)); err != nil {
-			return fmt.Errorf("failed to persist refresh token: %w", err)
-		}
-		return nil
+		return replaceAllSessions(ctx, h.refreshTokenRepo, userID, familyID, refreshToken)
 	})
 	if txErr != nil {
 		if errors.Is(txErr, errPasswordResetTokenAlreadyClaimed) {
@@ -697,9 +682,23 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	}
 
 	// Cookie is set only after the transaction above commits — never on a response that says failure.
-	h.setRefreshCookie(c, refreshToken, int(refreshTokenTTL.Seconds()))
+	setRefreshCookie(c, h.cfg, refreshToken, int(refreshTokenTTL.Seconds()))
 
 	c.JSON(http.StatusOK, gin.H{"accessToken": accessToken})
+}
+
+// replaceAllSessions revokes every refresh family the user has and starts familyID as the only one; run it inside the caller's transaction.
+func replaceAllSessions(ctx context.Context, refreshTokens RefreshTokenRepository, userID, familyID, refreshToken string) error {
+	if err := refreshTokens.RevokeAllFamiliesForUser(ctx, userID); err != nil {
+		return fmt.Errorf("failed to revoke existing sessions: %w", err)
+	}
+	if err := refreshTokens.DeleteStaleFamiliesForUser(ctx, userID); err != nil {
+		return fmt.Errorf("failed to clean up refresh tokens: %w", err)
+	}
+	if _, err := refreshTokens.CreateFamily(ctx, familyID, userID, auth.HashToken(refreshToken), time.Now().Add(refreshTokenTTL)); err != nil {
+		return fmt.Errorf("failed to persist refresh token: %w", err)
+	}
+	return nil
 }
 
 // errPasswordResetTokenAlreadyClaimed signals MarkUsed's atomic claim lost a race to a concurrent ResetPassword call.
@@ -780,7 +779,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	h.setRefreshCookie(c, newRefreshToken, int(refreshTokenTTL.Seconds()))
+	setRefreshCookie(c, h.cfg, newRefreshToken, int(refreshTokenTTL.Seconds()))
 	c.JSON(http.StatusOK, gin.H{"accessToken": accessToken})
 }
 
@@ -790,7 +789,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 			if err := h.refreshTokenRepo.RevokeFamily(c.Request.Context(), claims.FamilyID); err != nil {
 				// Cookie is still cleared below — but a presented, valid token that fails to revoke
 				// must not report success, or the family stays live while the client thinks it's safe.
-				h.setRefreshCookie(c, "", -1)
+				setRefreshCookie(c, h.cfg, "", -1)
 				internalError(c, "failed to revoke refresh token family", err)
 				return
 			}
@@ -798,32 +797,6 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	}
 
 	// Cookie is always cleared, even if the token above was missing or invalid.
-	h.setRefreshCookie(c, "", -1)
+	setRefreshCookie(c, h.cfg, "", -1)
 	c.JSON(http.StatusOK, gin.H{"message": "logged out"})
-}
-
-func (h *AuthHandler) Me(c *gin.Context) {
-	userID, ok := userIDFromCtx(c)
-	if !ok {
-		unauthorized(c, "unauthorized")
-		return
-	}
-
-	user, err := h.userRepo.FindByID(c.Request.Context(), userID)
-	if err != nil {
-		if errors.Is(err, models.ErrUserNotFound) {
-			unauthorized(c, "unauthorized")
-			return
-		}
-		internalError(c, "failed to look up user", err)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"id":    user.ID.String(),
-		"email": user.Email,
-		"name":  user.Name,
-		"image": user.Image,
-		"role":  user.Role,
-	})
 }
