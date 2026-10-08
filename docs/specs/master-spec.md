@@ -1027,7 +1027,10 @@ is in `crockpot-react`'s `docs/handoffs/CFE-055.md`. Build `CROC-051`, then
   budget. Medium. Open, *half time-coupled: nginx's default
   `client_max_body_size` (1m) must be raised to ≥6m in the deploy-
   pipeline ticket (not yet numbered); the deadline fix doesn't wait for
-  it.* Finding 1.
+  it.* Finding 1. *Widened 2026-10-08:* best-effort photo destroys
+  (recipe update/delete, and one per photo in `DELETE /me`) also run
+  before the response against the same deadline; respond first, destroy
+  after. `docs/findings/2026-10-08-tech-debt.md` finding 1.
 - **CROC-069** — Auth identity hardening: emails are matched
   case-sensitively (duplicate accounts, failed logins, Google login
   skipping the password-account conflict). Normalise at the boundary
@@ -1037,11 +1040,24 @@ is in `crockpot-react`'s `docs/handoffs/CFE-055.md`. Build `CROC-051`, then
 - **CROC-070** — Handler convention drift: the 8 admin reference-data
   PATCH/DELETE routes skip `parseID` (a malformed id gives a 500); role
   checks are repeated string literals. Add `parseID`, role constants and
-  a `callerIsAdmin(c)` helper. Low. Open. Findings 4–5.
+  a `callerIsAdmin(c)` helper. Low. Open. Findings 4–5. `CROC-030` added
+  two more literals (`DeleteMe` checks the database row's role, so the
+  constants cover it but `callerIsAdmin(c)` doesn't).
 - **CROC-071** — Shared-helper drift: move `checkAllowedUnits` out of
   `recipe.go`, use the `pgerror.go` helpers in `user.go`, keep one
   refresh-token TTL, and derive the FK-index schema test's list from
   `pg_constraint` instead of by hand. Low. Open. Findings 6–7.
+  *Widened 2026-10-08:* the test must also reject partial indexes, and
+  `email_verification_tokens`/`password_reset_tokens` need plain
+  `user_id` indexes for `CROC-030`'s delete cascade.
+  `docs/findings/2026-10-08-tech-debt.md` finding 2.
+
+*From the fifth whole-codebase tech-debt pass, 2026-10-08. Full detail:
+`docs/findings/2026-10-08-tech-debt.md`.*
+- **CROC-072** — Test plumbing: one shared `doJSON` request helper for
+  handler tests (39 hand-written `do…` helpers today), and a
+  `fixtures_test.go` for the repository fixtures and lock helpers now
+  scattered across entity test files. Mechanical. Low. Open. Finding 3.
 
 *From `crockpot-react` `CFE-002b`'s grill, 2026-10-03.*
 - **CROC-067** — **Done** (2026-10-03). The three `resend_too_soon`
