@@ -1,4 +1,4 @@
-# Crockpot API — /me (profile, password)
+# Crockpot API — /me (profile, password, account deletion)
 #
 # Own file, own login: REST Client's captured variables and cookie jar
 # are scoped per .http file, not shared across files, so this can't
@@ -186,6 +186,108 @@ Content-Type: application/json
 {
   "currentPassword": "not-the-password",
   "newPassword": "correcthorsebattery-unused"
+}
+
+
+# ══════════════════════════════════════════
+#  DELETE /me
+#
+#  Runs on its own throwaway account, never the shared one above. Use
+#  an address you can read (e.g. a +alias of your own) for
+#  REPLACE_WITH_A_THROWAWAY_EMAIL, and copy the code from its
+#  confirmation email into THROWAWAY_CODE_FROM_EMAIL. What happens to
+#  the account's recipes (drafts deleted, approved ones kept with no
+#  byline) is covered by repository tests, since creating one here
+#  needs recipes.http's items and categories.
+#
+#  Shares the 10/min limit with POST /me/password: wait a minute after
+#  that section's 429 check before starting here.
+# ══════════════════════════════════════════
+
+### ✅ 201 — register the throwaway account
+POST http://localhost:{{$dotenv PORT}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_A_THROWAWAY_EMAIL",
+  "password": "throwaway-horse-battery",
+  "name": "Throwaway"
+}
+
+###
+
+### ✅ 200 — confirm it with the emailed code
+POST http://localhost:{{$dotenv PORT}}/auth/confirm
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_A_THROWAWAY_EMAIL",
+  "code": "THROWAWAY_CODE_FROM_EMAIL"
+}
+
+###
+
+### ✅ 200 — log in as it. Before running the delete below, copy the
+### refreshToken cookie value from this response's Set-Cookie header
+### into THROWAWAY_REFRESH_TOKEN.
+# @name throwawayLogin
+POST http://localhost:{{$dotenv PORT}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "REPLACE_WITH_A_THROWAWAY_EMAIL",
+  "password": "throwaway-horse-battery"
+}
+
+###
+
+@throwawayToken = {{throwawayLogin.response.body.accessToken}}
+
+### 🔒 403 invalid_password — nothing is deleted
+DELETE http://localhost:{{$dotenv PORT}}/me
+Authorization: Bearer {{throwawayToken}}
+Content-Type: application/json
+
+{
+  "password": "not-the-password"
+}
+
+###
+
+### ✅ 204 — deletes the account; the response clears the refresh cookie
+### (Max-Age 0 in the response headers). Also proves a DELETE with a JSON
+### body reaches the handler.
+DELETE http://localhost:{{$dotenv PORT}}/me
+Authorization: Bearer {{throwawayToken}}
+Content-Type: application/json
+
+{
+  "password": "throwaway-horse-battery"
+}
+
+###
+
+### 🔒 401 — the access token is still unexpired, but its user is gone
+GET http://localhost:{{$dotenv PORT}}/me
+Authorization: Bearer {{throwawayToken}}
+
+###
+
+### 🔒 401 — the session's refresh token died with the account
+POST http://localhost:{{$dotenv PORT}}/auth/refresh
+Cookie: refreshToken=THROWAWAY_REFRESH_TOKEN
+
+###
+
+### 🚦 429 rate_limit_exceeded — send this 11 times within a minute; the
+### 11th returns 429 (the 10/min auth limit, shared with POST
+### /me/password). Earlier ones return 401, since the account is gone.
+DELETE http://localhost:{{$dotenv PORT}}/me
+Authorization: Bearer {{throwawayToken}}
+Content-Type: application/json
+
+{
+  "password": "throwaway-horse-battery"
 }
 
 

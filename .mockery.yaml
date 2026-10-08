@@ -27,3 +27,5 @@ packages:
       ShoppingListRepository:
       RegularRepository:
       ImageStore:
+      AccountUserRepository:
+      AccountRecipeRepository:

@@ -111,13 +111,13 @@ func NewAuthHandler(userRepo UserRepository, oauthManager OAuthManager, refreshT
 	}
 }
 
-func (h *AuthHandler) setRefreshCookie(c *gin.Context, value string, maxAge int) {
+func setRefreshCookie(c *gin.Context, cfg *config.Config, value string, maxAge int) {
 	sameSite := http.SameSiteLaxMode
-	if h.cfg.Environment == config.EnvProduction {
+	if cfg.Environment == config.EnvProduction {
 		sameSite = http.SameSiteNoneMode
 	}
 	c.SetSameSite(sameSite)
-	c.SetCookie("refreshToken", value, maxAge, "/", "", h.cfg.Environment == config.EnvProduction, true)
+	c.SetCookie("refreshToken", value, maxAge, "/", "", cfg.Environment == config.EnvProduction, true)
 }
 
 func (h *AuthHandler) setOAuthStateCookie(c *gin.Context, value string) {
@@ -150,7 +150,7 @@ func (h *AuthHandler) issueRefreshSession(ctx context.Context, c *gin.Context, u
 		return fmt.Errorf("failed to persist refresh token: %w", err)
 	}
 
-	h.setRefreshCookie(c, refreshToken, int(refreshTokenTTL.Seconds()))
+	setRefreshCookie(c, h.cfg, refreshToken, int(refreshTokenTTL.Seconds()))
 	return nil
 }
 
@@ -684,7 +684,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	}
 
 	// Cookie is set only after the transaction above commits — never on a response that says failure.
-	h.setRefreshCookie(c, refreshToken, int(refreshTokenTTL.Seconds()))
+	setRefreshCookie(c, h.cfg, refreshToken, int(refreshTokenTTL.Seconds()))
 
 	c.JSON(http.StatusOK, gin.H{"accessToken": accessToken})
 }
@@ -781,7 +781,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	h.setRefreshCookie(c, newRefreshToken, int(refreshTokenTTL.Seconds()))
+	setRefreshCookie(c, h.cfg, newRefreshToken, int(refreshTokenTTL.Seconds()))
 	c.JSON(http.StatusOK, gin.H{"accessToken": accessToken})
 }
 
@@ -791,7 +791,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 			if err := h.refreshTokenRepo.RevokeFamily(c.Request.Context(), claims.FamilyID); err != nil {
 				// Cookie is still cleared below — but a presented, valid token that fails to revoke
 				// must not report success, or the family stays live while the client thinks it's safe.
-				h.setRefreshCookie(c, "", -1)
+				setRefreshCookie(c, h.cfg, "", -1)
 				internalError(c, "failed to revoke refresh token family", err)
 				return
 			}
@@ -799,7 +799,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	}
 
 	// Cookie is always cleared, even if the token above was missing or invalid.
-	h.setRefreshCookie(c, "", -1)
+	setRefreshCookie(c, h.cfg, "", -1)
 	c.JSON(http.StatusOK, gin.H{"message": "logged out"})
 }
 
@@ -933,7 +933,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	h.setRefreshCookie(c, refreshToken, int(refreshTokenTTL.Seconds()))
+	setRefreshCookie(c, h.cfg, refreshToken, int(refreshTokenTTL.Seconds()))
 
 	forgotURL := fmt.Sprintf("%s/forgot-password", h.cfg.FrontendURL)
 	if err := h.emailSender.SendPasswordChanged(context.WithoutCancel(ctx), user.Email, forgotURL); err != nil {

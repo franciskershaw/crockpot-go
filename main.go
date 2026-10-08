@@ -93,12 +93,15 @@ func main() {
 	unitHandler := handler.NewUnitHandler(unitRepo)
 	itemHandler := handler.NewItemHandler(itemRepo, transactor)
 	recipeCategoryHandler := handler.NewRecipeCategoryHandler(recipeCategoryRepo)
+	imageStore := cloudinary.NewClient(cfg.CloudinaryCloudName, cfg.CloudinaryAPIKey, cfg.CloudinaryAPISecret)
+	imageScope := handler.ImageScope{UploadFolder: cfg.CloudinaryUploadFolder, Production: cfg.Environment == config.EnvProduction}
 	recipeHandler := handler.NewRecipeHandler(recipeRepo, shoppingListRepo, transactor, handler.RecipeImages{
-		Store:        cloudinary.NewClient(cfg.CloudinaryCloudName, cfg.CloudinaryAPIKey, cfg.CloudinaryAPISecret),
-		Scope:        handler.ImageScope{UploadFolder: cfg.CloudinaryUploadFolder, Production: cfg.Environment == config.EnvProduction},
+		Store:        imageStore,
+		Scope:        imageScope,
 		PhotoLimiter: limiter.New(memory.NewStore(), photoRateLimit),
 		NewID:        uuid.NewString,
 	})
+	accountHandler := handler.NewAccountHandler(userRepo, recipeRepo, shoppingListRepo, transactor, imageStore, imageScope, cfg)
 	menuHandler := handler.NewMenuHandler(menuRepo, shoppingListRepo, transactor)
 	shoppingListHandler := handler.NewShoppingListHandler(shoppingListRepo, transactor)
 	regularHandler := handler.NewRegularHandler(regularRepo)
@@ -159,6 +162,7 @@ func main() {
 	meTight.Use(middleware.NewRateLimitMiddleware(memory.NewStore(), authRateLimit).Handler(), middleware.AuthMiddleware(cfg.JWTSecretAccess))
 	{
 		meTight.POST("/password", authHandler.ChangePassword)
+		meTight.DELETE("", accountHandler.DeleteMe)
 	}
 
 	// Public read: reference data, visible to anonymous browse/filter.
