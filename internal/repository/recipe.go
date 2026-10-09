@@ -115,7 +115,7 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 			MatchedIngredientCount: int(row.MatchedIngredientCount),
 			MatchedCategoryCount:   int(row.MatchedCategoryCount),
 			Score:                  row.Score,
-			Tier:                   scoreTier(row.Score),
+			Tier:                   coverageTier(int(row.MatchedIngredientCount), int(row.TotalIngredientCount), len(filter.IngredientIDs)),
 		}
 		cards[i] = card
 		ids[i] = row.ID
@@ -176,12 +176,22 @@ func hydrateCardCategories(ctx context.Context, q *sqlc.Queries, cards []*models
 	return nil
 }
 
-func scoreTier(score float64) *string {
+const (
+	bestCoverage = 0.55
+	goodCoverage = 0.25
+)
+
+// coverageTier rates how much of the recipe the caller already has; categories never earn a tier on their own.
+func coverageTier(matched, total, selected int) *string {
+	if selected == 0 || total == 0 {
+		return nil
+	}
+	coverage := float64(matched) / float64(total)
 	var tier string
 	switch {
-	case score >= 0.8:
+	case coverage >= bestCoverage:
 		tier = "best"
-	case score >= 0.5:
+	case coverage >= goodCoverage:
 		tier = "good"
 	default:
 		return nil

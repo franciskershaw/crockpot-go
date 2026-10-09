@@ -772,6 +772,20 @@ session.*
   transaction; the recipe row is locked `FOR UPDATE` so a concurrent menu
   add either lands first or gets 404.
 
+- **CROC-073** — Keep water off generated shopping lists. Founder-raised
+  in the pre-MVP bug run (2026-10-09). Not blocking go-live. Water is an
+  ordinary item in Cupboard (an ingredient category), so
+  `AggregateMenuIngredients` puts it on every list whose menu has a
+  recipe using it. Proposed: an item-level `always_on_hand` flag
+  (migration sets it on Water), skipped by `AggregateMenuIngredients`
+  and exposed on the items response. Adding it by hand (bottled water)
+  stays allowed. No admin toggle for MVP. The old app hard-coded water's
+  ID and hid it from display, which also hid manually added water. Needs
+  a short grill (new column and API field). Open: should a flagged item
+  also stop counting toward browse ingredient-match ranking, and should
+  anything besides Water be flagged on day one? Frontend half:
+  `crockpot-react` `CFE-058`.
+
 ### Epic 7: Roles & Tier Gating
 - **CROC-023** — **Delivered by CROC-014** (`docs/handoffs/CROC-014.md`
   decision 1). The recipe-cap limit helper: a `role`-keyed limit lookup
@@ -1101,30 +1115,15 @@ reason as `CROC-038` above — a loosely-scoped idea, not sequenced.*
   whether the shopping-list/menu side needs any awareness of it at all
   or this is purely a browse/filter feature.
 
-*Raised 2026-09-08, founder observation while using `crockpot-react`'s
-`CFE-021` against real data — the match badge only became visible for
-the first time once that ticket's frontend shipped. Parked here for the
-same reason as the entries above: a real product observation, not yet a
-decision, needs its own grill/trial-and-error against real usage before
-touching `CROC-042`'s shipped, tested scoring code.*
-- **`CROC-042`'s `"best"` tier threshold (`score >= 0.8`) may be
-  calibrated too high in practice.** `ingredientCoverage =
-  matchedIngredientCount / totalIngredientCount` is normalized against
-  *that recipe's own* ingredient count (Decision 2), not the size of the
-  user's selection — so on a 6-ingredient recipe, clearing 0.8 needs 5
-  of 6 selected (5/6 = 0.83); on a larger recipe the bar is
-  proportionally higher (a 15-ingredient recipe needs 12+). Founder's
-  first hands-on pass could only trigger "Best Match" by selecting 5 of
-  a 6-ingredient recipe's ingredients — not obviously reachable through
-  normal browsing behaviour. The coverage-based approach itself isn't in
-  question (it's still the fix for the old app's real defect, Decision
-  2) — just whether `0.8`/`0.5` are the right cut points for it. Likely
-  needs iterating against real usage/click-through data rather than
-  picked once and left, same spirit as Decision 4's "revisit with real
-  usage data if it feels off in practice" (that decision was about the
-  ingredient/category weighting, not this threshold, but the same
-  philosophy applies). Not a `CFE-021` fix — the frontend has no lever
-  for this by design, it only renders whatever `tier` the API returns.
+*Thresholds settled 2026-10-09 in the pre-MVP bug run, by founder
+hands-on testing.*
+- **Match tier is ingredient coverage only.** `coverageTier`: matched ÷
+  the recipe's own ingredient count, best ≥ 0.55, good ≥ 0.25, none
+  until at least one ingredient is selected. Categories never earn a
+  tier. Open: ranking still orders by `CROC-042`'s combined
+  ingredient-plus-category score, so the list order can disagree with
+  the pills. Try ordering by coverage, with categories as tie-breaker,
+  if that confuses in use.
 
 *Raised 2026-09-19 at `CROC-020`'s grill — deliberately vague. Once history
 is being recorded, someone has to decide what to do with it; that's a
