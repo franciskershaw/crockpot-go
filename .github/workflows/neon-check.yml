@@ -1,28 +1,18 @@
-name: Neon check
+name: Neon version check
 
 on:
-  push:
-    branches: [main]
   schedule:
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
-concurrency:
-  group: neon-dev-database
-  cancel-in-progress: false
-
 jobs:
   neon:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     env:
       DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
 
       - name: CI database image matches Neon's major version
         run: |
@@ -33,6 +23,3 @@ jobs:
             echo "::error::Neon is on Postgres $neon_major but ci.yml tests against $ci_major; bump the image in ci.yml"
             exit 1
           fi
-
-      - name: go test
-        run: go test -p 1 -v -count=1 ./...

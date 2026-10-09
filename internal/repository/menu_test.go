@@ -246,7 +246,11 @@ func TestUpsertEntry_ConcurrentAddsAtLimitAdmitExactlyOne(t *testing.T) {
 			return nil
 		})
 	}()
-	<-added
+	select {
+	case <-added:
+	case err := <-firstErr:
+		t.Fatalf("first add failed before holding its transaction open: %v", err)
+	}
 
 	secondErr := make(chan error, 1)
 	go func() {
