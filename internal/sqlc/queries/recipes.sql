@@ -27,10 +27,16 @@ RETURNING *;
 
 -- name: GetRecipeForWrite :one
 -- FOR UPDATE makes a concurrent menu add (its FK check takes KEY SHARE) finish before Delete reads who holds the recipe.
-SELECT id, created_by_id, approved, image_url, image_filename
+SELECT id, created_by_id, approved, image_url, image_filename, updated_at
 FROM recipes
 WHERE id = sqlc.arg(id)
 FOR UPDATE;
+
+-- name: ApproveRecipe :one
+-- Leaves updated_at alone: it versions content, and approval isn't a content change.
+UPDATE recipes SET approved = true
+WHERE id = sqlc.arg(id)
+RETURNING *;
 
 -- name: ListUnapprovedRecipesForWriteByCreator :many
 -- FOR UPDATE re-checks approved after any wait, so a recipe approved concurrently drops out instead of being deleted.
@@ -113,6 +119,7 @@ WITH candidates AS (
             NOT sqlc.arg(only_mine)::boolean
             OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
         )
+        AND (NOT sqlc.arg(only_pending)::boolean OR NOT r.approved)
         AND (sqlc.arg(name_query)::text = '' OR r.name ILIKE '%' || sqlc.arg(name_query)::text || '%')
         AND (sqlc.arg(min_time)::int = 0 OR r.time_in_minutes >= sqlc.arg(min_time)::int)
         AND (sqlc.arg(max_time)::int = 0 OR r.time_in_minutes <= sqlc.arg(max_time)::int)

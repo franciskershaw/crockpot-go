@@ -71,6 +71,7 @@ type RecipeListFilter struct {
 	MinTime            int
 	MaxTime            int
 	Mine               bool
+	PendingOnly        bool
 	Seed               string
 	CallerID           *string
 	CallerIsAdmin      bool

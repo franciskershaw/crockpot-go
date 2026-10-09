@@ -110,6 +110,9 @@ func newRecipeMocksWithPhotoLimit(t *testing.T, photoLimit int64) *recipeMocks {
 	authed.GET("/recipes/favourites", h.ListFavourites)
 	authed.POST("/recipes/:id/favourite", h.AddFavourite)
 	authed.DELETE("/recipes/:id/favourite", h.RemoveFavourite)
+	admin := m.router.Group("/")
+	admin.Use(middleware.AuthMiddleware(testutil.TestAccessSecret), middleware.RequireRole("ADMIN"))
+	admin.PATCH("/recipes/:id/approve", h.Approve)
 	optional := m.router.Group("/")
 	optional.Use(middleware.OptionalAuthMiddleware(testutil.TestAccessSecret))
 	optional.GET("/recipes", h.List)
@@ -722,6 +725,33 @@ func TestRecipeList_ParsesAllParams(t *testing.T) {
 		"&minTime=20&maxTime=90&mine=true&page=2&limit=10"
 	w := doRecipeList(m.router, q, recipeAuth(t, "ADMIN"))
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRecipeList_ApprovedFalseFiltersToPending(t *testing.T) {
+	cases := []struct {
+		query       string
+		pendingOnly bool
+	}{
+		{"approved=false", true},
+		{"approved=true", false},
+		{"approved=nope", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.query, func(t *testing.T) {
+			m := newRecipeMocks(t)
+			var got models.RecipeListFilter
+			m.repo.EXPECT().List(mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, f models.RecipeListFilter) ([]*models.RecipeCard, int, error) {
+					got = f
+					return []*models.RecipeCard{}, 0, nil
+				})
+
+			w := doRecipeList(m.router, tc.query, recipeAuth(t, "ADMIN"))
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, tc.pendingOnly, got.PendingOnly)
+		})
+	}
 }
 
 func TestRecipeList_ParsesSeedParam(t *testing.T) {

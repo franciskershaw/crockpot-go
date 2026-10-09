@@ -221,6 +221,12 @@ func main() {
 		recipes.DELETE("/:id/favourite", recipeHandler.RemoveFavourite)
 	}
 
+	recipesAdmin := server.Group("/recipes")
+	recipesAdmin.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess), middleware.RequireRole("ADMIN"))
+	{
+		recipesAdmin.PATCH("/:id/approve", recipeHandler.Approve)
+	}
+
 	menu := server.Group("/menu")
 	menu.Use(middleware.AuthMiddleware(cfg.JWTSecretAccess))
 	{

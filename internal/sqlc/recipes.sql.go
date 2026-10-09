@@ -11,6 +11,34 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const approveRecipe = `-- name: ApproveRecipe :one
+UPDATE recipes SET approved = true
+WHERE id = $1
+RETURNING id, name, description, time_in_minutes, image_url, image_filename, instructions, notes, approved, serves, created_by_id, created_at, updated_at
+`
+
+// Leaves updated_at alone: it versions content, and approval isn't a content change.
+func (q *Queries) ApproveRecipe(ctx context.Context, id pgtype.UUID) (Recipe, error) {
+	row := q.db.QueryRow(ctx, approveRecipe, id)
+	var i Recipe
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.TimeInMinutes,
+		&i.ImageUrl,
+		&i.ImageFilename,
+		&i.Instructions,
+		&i.Notes,
+		&i.Approved,
+		&i.Serves,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const countRecipesByCreator = `-- name: CountRecipesByCreator :one
 SELECT count(*) FROM recipes
 WHERE created_by_id = $1
@@ -225,7 +253,7 @@ func (q *Queries) GetRecipeForReader(ctx context.Context, arg GetRecipeForReader
 }
 
 const getRecipeForWrite = `-- name: GetRecipeForWrite :one
-SELECT id, created_by_id, approved, image_url, image_filename
+SELECT id, created_by_id, approved, image_url, image_filename, updated_at
 FROM recipes
 WHERE id = $1
 FOR UPDATE
@@ -237,6 +265,7 @@ type GetRecipeForWriteRow struct {
 	Approved      bool
 	ImageUrl      pgtype.Text
 	ImageFilename pgtype.Text
+	UpdatedAt     pgtype.Timestamptz
 }
 
 // FOR UPDATE makes a concurrent menu add (its FK check takes KEY SHARE) finish before Delete reads who holds the recipe.
@@ -249,6 +278,7 @@ func (q *Queries) GetRecipeForWrite(ctx context.Context, id pgtype.UUID) (GetRec
 		&i.Approved,
 		&i.ImageUrl,
 		&i.ImageFilename,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -414,14 +444,15 @@ WITH candidates AS (
             NOT $10::boolean
             OR ($8::uuid IS NOT NULL AND r.created_by_id = $8::uuid)
         )
-        AND ($11::text = '' OR r.name ILIKE '%' || $11::text || '%')
-        AND ($12::int = 0 OR r.time_in_minutes >= $12::int)
-        AND ($13::int = 0 OR r.time_in_minutes <= $13::int)
+        AND (NOT $11::boolean OR NOT r.approved)
+        AND ($12::text = '' OR r.name ILIKE '%' || $12::text || '%')
+        AND ($13::int = 0 OR r.time_in_minutes >= $13::int)
+        AND ($14::int = 0 OR r.time_in_minutes <= $14::int)
         AND (
-            cardinality($14::uuid[]) = 0
+            cardinality($15::uuid[]) = 0
             OR NOT EXISTS (
                 SELECT 1 FROM recipe_categories_recipes x
-                WHERE x.recipe_id = r.id AND x.category_id = ANY($14::uuid[])
+                WHERE x.recipe_id = r.id AND x.category_id = ANY($15::uuid[])
             )
         )
         AND (
@@ -477,6 +508,7 @@ type ListRecipesParams struct {
 	CallerID           pgtype.UUID
 	CallerIsAdmin      bool
 	OnlyMine           bool
+	OnlyPending        bool
 	NameQuery          string
 	MinTime            int32
 	MaxTime            int32
@@ -516,6 +548,7 @@ func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]Lis
 		arg.CallerID,
 		arg.CallerIsAdmin,
 		arg.OnlyMine,
+		arg.OnlyPending,
 		arg.NameQuery,
 		arg.MinTime,
 		arg.MaxTime,

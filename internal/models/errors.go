@@ -66,6 +66,8 @@ var ErrRecipeApprovedLocked = errors.New("approved recipe can only be changed by
 
 var ErrRecipeForbidden = errors.New("recipe not owned by caller")
 
+var ErrRecipeChanged = errors.New("recipe changed since it was loaded")
+
 var ErrMenuEntryNotFound = errors.New("menu entry not found")
 
 var ErrMenuLimitReached = errors.New("menu limit reached")

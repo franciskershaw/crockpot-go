@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/franciskershaw/crockpot-go/internal/cloudinary"
 	"github.com/franciskershaw/crockpot-go/internal/models"
@@ -20,6 +21,7 @@ type RecipeRepository interface {
 	Create(ctx context.Context, input models.CreateRecipeInput) (*models.RecipeDetail, error)
 	Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (detail *models.RecipeDetail, orphanedImage *string, err error)
 	Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) (menuUserIDs []string, orphanedImage *string, err error)
+	Approve(ctx context.Context, id string, callerID string, seenUpdatedAt time.Time) (*models.RecipeDetail, error)
 	CheckWritable(ctx context.Context, id string, callerID string, callerIsAdmin bool) error
 	ImageInUse(ctx context.Context, publicID string) (bool, error)
 	MenuUserIDs(ctx context.Context, id string) ([]string, error)
@@ -161,6 +163,37 @@ func (h *RecipeHandler) Update(c *gin.Context) {
 		return
 	}
 	h.destroyOrphan(c, orphan)
+	c.JSON(http.StatusOK, detail)
+}
+
+// Approve approves a pending recipe if the caller saw its current version; the route is admin-only.
+func (h *RecipeHandler) Approve(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		unauthorized(c, "unauthorized")
+		return
+	}
+	id := c.Param("id")
+	if !parseID(c, id) {
+		return
+	}
+	var req struct {
+		UpdatedAt *time.Time `json:"updatedAt" binding:"required"`
+	}
+	if !bindJSON(c, &req) {
+		return
+	}
+
+	var detail *models.RecipeDetail
+	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
+		var err error
+		detail, err = h.repo.Approve(ctx, id, userID, *req.UpdatedAt)
+		return err
+	})
+	if txErr != nil {
+		writeRecipeWriteError(c, txErr)
+		return
+	}
 	c.JSON(http.StatusOK, detail)
 }
 
@@ -394,6 +427,8 @@ func writeRecipeWriteError(c *gin.Context, err error) {
 		forbidden(c, "forbidden")
 	case errors.Is(err, models.ErrRecipeApprovedLocked):
 		forbidden(c, "recipe_approved_locked")
+	case errors.Is(err, models.ErrRecipeChanged):
+		conflict(c, "recipe_changed")
 	default:
 		internalError(c, "failed to write recipe", err)
 	}
