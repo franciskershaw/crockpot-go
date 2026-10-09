@@ -14,7 +14,7 @@ const tokenSweepInterval = 24 * time.Hour
 
 const writeTimeout = 15 * time.Second
 
-// requestTimeout ends a handler's DB work just before the server gives up writing its response.
+// requestTimeout bounds a handler's DB work; for ordinary requests it ends just before the server stops writing.
 const requestTimeout = writeTimeout - time.Second
 
 type refreshTokenSweepRepository interface {

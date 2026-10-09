@@ -900,13 +900,13 @@ is in `crockpot-react`'s `docs/handoffs/CFE-055.md`. Build `CROC-051`, then
 everyone at launch. This epic is the go-live roadmap for both repos;
 `crockpot-react`'s Epic 8 holds the frontend tickets it sequences.*
 
-**Go-live order**
-1. **Code, one commit each:** `CROC-069` (before the prod import, while
-   the source emails are clean), `CROC-074`, `CROC-066` (needs the
-   droplet's CPU count and the Neon plan, so check those first),
-   `CROC-075`; frontend `CFE-063`, `CFE-065`.
-2. **Security reviews:** `CROC-076` + `crockpot-react` `CFE-064`, run after
-   step 1 so the deploy config is in scope.
+**Go-live order** (reordered 2026-10-09; `CROC-069`/`074`/`066` done)
+1. **Security reviews:** `CROC-076` + `crockpot-react` `CFE-064`, on the
+   app code as it stands. The deploy config isn't written yet; `CROC-075`
+   is all new files, so its own branch review's security lens sees all of
+   it (see that ticket).
+2. **Remaining code, one commit each:** `CROC-075`; frontend `CFE-063`,
+   `CFE-065`.
 3. **Cutover:** `CROC-077`, which runs `crockpot-react` `CFE-066`,
    `CFE-044` and `CFE-062` in its sequence.
 4. **Once settled:** `CROC-078`.
@@ -935,7 +935,10 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   - A free droplet port (`events-api` 5500, `salary-split-api` 5300,
     `packing-list-api` 5400).
   CI's `checks` job keeps its Postgres service container. Verified by
-  the first real deploy passing its health check. Open.
+  the first real deploy passing its health check. Its branch review stands
+  in for a security pass over the deploy config (moved after `CROC-076`):
+  secrets handling in the workflow, `TRUSTED_PROXIES`/real-IP, and the
+  nginx body limit get explicit attention there. Open.
 - **CROC-076** — Pre-launch security review, the first for this repo (five
   tech-debt passes, no security pass). Findings to a dated
   `docs/findings/` doc; fix what blocks launch, file the rest. Paired
@@ -1116,43 +1119,13 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   `ListRecipes` carries `total` via `count(*) OVER ()`; `CountRecipes`
   and `ListRecipeIngredients` are deleted. A page past the end now
   returns `total`/`totalPages` 0 (reverses CROC-015; no consumer).
-- **CROC-066** — Deploy readiness: explicit pgxpool `MaxConns`, a bound
-  on how long a request can hold its connection, and run the token
-  sweeper once at startup. Findings 6–7. Open. **Grilled** (2026-10-09,
-  cheap to undo, AI-driven). Droplet: 1 vCPU / 1 GB, shared. Neon: free
-  plan, pooled endpoint.
-  - The finding's `statement_timeout` via `RuntimeParams` does nothing
-    through Neon's pooler (`SHOW statement_timeout` = 0, `pg_sleep(3)`
-    ran in full), and `options=-c statement_timeout` is refused
-    ("unsupported startup parameter"). A context deadline does cancel
-    through it: `pg_sleep(5)` under a 1s deadline returned at 1.0s and
-    the 1-conn pool served the next query. Checked on dev 2026-10-09.
-  - [ ] Global middleware gives every request a 14s context deadline
-        (1s under `WriteTimeout`; derive it from the same constant). A
-        handler's DB work is cancelled at the deadline and its
-        connection returned. Photo routes get the same 14s until
-        `CROC-068` sets their budget.
-  - [ ] `MaxConns = 10`, a named constant in `db/db.go`, alongside
-        simple-protocol mode, in a pool-config builder testable without
-        a DB. Recipe photo uploads run before the transaction
-        (`recipe_handler.go:87-96`), so they don't hold connections.
-  - [ ] `runTokenSweeper` sweeps once on start, before the ticker loop,
-        inside its goroutine (startup isn't delayed); failures logged
-        per table as today.
-  - Rejected: a role-level `ALTER ROLE … SET statement_timeout` migration
-    (hidden DB config, also bounds migrations and `migrate-data`, per
-    statement not per request). Sweeper DB calls aren't under a request
-    deadline; accepted (three small daily deletes).
-  - Non-goals: `CROC-068`'s per-route photo budget; `MinConns`/idle
-    tuning; checking Neon free-plan compute hours (look at the Neon
-    dashboard after deploy).
-  - Verification (logic, failing tests first): middleware tests in
-    `internal/middleware` (deadline present and ≤14s; a handler blocked
-    on its context is released at the deadline), a `db` pool-config test
-    (`MaxConns` 10, simple protocol), a `lifecycle_test.go` case that a
-    sweep happens with no tick. Real client: with the server on dev
-    Neon, normal browse/menu requests still succeed (no regression from
-    the deadline). The pooler cancel behaviour is the dev check above.
+- **CROC-066** — **Done** (2026-10-09). Every request's context carries
+  a 14s deadline (`RequestTimeout`, 1s under `writeTimeout`), so a slow
+  query is cancelled and its connection returned; `statement_timeout`
+  can't be set per connection through Neon's pooler (see Non-functional
+  expectations). The pool is capped at 10 connections (`maxPoolConns`,
+  `newPoolConfig`). The token sweeper also runs once at startup. Photo
+  routes share the 14s until `CROC-068` sets their budget. Findings 6–7.
 
 *From the fourth whole-codebase tech-debt pass, 2026-10-04. Full detail:
 `docs/findings/2026-10-04-tech-debt.md`.*
