@@ -12,6 +12,11 @@ import (
 
 const tokenSweepInterval = 24 * time.Hour
 
+const writeTimeout = 15 * time.Second
+
+// requestTimeout bounds a handler's DB work; for ordinary requests it ends just before the server stops writing.
+const requestTimeout = writeTimeout - time.Second
+
 type refreshTokenSweepRepository interface {
 	DeleteAllStaleFamilies(ctx context.Context) error
 }
@@ -37,7 +42,7 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      15 * time.Second,
+		WriteTimeout:      writeTimeout,
 		IdleTimeout:       60 * time.Second,
 	}
 }
@@ -54,23 +59,35 @@ func runTokenSweeper(
 ) {
 	defer wg.Done()
 
+	// Deploys restart the process more often than the interval, so a tick-only sweep might never run.
+	sweepStaleTokens(ctx, refreshTokens, emailVerificationTokens, passwordResetTokens)
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			if err := refreshTokens.DeleteAllStaleFamilies(ctx); err != nil {
-				slog.Error("token sweeper: failed to delete stale refresh token families", "error", err)
-			}
-			if err := emailVerificationTokens.DeleteAllStale(ctx); err != nil {
-				slog.Error("token sweeper: failed to delete stale email verification tokens", "error", err)
-			}
-			if err := passwordResetTokens.DeleteAllStale(ctx); err != nil {
-				slog.Error("token sweeper: failed to delete stale password reset tokens", "error", err)
-			}
+			sweepStaleTokens(ctx, refreshTokens, emailVerificationTokens, passwordResetTokens)
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+func sweepStaleTokens(
+	ctx context.Context,
+	refreshTokens refreshTokenSweepRepository,
+	emailVerificationTokens staleTokenDeleter,
+	passwordResetTokens staleTokenDeleter,
+) {
+	if err := refreshTokens.DeleteAllStaleFamilies(ctx); err != nil {
+		slog.Error("token sweeper: failed to delete stale refresh token families", "error", err)
+	}
+	if err := emailVerificationTokens.DeleteAllStale(ctx); err != nil {
+		slog.Error("token sweeper: failed to delete stale email verification tokens", "error", err)
+	}
+	if err := passwordResetTokens.DeleteAllStale(ctx); err != nil {
+		slog.Error("token sweeper: failed to delete stale password reset tokens", "error", err)
 	}
 }

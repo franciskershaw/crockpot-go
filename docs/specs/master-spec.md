@@ -419,6 +419,12 @@ early users) — build for correctness over scale, but reuse
 rather than inventing new ones: `ReadHeaderTimeout` 5s, `ReadTimeout` 10s,
 `WriteTimeout` 15s, `IdleTimeout` 60s. Revisit if/when paid signups make
 this a real concern (tracked as a tech-debt-pass item, not a v1 ticket).
+Each request's context carries a deadline 1s under `WriteTimeout`, so a
+slow query is cancelled and its connection returned (`CROC-066`); the
+pool holds at most 10 connections. A server-side `statement_timeout`
+can't be set per connection through Neon's pooled endpoint (ignored as a
+startup parameter, refused in `options`). Revisit if the API moves to a
+direct connection.
 
 **Rate limiting & body caps**: reuse `packing-list-go`'s starting values —
 global 120 req/min/IP, tighter limits on auth endpoints (login-type routes
@@ -894,13 +900,13 @@ is in `crockpot-react`'s `docs/handoffs/CFE-055.md`. Build `CROC-051`, then
 everyone at launch. This epic is the go-live roadmap for both repos;
 `crockpot-react`'s Epic 8 holds the frontend tickets it sequences.*
 
-**Go-live order**
-1. **Code, one commit each:** `CROC-069` (before the prod import, while
-   the source emails are clean), `CROC-074`, `CROC-066` (needs the
-   droplet's CPU count and the Neon plan, so check those first),
-   `CROC-075`; frontend `CFE-063`, `CFE-065`.
-2. **Security reviews:** `CROC-076` + `crockpot-react` `CFE-064`, run after
-   step 1 so the deploy config is in scope.
+**Go-live order** (reordered 2026-10-09; `CROC-069`/`074`/`066` done)
+1. **Security reviews:** `CROC-076` + `crockpot-react` `CFE-064`, on the
+   app code as it stands. The deploy config isn't written yet; `CROC-075`
+   is all new files, so its own branch review's security lens sees all of
+   it (see that ticket).
+2. **Remaining code, one commit each:** `CROC-075`; frontend `CFE-063`,
+   `CFE-065`.
 3. **Cutover:** `CROC-077`, which runs `crockpot-react` `CFE-066`,
    `CFE-044` and `CFE-062` in its sequence.
 4. **Once settled:** `CROC-078`.
@@ -929,7 +935,10 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   - A free droplet port (`events-api` 5500, `salary-split-api` 5300,
     `packing-list-api` 5400).
   CI's `checks` job keeps its Postgres service container. Verified by
-  the first real deploy passing its health check. Open.
+  the first real deploy passing its health check. Its branch review stands
+  in for a security pass over the deploy config (moved after `CROC-076`):
+  secrets handling in the workflow, `TRUSTED_PROXIES`/real-IP, and the
+  nginx body limit get explicit attention there. Open.
 - **CROC-076** — Pre-launch security review, the first for this repo (five
   tech-debt passes, no security pass). Findings to a dated
   `docs/findings/` doc; fix what blocks launch, file the rest. Paired
@@ -1110,10 +1119,13 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   `ListRecipes` carries `total` via `count(*) OVER ()`; `CountRecipes`
   and `ListRecipeIngredients` are deleted. A page past the end now
   returns `total`/`totalPages` 0 (reverses CROC-015; no consumer).
-- **CROC-066** — Deploy readiness: explicit pgxpool `MaxConns` plus a
-  server-side `statement_timeout`, and run the token sweeper once at
-  startup. Open, *time-coupled: do alongside `CROC-075` (deploy pipeline),
-  once the droplet's CPU count and Neon plan are known.* Findings 6–7.
+- **CROC-066** — **Done** (2026-10-09). Every request's context carries
+  a 14s deadline (`RequestTimeout`, 1s under `writeTimeout`), so a slow
+  query is cancelled and its connection returned; `statement_timeout`
+  can't be set per connection through Neon's pooler (see Non-functional
+  expectations). The pool is capped at 10 connections (`maxPoolConns`,
+  `newPoolConfig`). The token sweeper also runs once at startup. Photo
+  routes share the 14s until `CROC-068` sets their budget. Findings 6–7.
 
 *From the fourth whole-codebase tech-debt pass, 2026-10-04. Full detail:
 `docs/findings/2026-10-04-tech-debt.md`.*

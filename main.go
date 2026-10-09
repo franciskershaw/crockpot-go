@@ -28,7 +28,7 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 )
 
-// Must exceed newHTTPServer's WriteTimeout (15s) so in-flight requests within their own allowed timeout aren't cut off by shutdown first.
+// Must exceed writeTimeout so in-flight requests within their own allowed timeout aren't cut off by shutdown first.
 const shutdownGracePeriod = 20 * time.Second
 
 const maxRequestBodyBytes = 1 << 20 // 1 MiB
@@ -122,6 +122,7 @@ func main() {
 		"PATCH /recipes/:id": recipeWriteBodyBytes,
 	}))
 	server.Use(middleware.NewRateLimitMiddleware(memory.NewStore(), globalRateLimit).Handler())
+	server.Use(middleware.RequestTimeout(requestTimeout))
 
 	server.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
