@@ -419,6 +419,12 @@ early users) — build for correctness over scale, but reuse
 rather than inventing new ones: `ReadHeaderTimeout` 5s, `ReadTimeout` 10s,
 `WriteTimeout` 15s, `IdleTimeout` 60s. Revisit if/when paid signups make
 this a real concern (tracked as a tech-debt-pass item, not a v1 ticket).
+Each request's context carries a deadline 1s under `WriteTimeout`, so a
+slow query is cancelled and its connection returned (`CROC-066`); the
+pool holds at most 10 connections. A server-side `statement_timeout`
+can't be set per connection through Neon's pooled endpoint (ignored as a
+startup parameter, refused in `options`). Revisit if the API moves to a
+direct connection.
 
 **Rate limiting & body caps**: reuse `packing-list-go`'s starting values —
 global 120 req/min/IP, tighter limits on auth endpoints (login-type routes
@@ -1110,10 +1116,43 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   `ListRecipes` carries `total` via `count(*) OVER ()`; `CountRecipes`
   and `ListRecipeIngredients` are deleted. A page past the end now
   returns `total`/`totalPages` 0 (reverses CROC-015; no consumer).
-- **CROC-066** — Deploy readiness: explicit pgxpool `MaxConns` plus a
-  server-side `statement_timeout`, and run the token sweeper once at
-  startup. Open, *time-coupled: do alongside `CROC-075` (deploy pipeline),
-  once the droplet's CPU count and Neon plan are known.* Findings 6–7.
+- **CROC-066** — Deploy readiness: explicit pgxpool `MaxConns`, a bound
+  on how long a request can hold its connection, and run the token
+  sweeper once at startup. Findings 6–7. Open. **Grilled** (2026-10-09,
+  cheap to undo, AI-driven). Droplet: 1 vCPU / 1 GB, shared. Neon: free
+  plan, pooled endpoint.
+  - The finding's `statement_timeout` via `RuntimeParams` does nothing
+    through Neon's pooler (`SHOW statement_timeout` = 0, `pg_sleep(3)`
+    ran in full), and `options=-c statement_timeout` is refused
+    ("unsupported startup parameter"). A context deadline does cancel
+    through it: `pg_sleep(5)` under a 1s deadline returned at 1.0s and
+    the 1-conn pool served the next query. Checked on dev 2026-10-09.
+  - [ ] Global middleware gives every request a 14s context deadline
+        (1s under `WriteTimeout`; derive it from the same constant). A
+        handler's DB work is cancelled at the deadline and its
+        connection returned. Photo routes get the same 14s until
+        `CROC-068` sets their budget.
+  - [ ] `MaxConns = 10`, a named constant in `db/db.go`, alongside
+        simple-protocol mode, in a pool-config builder testable without
+        a DB. Recipe photo uploads run before the transaction
+        (`recipe_handler.go:87-96`), so they don't hold connections.
+  - [ ] `runTokenSweeper` sweeps once on start, before the ticker loop,
+        inside its goroutine (startup isn't delayed); failures logged
+        per table as today.
+  - Rejected: a role-level `ALTER ROLE … SET statement_timeout` migration
+    (hidden DB config, also bounds migrations and `migrate-data`, per
+    statement not per request). Sweeper DB calls aren't under a request
+    deadline; accepted (three small daily deletes).
+  - Non-goals: `CROC-068`'s per-route photo budget; `MinConns`/idle
+    tuning; checking Neon free-plan compute hours (look at the Neon
+    dashboard after deploy).
+  - Verification (logic, failing tests first): middleware tests in
+    `internal/middleware` (deadline present and ≤14s; a handler blocked
+    on its context is released at the deadline), a `db` pool-config test
+    (`MaxConns` 10, simple protocol), a `lifecycle_test.go` case that a
+    sweep happens with no tick. Real client: with the server on dev
+    Neon, normal browse/menu requests still succeed (no regression from
+    the deadline). The pooler cancel behaviour is the dev check above.
 
 *From the fourth whole-codebase tech-debt pass, 2026-10-04. Full detail:
 `docs/findings/2026-10-04-tech-debt.md`.*
