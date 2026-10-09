@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/sqlc"
@@ -507,6 +508,49 @@ func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, caller
 	}
 
 	return deleteRecipeRow(ctx, q, recipeID, existing.ImageFilename)
+}
+
+// Approve approves a pending recipe if it hasn't changed since seenUpdatedAt; an approved one is returned unchanged.
+func (r *PostgresRecipeRepository) Approve(ctx context.Context, id string, callerID string, seenUpdatedAt time.Time) (*models.RecipeDetail, error) {
+	q := queriesFor(ctx, r.db)
+
+	recipeID, err := uuidParam(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid recipe id: %w", err)
+	}
+	cid, err := uuidParam(callerID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid caller id: %w", err)
+	}
+
+	existing, err := q.GetRecipeForWrite(ctx, recipeID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, models.ErrRecipeNotFound
+		}
+		return nil, fmt.Errorf("failed to get recipe: %w", err)
+	}
+
+	if existing.Approved {
+		row, err := q.GetRecipeForReader(ctx, sqlc.GetRecipeForReaderParams{
+			ID:            recipeID,
+			CallerIsAdmin: true,
+			CallerID:      cid,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get recipe: %w", err)
+		}
+		return buildRecipeDetail(ctx, q, row, cid)
+	}
+	if !existing.UpdatedAt.Time.Equal(seenUpdatedAt) {
+		return nil, models.ErrRecipeChanged
+	}
+
+	approved, err := q.ApproveRecipe(ctx, recipeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to approve recipe: %w", err)
+	}
+	return buildRecipeDetail(ctx, q, approved, cid)
 }
 
 // deleteRecipeRow deletes a recipe the caller has already locked, returning the users whose menus held it and its photo if no other recipe uses it.
