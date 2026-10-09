@@ -909,8 +909,27 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
 `CROC-070`–`CROC-073`, `crockpot-react` `CFE-056`/`CFE-058`.
 
 - **CROC-074** — `migrate-data` prod readiness: the history import has no
-  zero-date guard, so a missing date loads as `0001-01-01`. Add the
-  `fallbackTime`-plus-note pattern recipes already use. Small. Open.
+  zero-date guard, so a missing date loads as `0001-01-01`. Small. Open.
+  **Grilled** (2026-10-09, cheap to undo, AI-driven). The old app writes
+  all three dates on every entry (`crockpot` `prisma/schema.prisma:169-171`,
+  `menuMutations.ts:38-40`) and the current export has none missing, so
+  this is defence against a malformed doc in the fresh cutover export.
+  Not the recipe precedent's `now()`: this table feeds recency/cadence
+  (`CROC-050`), and `now()` would fake a recent use.
+  - [ ] A missing date fills from the entry's own dates: first ←
+        last-added ← last-removed; last-added ← first ← last-removed;
+        last-removed ← last-added ← first. Each fill adds a
+        `history-date-fallback` note.
+  - [ ] An entry with all three missing is skipped with a note, not
+        loaded.
+  - [ ] Fills happen before the duplicate merge, so a zero date never
+        wins `mergeBaseline`'s earliest-first comparison.
+  - [ ] `TestTransformMenuHistoryAgainstFixture` stays green.
+  - Non-goals: a missing `timesAddedToMenu`; any other collection's dates.
+  - Verification (logic, failing tests first): new `buildMenuHistory`
+    cases in `transform_test.go`, `go test -count=1 ./cmd/migrate-data/`
+    with `.env` loaded. Then a dry run (no `--yes`) against
+    `../crockpotV3.*.json`: 100 entries, 0 fallback notes.
 - **CROC-075** — Deploy pipeline, copied from `packing-list-go`
   (`Dockerfile`, `.dockerignore`, `nginx/`, the `build`/`deploy` jobs in
   `.github/workflows/ci.yml`; decisions in its `docs/handoffs/PACK-038.md`):
