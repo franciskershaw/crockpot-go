@@ -13,6 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// noMenuLimit keeps the menu cap out of tests that aren't about it.
+const noMenuLimit = 1000
+
 func menuEntryRowCount(t *testing.T, userID, recipeID uuid.UUID) int {
 	t.Helper()
 	return rowCount(t, `
@@ -55,8 +58,8 @@ func TestGetMenu_CardsCarryCallersFavouriteState(t *testing.T) {
 	favourited := insertTestRecipeRow(t, owner, true)
 	notFavourited := insertTestRecipeRow(t, owner, true)
 
-	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), favourited.String(), 4, false))
-	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), notFavourited.String(), 4, false))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), favourited.String(), 4, false, noMenuLimit))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), notFavourited.String(), 4, false, noMenuLimit))
 	require.NoError(t, recipeRepo.AddFavourite(ctx, caller.String(), favourited.String(), false))
 	require.NoError(t, recipeRepo.AddFavourite(ctx, other.String(), notFavourited.String(), false))
 
@@ -75,7 +78,7 @@ func TestUpsertEntry_FirstCallCreatesMenuAndEntry(t *testing.T) {
 	caller := insertTestUser(t, "Caller")
 	recipeID := insertTestRecipeRow(t, owner, true)
 
-	err := menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 6, false)
+	err := menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 6, false, noMenuLimit)
 	require.NoError(t, err)
 	assert.Equal(t, 1, menuEntryRowCount(t, caller, recipeID))
 
@@ -91,8 +94,8 @@ func TestUpsertEntry_SecondCallUpdatesServesNotDuplicate(t *testing.T) {
 	caller := insertTestUser(t, "Caller")
 	recipeID := insertTestRecipeRow(t, owner, true)
 
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 2, false))
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 8, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 2, false, noMenuLimit))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 8, false, noMenuLimit))
 
 	assert.Equal(t, 1, menuEntryRowCount(t, caller, recipeID), "second call must not duplicate the row")
 
@@ -107,11 +110,11 @@ func TestUpsertEntry_SecondCallDoesNotResetCreatedAt(t *testing.T) {
 	caller := insertTestUser(t, "Caller")
 	recipeID := insertTestRecipeRow(t, owner, true)
 
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 2, false, noMenuLimit))
 	original := time.Now().Add(-5 * time.Hour)
 	setMenuEntryCreatedAt(t, caller, recipeID, original)
 
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 8, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 8, false, noMenuLimit))
 
 	var createdAt time.Time
 	require.NoError(t, db.DB.QueryRow(context.Background(), `
@@ -126,7 +129,7 @@ func TestUpsertEntry_HiddenRecipeReturnsNotFound(t *testing.T) {
 	caller := insertTestUser(t, "Caller")
 	recipeID := insertTestRecipeRow(t, owner, false) // unapproved, caller isn't the owner
 
-	err := menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 4, false)
+	err := menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 4, false, noMenuLimit)
 	assert.ErrorIs(t, err, models.ErrRecipeNotFound)
 	assert.Equal(t, 0, menuEntryRowCount(t, caller, recipeID))
 }
@@ -143,7 +146,7 @@ func TestUpsertEntry_ConcurrentCallsNeverDuplicateRow(t *testing.T) {
 	for i := 0; i < n; i++ {
 		go func(i int) {
 			defer wg.Done()
-			errs[i] = menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), i+1, false)
+			errs[i] = menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), i+1, false, noMenuLimit)
 		}(i)
 	}
 	wg.Wait()
@@ -154,11 +157,121 @@ func TestUpsertEntry_ConcurrentCallsNeverDuplicateRow(t *testing.T) {
 	assert.Equal(t, 1, menuEntryRowCount(t, caller, recipeID), "concurrent upserts must never produce two rows")
 }
 
+// fillMenu puts n fresh approved recipes on userID's menu and returns them in insert order.
+func fillMenu(t *testing.T, userID, ownerID uuid.UUID, n int) []uuid.UUID {
+	t.Helper()
+	ids := make([]uuid.UUID, n)
+	for i := range ids {
+		ids[i] = insertTestRecipeRow(t, ownerID, true)
+		require.NoError(t, menuRepo.UpsertEntry(context.Background(), userID.String(), ids[i].String(), 2, false, noMenuLimit))
+	}
+	return ids
+}
+
+func menuSize(t *testing.T, userID uuid.UUID) int {
+	t.Helper()
+	return rowCount(t, `
+		SELECT count(*) FROM recipe_menu_entries rme
+		JOIN recipe_menus rm ON rm.id = rme.recipe_menu_id
+		WHERE rm.user_id = $1`, userID)
+}
+
+func TestUpsertEntry_NewRecipeOnFullMenuReturnsLimitReached(t *testing.T) {
+	owner := insertTestUser(t, "Owner")
+	caller := insertTestUser(t, "Caller")
+	fillMenu(t, caller, owner, 3)
+	extra := insertTestRecipeRow(t, owner, true)
+
+	err := menuRepo.UpsertEntry(context.Background(), caller.String(), extra.String(), 2, false, 3)
+	assert.ErrorIs(t, err, models.ErrMenuLimitReached)
+	assert.Equal(t, 0, menuEntryRowCount(t, caller, extra))
+	assert.Empty(t, menuHistoryEvents(t, caller, extra), "a refused add must not record a history event")
+}
+
+func TestUpsertEntry_ServesChangeOnFullMenuSucceeds(t *testing.T) {
+	owner := insertTestUser(t, "Owner")
+	caller := insertTestUser(t, "Caller")
+	ids := fillMenu(t, caller, owner, 3)
+
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), ids[0].String(), 9, false, 3))
+
+	menu, err := menuRepo.GetMenu(context.Background(), caller.String())
+	require.NoError(t, err)
+	serves := make(map[uuid.UUID]int, len(menu.Entries))
+	for _, e := range menu.Entries {
+		serves[e.RecipeID] = e.Serves
+	}
+	assert.Equal(t, 9, serves[ids[0]], "a serves change on a full menu must still apply")
+}
+
+func TestUpsertEntry_EntryReachingLimitSucceeds(t *testing.T) {
+	owner := insertTestUser(t, "Owner")
+	caller := insertTestUser(t, "Caller")
+	fillMenu(t, caller, owner, 2)
+	last := insertTestRecipeRow(t, owner, true)
+
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), last.String(), 2, false, 3))
+	assert.Equal(t, 3, menuSize(t, caller))
+}
+
+func TestUpsertEntry_HiddenRecipeOnFullMenuReturnsNotFound(t *testing.T) {
+	owner := insertTestUser(t, "Owner")
+	caller := insertTestUser(t, "Caller")
+	fillMenu(t, caller, owner, 3)
+	hidden := insertTestRecipeRow(t, owner, false)
+
+	err := menuRepo.UpsertEntry(context.Background(), caller.String(), hidden.String(), 2, false, 3)
+	assert.ErrorIs(t, err, models.ErrRecipeNotFound)
+}
+
+func TestUpsertEntry_ConcurrentAddsAtLimitAdmitExactlyOne(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Owner")
+	caller := insertTestUser(t, "Caller")
+	fillMenu(t, caller, owner, 1)
+	first := insertTestRecipeRow(t, owner, true)
+	second := insertTestRecipeRow(t, owner, true)
+
+	added := make(chan struct{})
+	release := make(chan struct{})
+	t.Cleanup(func() { releaseOnce(release) })
+	firstErr := make(chan error, 1)
+	go func() {
+		firstErr <- transactor.WithinTx(ctx, func(ctx context.Context) error {
+			if err := menuRepo.UpsertEntry(ctx, caller.String(), first.String(), 2, false, 2); err != nil {
+				return err
+			}
+			close(added)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-added:
+	case err := <-firstErr:
+		t.Fatalf("first add failed before holding its transaction open: %v", err)
+	}
+
+	secondErr := make(chan error, 1)
+	go func() {
+		secondErr <- transactor.WithinTx(ctx, func(ctx context.Context) error {
+			return menuRepo.UpsertEntry(ctx, caller.String(), second.String(), 2, false, 2)
+		})
+	}()
+
+	waitForLockWait(t)
+	releaseOnce(release)
+
+	require.NoError(t, <-firstErr)
+	assert.ErrorIs(t, <-secondErr, models.ErrMenuLimitReached, "the add that waited must see the committed entry and be refused")
+	assert.Equal(t, 2, menuSize(t, caller))
+}
+
 func TestUpdateEntryServes_UpdatesExistingEntry(t *testing.T) {
 	owner := insertTestUser(t, "Owner")
 	caller := insertTestUser(t, "Caller")
 	recipeID := insertTestRecipeRow(t, owner, true)
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 2, false, noMenuLimit))
 
 	err := menuRepo.UpdateEntryServes(context.Background(), caller.String(), recipeID.String(), 10)
 	require.NoError(t, err)
@@ -174,7 +287,7 @@ func TestUpdateEntryServes_NotFoundWhenRecipeNotOnMenu(t *testing.T) {
 	caller := insertTestUser(t, "Caller")
 	onMenu := insertTestRecipeRow(t, owner, true)
 	notOnMenu := insertTestRecipeRow(t, owner, true)
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), onMenu.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), onMenu.String(), 2, false, noMenuLimit))
 
 	err := menuRepo.UpdateEntryServes(context.Background(), caller.String(), notOnMenu.String(), 10)
 	assert.ErrorIs(t, err, models.ErrMenuEntryNotFound)
@@ -193,7 +306,7 @@ func TestRemoveEntry_DeletesExistingEntry(t *testing.T) {
 	owner := insertTestUser(t, "Owner")
 	caller := insertTestUser(t, "Caller")
 	recipeID := insertTestRecipeRow(t, owner, true)
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 2, false, noMenuLimit))
 
 	err := menuRepo.RemoveEntry(context.Background(), caller.String(), recipeID.String())
 	require.NoError(t, err)
@@ -205,7 +318,7 @@ func TestRemoveEntry_IdempotentWhenRecipeNotOnMenu(t *testing.T) {
 	caller := insertTestUser(t, "Caller")
 	onMenu := insertTestRecipeRow(t, owner, true)
 	notOnMenu := insertTestRecipeRow(t, owner, true)
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), onMenu.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), onMenu.String(), 2, false, noMenuLimit))
 
 	err := menuRepo.RemoveEntry(context.Background(), caller.String(), notOnMenu.String())
 	assert.NoError(t, err)
@@ -227,9 +340,9 @@ func TestGetMenu_OrderedByCreatedAtDescending(t *testing.T) {
 	b := insertTestRecipeRow(t, owner, true)
 	c := insertTestRecipeRow(t, owner, true)
 
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), a.String(), 2, false))
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), b.String(), 2, false))
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), c.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), a.String(), 2, false, noMenuLimit))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), b.String(), 2, false, noMenuLimit))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), c.String(), 2, false, noMenuLimit))
 
 	now := time.Now()
 	setMenuEntryCreatedAt(t, caller, a, now.Add(-1*time.Hour))
@@ -247,8 +360,8 @@ func TestClearMenu_RemovesAllEntries(t *testing.T) {
 	a := insertTestRecipeRow(t, owner, true)
 	b := insertTestRecipeRow(t, owner, true)
 
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), a.String(), 2, false))
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), b.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), a.String(), 2, false, noMenuLimit))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), b.String(), 2, false, noMenuLimit))
 
 	err := menuRepo.ClearMenu(context.Background(), caller.String())
 	require.NoError(t, err)
@@ -276,8 +389,8 @@ func TestClearMenu_OnlyClearsCallingUsersMenu(t *testing.T) {
 	otherCaller := insertTestUser(t, "Other Caller")
 	recipeID := insertTestRecipeRow(t, owner, true)
 
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), clearedCaller.String(), recipeID.String(), 2, false))
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), otherCaller.String(), recipeID.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), clearedCaller.String(), recipeID.String(), 2, false, noMenuLimit))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), otherCaller.String(), recipeID.String(), 2, false, noMenuLimit))
 
 	require.NoError(t, menuRepo.ClearMenu(context.Background(), clearedCaller.String()))
 
@@ -296,7 +409,7 @@ func TestGetMenu_EntriesHydratedWithRecipeCardAndCategories(t *testing.T) {
 	cat := insertTestRecipeCategory(t, "repo-test-rc-"+uuid.NewString())
 	recipeID := createTestRecipe(t, recipeOpts{createdBy: owner, approved: true, categoryIDs: []uuid.UUID{cat}})
 
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 3, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 3, false, noMenuLimit))
 
 	menu, err := menuRepo.GetMenu(context.Background(), caller.String())
 	require.NoError(t, err)

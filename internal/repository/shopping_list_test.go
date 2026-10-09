@@ -59,7 +59,7 @@ func insertTestRecipeWithIngredients(t *testing.T, createdBy uuid.UUID, serves i
 
 func addToMenu(t *testing.T, userID, recipeID uuid.UUID, serves int) {
 	t.Helper()
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), userID.String(), recipeID.String(), serves, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), userID.String(), recipeID.String(), serves, false, noMenuLimit))
 }
 
 type shoppingListItemRow struct {

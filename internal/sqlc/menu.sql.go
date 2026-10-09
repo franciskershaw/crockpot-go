@@ -138,6 +138,29 @@ func (q *Queries) ListMenuUserIDsForRecipe(ctx context.Context, recipeID pgtype.
 	return items, nil
 }
 
+const menuEntryCountAndPresence = `-- name: MenuEntryCountAndPresence :one
+SELECT count(*) AS entry_count, COALESCE(bool_or(recipe_id = $1), false)::boolean AS present
+FROM recipe_menu_entries
+WHERE recipe_menu_id = $2
+`
+
+type MenuEntryCountAndPresenceParams struct {
+	RecipeID     pgtype.UUID
+	RecipeMenuID pgtype.UUID
+}
+
+type MenuEntryCountAndPresenceRow struct {
+	EntryCount int64
+	Present    bool
+}
+
+func (q *Queries) MenuEntryCountAndPresence(ctx context.Context, arg MenuEntryCountAndPresenceParams) (MenuEntryCountAndPresenceRow, error) {
+	row := q.db.QueryRow(ctx, menuEntryCountAndPresence, arg.RecipeID, arg.RecipeMenuID)
+	var i MenuEntryCountAndPresenceRow
+	err := row.Scan(&i.EntryCount, &i.Present)
+	return i, err
+}
+
 const removeMenuEntry = `-- name: RemoveMenuEntry :exec
 WITH removed AS (
     DELETE FROM recipe_menu_entries

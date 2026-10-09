@@ -697,15 +697,12 @@ session.*
   ones. Regenerates the shopping list in the same transaction, matching
   every other menu-write endpoint. Shipped without a history hook
   (founder's call, to unblock the frontend); `CROC-020` retrofitted it.
-- **CROC-059** — Cap the number of recipes on a menu. Nothing limits it
-  today, and a menu of ~200 recipes would regenerate a huge shopping list
-  on every write and degrade the Menu page. `POST /menu/entries` rejects
-  a new recipe past the cap with a coded error; an upsert of a recipe
-  already on the menu (serves change) must not count against it. Starting
-  number to test: 30 (the planner's 7×3 = 21 slots plus batch-cooking
-  headroom), to be settled at this ticket's grill. No existing menu is
-  near it (old app data: 0 and 2 entries). Paired with `crockpot-react`
-  `CFE-045`. Surfaced at `CFE-007`'s grill (2026-09-27), not grilled.
+- **CROC-059** — Cap the menu at 30 recipes, every tier. `POST
+  /menu/entries` refuses a recipe not already on the menu once it holds
+  30, with `409 menu_limit_reached`; a serves change never counts. A hard
+  cap: the count runs under `GetOrCreateMenu`'s row lock. **Done**
+  (2026-10-09, `docs/handoffs/CROC-059.md`). Unblocks `crockpot-react`
+  `CFE-045`.
 
 ### Epic 6: Shopping Lists
 - **CROC-021** — Generate/regenerate shopping list from current menu,

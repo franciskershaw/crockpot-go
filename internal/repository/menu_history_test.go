@@ -60,7 +60,7 @@ func TestUpsertEntry_NewEntryWritesAddEvent(t *testing.T) {
 	caller := insertTestUser(t, "Caller")
 	recipeID := insertTestRecipeRow(t, owner, true)
 
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 4, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 4, false, noMenuLimit))
 
 	assert.Equal(t, []string{"add"}, menuHistoryEvents(t, caller, recipeID))
 }
@@ -70,8 +70,8 @@ func TestUpsertEntry_ServesOnlyChangeWritesNoEvent(t *testing.T) {
 	caller := insertTestUser(t, "Caller")
 	recipeID := insertTestRecipeRow(t, owner, true)
 
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 2, false))
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 8, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 2, false, noMenuLimit))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 8, false, noMenuLimit))
 
 	assert.Equal(t, []string{"add"}, menuHistoryEvents(t, caller, recipeID), "re-posting a recipe already on the menu is not an add")
 }
@@ -81,7 +81,7 @@ func TestUpdateEntryServes_WritesNoEvent(t *testing.T) {
 	caller := insertTestUser(t, "Caller")
 	recipeID := insertTestRecipeRow(t, owner, true)
 
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 2, false, noMenuLimit))
 	require.NoError(t, menuRepo.UpdateEntryServes(context.Background(), caller.String(), recipeID.String(), 6))
 
 	assert.Equal(t, []string{"add"}, menuHistoryEvents(t, caller, recipeID))
@@ -93,9 +93,9 @@ func TestUpsertEntry_ReAddingAfterRemoveWritesSecondAdd(t *testing.T) {
 	recipeID := insertTestRecipeRow(t, owner, true)
 	ctx := context.Background()
 
-	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), recipeID.String(), 4, false))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), recipeID.String(), 4, false, noMenuLimit))
 	require.NoError(t, menuRepo.RemoveEntry(ctx, caller.String(), recipeID.String()))
-	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), recipeID.String(), 4, false))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), recipeID.String(), 4, false, noMenuLimit))
 
 	assert.Equal(t, []string{"add", "remove", "add"}, menuHistoryEvents(t, caller, recipeID))
 }
@@ -106,7 +106,7 @@ func TestRemoveEntry_WritesRemoveEventWhenOnMenu(t *testing.T) {
 	recipeID := insertTestRecipeRow(t, owner, true)
 	ctx := context.Background()
 
-	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), recipeID.String(), 4, false))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), recipeID.String(), 4, false, noMenuLimit))
 	require.NoError(t, menuRepo.RemoveEntry(ctx, caller.String(), recipeID.String()))
 
 	assert.Equal(t, []string{"add", "remove"}, menuHistoryEvents(t, caller, recipeID))
@@ -119,7 +119,7 @@ func TestRemoveEntry_WritesNoEventWhenRecipeNotOnMenu(t *testing.T) {
 	onMenu := insertTestRecipeRow(t, owner, true)
 	notOnMenu := insertTestRecipeRow(t, owner, true)
 	ctx := context.Background()
-	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), onMenu.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), onMenu.String(), 2, false, noMenuLimit))
 
 	require.NoError(t, menuRepo.RemoveEntry(ctx, caller.String(), notOnMenu.String()))
 
@@ -151,8 +151,8 @@ func TestClearMenu_WritesOneRemoveEventPerRecipeAtOneTimestamp(t *testing.T) {
 	b := insertTestRecipeRow(t, owner, true)
 	ctx := context.Background()
 
-	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), a.String(), 2, false))
-	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), b.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), a.String(), 2, false, noMenuLimit))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), b.String(), 2, false, noMenuLimit))
 	require.NoError(t, menuRepo.ClearMenu(ctx, caller.String()))
 
 	assert.Equal(t, []string{"add", "remove"}, menuHistoryEvents(t, caller, a))
@@ -170,8 +170,8 @@ func TestClearMenu_RecordsOnlyRecipesActuallyOnTheMenu(t *testing.T) {
 	removedEarlier := insertTestRecipeRow(t, owner, true)
 	ctx := context.Background()
 
-	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), onMenu.String(), 2, false))
-	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), removedEarlier.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), onMenu.String(), 2, false, noMenuLimit))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, caller.String(), removedEarlier.String(), 2, false, noMenuLimit))
 	require.NoError(t, menuRepo.RemoveEntry(ctx, caller.String(), removedEarlier.String()))
 	require.NoError(t, menuRepo.ClearMenu(ctx, caller.String()))
 
@@ -186,8 +186,8 @@ func TestClearMenu_OnlyRecordsCallingUsersHistory(t *testing.T) {
 	recipeID := insertTestRecipeRow(t, owner, true)
 	ctx := context.Background()
 
-	require.NoError(t, menuRepo.UpsertEntry(ctx, clearedCaller.String(), recipeID.String(), 2, false))
-	require.NoError(t, menuRepo.UpsertEntry(ctx, otherCaller.String(), recipeID.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, clearedCaller.String(), recipeID.String(), 2, false, noMenuLimit))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, otherCaller.String(), recipeID.String(), 2, false, noMenuLimit))
 	require.NoError(t, menuRepo.ClearMenu(ctx, clearedCaller.String()))
 
 	assert.Equal(t, []string{"add", "remove"}, menuHistoryEvents(t, clearedCaller, recipeID))
@@ -203,7 +203,7 @@ func TestMenuHistory_JoinsCallersTransaction(t *testing.T) {
 		recipeID := insertTestRecipeRow(t, owner, true)
 
 		err := transactor.WithinTx(context.Background(), func(ctx context.Context) error {
-			return menuRepo.UpsertEntry(ctx, caller.String(), recipeID.String(), 4, false)
+			return menuRepo.UpsertEntry(ctx, caller.String(), recipeID.String(), 4, false, noMenuLimit)
 		})
 		require.NoError(t, err)
 
@@ -216,7 +216,7 @@ func TestMenuHistory_JoinsCallersTransaction(t *testing.T) {
 		recipeID := insertTestRecipeRow(t, owner, true)
 
 		err := transactor.WithinTx(context.Background(), func(ctx context.Context) error {
-			if err := menuRepo.UpsertEntry(ctx, caller.String(), recipeID.String(), 4, false); err != nil {
+			if err := menuRepo.UpsertEntry(ctx, caller.String(), recipeID.String(), 4, false, noMenuLimit); err != nil {
 				return err
 			}
 			return errors.New("force rollback")
@@ -240,7 +240,7 @@ func TestUpsertEntry_ConcurrentCallsWriteExactlyOneAdd(t *testing.T) {
 	for i := 0; i < n; i++ {
 		go func(i int) {
 			defer wg.Done()
-			errs[i] = menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), i+1, false)
+			errs[i] = menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), i+1, false, noMenuLimit)
 		}(i)
 	}
 	wg.Wait()
@@ -255,7 +255,7 @@ func TestRemoveEntry_ConcurrentCallsWriteExactlyOneRemove(t *testing.T) {
 	owner := insertTestUser(t, "Owner")
 	caller := insertTestUser(t, "Caller")
 	recipeID := insertTestRecipeRow(t, owner, true)
-	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 4, false))
+	require.NoError(t, menuRepo.UpsertEntry(context.Background(), caller.String(), recipeID.String(), 4, false, noMenuLimit))
 
 	const n = 8
 	var wg sync.WaitGroup

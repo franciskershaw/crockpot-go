@@ -9,9 +9,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const maxMenuEntries = 30
+
 type MenuRepository interface {
 	GetMenu(ctx context.Context, userID string) (*models.Menu, error)
-	UpsertEntry(ctx context.Context, userID, recipeID string, serves int, callerIsAdmin bool) error
+	UpsertEntry(ctx context.Context, userID, recipeID string, serves int, callerIsAdmin bool, limit int) error
 	UpdateEntryServes(ctx context.Context, userID, recipeID string, serves int) error
 	RemoveEntry(ctx context.Context, userID, recipeID string) error
 	ClearMenu(ctx context.Context, userID string) error
@@ -61,7 +63,7 @@ func (h *MenuHandler) UpsertEntry(c *gin.Context) {
 	isAdmin := c.GetString("role") == "ADMIN"
 
 	txErr := h.transactor.WithinTx(c.Request.Context(), func(ctx context.Context) error {
-		if err := h.repo.UpsertEntry(ctx, userID, recipeID, serves, isAdmin); err != nil {
+		if err := h.repo.UpsertEntry(ctx, userID, recipeID, serves, isAdmin, maxMenuEntries); err != nil {
 			return err
 		}
 		return h.shoppingLists.Regenerate(ctx, userID)
@@ -73,6 +75,10 @@ func (h *MenuHandler) UpsertEntry(c *gin.Context) {
 		}
 		if errors.Is(txErr, models.ErrRecipeNotFound) {
 			notFound(c, "not_found")
+			return
+		}
+		if errors.Is(txErr, models.ErrMenuLimitReached) {
+			conflict(c, "menu_limit_reached")
 			return
 		}
 		internalError(c, "failed to upsert menu entry", txErr)

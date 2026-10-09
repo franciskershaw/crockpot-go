@@ -198,12 +198,15 @@ requests/         Manual .http regression suite, one file per resource
   shell — don't use it.
   **Local runs and close-out go against Neon**: it is the only place the
   pooler and the real engine are exercised, so a green Neon run is part of
-  every ticket's verification gate. PR CI runs the same suite against a
-  throwaway `postgres:18` service container (`--locale=C.UTF-8`) for speed;
-  its major version must track Neon's. `.github/workflows/neon-check.yml`
-  re-runs everything against Neon on push to `main`, weekly and on demand,
-  and fails if the CI image's major drifts from Neon's. Don't run tests
-  against the shared dev DB while that workflow is running.
+  every ticket's verification gate, and the only Neon run of the suite.
+  PR CI runs the same suite against a throwaway `postgres:18` service
+  container (`--locale=C.UTF-8`) for speed; its major version must track
+  Neon's. `.github/workflows/neon-check.yml` (weekly and on demand) only
+  checks that: it fails if the CI image's major drifts from Neon's. It
+  used to re-run the whole suite against Neon after each merge; dropped
+  2026-10-09 because GitHub's US runners to Neon's `eu-west-2` took
+  400–600s and outgrew `go test`'s 10-minute timeout, while repeating the
+  local close-out run.
 - Lint (uncapped, matches CI):
   `golangci-lint run --max-same-issues=0 --max-issues-per-linter=0 ./...`
 - Format: `gofmt` — canonical, no formatter choice to make.

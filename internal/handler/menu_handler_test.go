@@ -206,7 +206,7 @@ func TestMenuUpsertEntry_ServesTooHigh_400(t *testing.T) {
 func TestMenuUpsertEntry_Success_200MessageBody(t *testing.T) {
 	m := newMenuMocks(t)
 	id := uuid.NewString()
-	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false).Return(nil)
+	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false, mock.Anything).Return(nil)
 	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(nil).Once()
 
 	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "FREE"))
@@ -217,7 +217,7 @@ func TestMenuUpsertEntry_Success_200MessageBody(t *testing.T) {
 func TestMenuUpsertEntry_RegenerateQuantityTooLarge_400(t *testing.T) {
 	m := newMenuMocks(t)
 	id := uuid.NewString()
-	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false).Return(nil)
+	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false, mock.Anything).Return(nil)
 	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(models.ErrShoppingListQuantityTooLarge)
 
 	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "FREE"))
@@ -228,7 +228,7 @@ func TestMenuUpsertEntry_RegenerateQuantityTooLarge_400(t *testing.T) {
 func TestMenuUpsertEntry_RegenerateFails_500(t *testing.T) {
 	m := newMenuMocks(t)
 	id := uuid.NewString()
-	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false).Return(nil)
+	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false, mock.Anything).Return(nil)
 	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(errors.New("db down"))
 
 	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "FREE"))
@@ -238,7 +238,7 @@ func TestMenuUpsertEntry_RegenerateFails_500(t *testing.T) {
 func TestMenuUpsertEntry_HiddenRecipe_404(t *testing.T) {
 	m := newMenuMocks(t)
 	id := uuid.NewString()
-	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false).
+	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false, mock.Anything).
 		Return(models.ErrRecipeNotFound)
 
 	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "FREE"))
@@ -249,17 +249,38 @@ func TestMenuUpsertEntry_HiddenRecipe_404(t *testing.T) {
 func TestMenuUpsertEntry_ThreadsCallerIsAdmin(t *testing.T) {
 	m := newMenuMocks(t)
 	id := uuid.NewString()
-	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, true).Return(nil)
+	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, true, mock.Anything).Return(nil)
 	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(nil).Once()
 
 	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "ADMIN"))
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestMenuUpsertEntry_PassesMenuCapOf30(t *testing.T) {
+	m := newMenuMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false, 30).Return(nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(nil).Once()
+
+	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "FREE"))
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestMenuUpsertEntry_LimitReached_409(t *testing.T) {
+	m := newMenuMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false, mock.Anything).
+		Return(models.ErrMenuLimitReached)
+
+	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "FREE"))
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Equal(t, "menu_limit_reached", decodeJSONBody(t, w)["error"])
+}
+
 func TestMenuUpsertEntry_RepoError_500(t *testing.T) {
 	m := newMenuMocks(t)
 	id := uuid.NewString()
-	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false).
+	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false, mock.Anything).
 		Return(errors.New("db down"))
 
 	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "FREE"))
