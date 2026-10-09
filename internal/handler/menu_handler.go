@@ -77,6 +77,10 @@ func (h *MenuHandler) UpsertEntry(c *gin.Context) {
 			notFound(c, "not_found")
 			return
 		}
+		if errors.Is(txErr, models.ErrMenuLimitReached) {
+			conflict(c, "menu_limit_reached")
+			return
+		}
 		internalError(c, "failed to upsert menu entry", txErr)
 		return
 	}

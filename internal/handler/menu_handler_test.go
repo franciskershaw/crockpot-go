@@ -256,6 +256,27 @@ func TestMenuUpsertEntry_ThreadsCallerIsAdmin(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestMenuUpsertEntry_PassesMenuCapOf30(t *testing.T) {
+	m := newMenuMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false, 30).Return(nil)
+	m.shoppingLists.EXPECT().Regenerate(mock.Anything, menuUserID.String()).Return(nil).Once()
+
+	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "FREE"))
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestMenuUpsertEntry_LimitReached_409(t *testing.T) {
+	m := newMenuMocks(t)
+	id := uuid.NewString()
+	m.repo.EXPECT().UpsertEntry(mock.Anything, menuUserID.String(), id, 4, false, mock.Anything).
+		Return(models.ErrMenuLimitReached)
+
+	w := doMenuUpsert(m.router, map[string]any{"recipeId": id, "serves": 4}, menuAuth(t, "FREE"))
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Equal(t, "menu_limit_reached", decodeJSONBody(t, w)["error"])
+}
+
 func TestMenuUpsertEntry_RepoError_500(t *testing.T) {
 	m := newMenuMocks(t)
 	id := uuid.NewString()

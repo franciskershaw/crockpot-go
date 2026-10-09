@@ -16,6 +16,11 @@
 # 404s the same way regardless of caller role, since RecipeVisibleToCaller
 # requires the row to exist at all.
 #
+# The 30-recipe cap (CROC-059, 409 menu_limit_reached for a recipe not
+# already on the menu; a serves change never counts) isn't reachable here
+# without 30 throwaway recipes — covered in internal/repository/menu_test.go
+# and internal/handler/menu_handler_test.go.
+#
 # Run top-to-bottom: creates recipeA (added to the menu) and recipeB
 # (left off it, used for the PATCH/DELETE "not on menu" cases).
 
