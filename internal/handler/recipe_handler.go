@@ -190,16 +190,11 @@ func (h *RecipeHandler) Approve(c *gin.Context) {
 		detail, err = h.repo.Approve(ctx, id, userID, *req.UpdatedAt)
 		return err
 	})
-	switch {
-	case txErr == nil:
-		c.JSON(http.StatusOK, detail)
-	case errors.Is(txErr, models.ErrRecipeChanged):
-		conflict(c, "recipe_changed")
-	case errors.Is(txErr, models.ErrRecipeNotFound):
-		notFound(c, "not_found")
-	default:
-		internalError(c, "failed to approve recipe", txErr)
+	if txErr != nil {
+		writeRecipeWriteError(c, txErr)
+		return
 	}
+	c.JSON(http.StatusOK, detail)
 }
 
 func (h *RecipeHandler) Delete(c *gin.Context) {
@@ -432,6 +427,8 @@ func writeRecipeWriteError(c *gin.Context, err error) {
 		forbidden(c, "forbidden")
 	case errors.Is(err, models.ErrRecipeApprovedLocked):
 		forbidden(c, "recipe_approved_locked")
+	case errors.Is(err, models.ErrRecipeChanged):
+		conflict(c, "recipe_changed")
 	default:
 		internalError(c, "failed to write recipe", err)
 	}

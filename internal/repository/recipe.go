@@ -367,22 +367,11 @@ func (r *PostgresRecipeRepository) Create(ctx context.Context, input models.Crea
 func (r *PostgresRecipeRepository) Update(ctx context.Context, id string, input models.CreateRecipeInput, callerID string, callerIsAdmin bool) (*models.RecipeDetail, *string, error) {
 	q := queriesFor(ctx, r.db)
 
-	recipeID, err := uuidParam(id)
+	existing, cid, err := lockRecipeForWrite(ctx, q, id, callerID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("invalid recipe id: %w", err)
+		return nil, nil, err
 	}
-	cid, err := uuidParam(callerID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("invalid caller id: %w", err)
-	}
-
-	existing, err := q.GetRecipeForWrite(ctx, recipeID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil, models.ErrRecipeNotFound
-		}
-		return nil, nil, fmt.Errorf("failed to get recipe: %w", err)
-	}
+	recipeID := existing.ID
 	if err := recipeWriteError(existing, cid, callerIsAdmin); err != nil {
 		return nil, nil, err
 	}
@@ -489,22 +478,11 @@ func linkRecipeCategories(ctx context.Context, q *sqlc.Queries, recipeID pgtype.
 func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, callerID string, callerIsAdmin bool) ([]string, *string, error) {
 	q := queriesFor(ctx, r.db)
 
-	recipeID, err := uuidParam(id)
+	existing, cid, err := lockRecipeForWrite(ctx, q, id, callerID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("invalid recipe id: %w", err)
+		return nil, nil, err
 	}
-	cid, err := uuidParam(callerID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("invalid caller id: %w", err)
-	}
-
-	existing, err := q.GetRecipeForWrite(ctx, recipeID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil, models.ErrRecipeNotFound
-		}
-		return nil, nil, fmt.Errorf("failed to get recipe: %w", err)
-	}
+	recipeID := existing.ID
 	if err := recipeWriteError(existing, cid, callerIsAdmin); err != nil {
 		return nil, nil, err
 	}
@@ -516,22 +494,11 @@ func (r *PostgresRecipeRepository) Delete(ctx context.Context, id string, caller
 func (r *PostgresRecipeRepository) Approve(ctx context.Context, id string, callerID string, seenUpdatedAt time.Time) (*models.RecipeDetail, error) {
 	q := queriesFor(ctx, r.db)
 
-	recipeID, err := uuidParam(id)
+	existing, cid, err := lockRecipeForWrite(ctx, q, id, callerID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid recipe id: %w", err)
+		return nil, err
 	}
-	cid, err := uuidParam(callerID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid caller id: %w", err)
-	}
-
-	existing, err := q.GetRecipeForWrite(ctx, recipeID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, models.ErrRecipeNotFound
-		}
-		return nil, fmt.Errorf("failed to get recipe: %w", err)
-	}
+	recipeID := existing.ID
 
 	if existing.Approved {
 		row, err := q.GetRecipeForReader(ctx, sqlc.GetRecipeForReaderParams{
@@ -637,21 +604,9 @@ func (r *PostgresRecipeRepository) ImageInUse(ctx context.Context, publicID stri
 func (r *PostgresRecipeRepository) CheckWritable(ctx context.Context, id string, callerID string, callerIsAdmin bool) error {
 	q := queriesFor(ctx, r.db)
 
-	recipeID, err := uuidParam(id)
+	existing, cid, err := lockRecipeForWrite(ctx, q, id, callerID)
 	if err != nil {
-		return fmt.Errorf("invalid recipe id: %w", err)
-	}
-	cid, err := uuidParam(callerID)
-	if err != nil {
-		return fmt.Errorf("invalid caller id: %w", err)
-	}
-
-	existing, err := q.GetRecipeForWrite(ctx, recipeID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return models.ErrRecipeNotFound
-		}
-		return fmt.Errorf("failed to get recipe: %w", err)
+		return err
 	}
 	return recipeWriteError(existing, cid, callerIsAdmin)
 }
@@ -666,6 +621,26 @@ func (r *PostgresRecipeRepository) MenuUserIDs(ctx context.Context, id string) (
 		return nil, fmt.Errorf("failed to list menus holding recipe: %w", err)
 	}
 	return uuidStrings(ids), nil
+}
+
+// lockRecipeForWrite parses the ids and row-locks the recipe until the transaction ends, mapping a missing one to ErrRecipeNotFound.
+func lockRecipeForWrite(ctx context.Context, q *sqlc.Queries, id, callerID string) (sqlc.GetRecipeForWriteRow, pgtype.UUID, error) {
+	recipeID, err := uuidParam(id)
+	if err != nil {
+		return sqlc.GetRecipeForWriteRow{}, pgtype.UUID{}, fmt.Errorf("invalid recipe id: %w", err)
+	}
+	cid, err := uuidParam(callerID)
+	if err != nil {
+		return sqlc.GetRecipeForWriteRow{}, pgtype.UUID{}, fmt.Errorf("invalid caller id: %w", err)
+	}
+	existing, err := q.GetRecipeForWrite(ctx, recipeID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sqlc.GetRecipeForWriteRow{}, pgtype.UUID{}, models.ErrRecipeNotFound
+		}
+		return sqlc.GetRecipeForWriteRow{}, pgtype.UUID{}, fmt.Errorf("failed to get recipe: %w", err)
+	}
+	return existing, cid, nil
 }
 
 // recipeWriteError reports why callerID may not update/delete a recipe, or nil: admins may write any recipe, owners only while it's pending.
