@@ -22,17 +22,17 @@ var migrationsFS embed.FS
 
 var DB *pgxpool.Pool
 
+const maxPoolConns = 10
+
 func InitDB(databaseURL string) error {
 	if databaseURL == "" {
 		return fmt.Errorf("DATABASE_URL not set")
 	}
 
-	// Neon's pooled endpoint runs PgBouncer in transaction-pooling mode, which breaks server-side perpared statements under concurrent queries - force the simple query protocol
-	poolConfig, err := pgxpool.ParseConfig(databaseURL)
+	poolConfig, err := newPoolConfig(databaseURL)
 	if err != nil {
-		return fmt.Errorf("failed to parse database url: %w", err)
+		return err
 	}
-	poolConfig.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -56,6 +56,17 @@ func InitDB(databaseURL string) error {
 	}
 
 	return nil
+}
+
+func newPoolConfig(databaseURL string) (*pgxpool.Config, error) {
+	poolConfig, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse database url: %w", err)
+	}
+	// Neon's pooled endpoint runs PgBouncer in transaction-pooling mode, which breaks server-side perpared statements under concurrent queries - force the simple query protocol
+	poolConfig.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	poolConfig.MaxConns = maxPoolConns
+	return poolConfig, nil
 }
 
 func runMigrations(databaseURL string) error {
