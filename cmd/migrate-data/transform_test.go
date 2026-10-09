@@ -151,10 +151,14 @@ func TestBuildUsersLowercasesEmail(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, r := range rows {
-		if r.SourceID == realAdmins[0] && r.Email != "francis@x.com" {
-			t.Fatalf("francis email = %q, want francis@x.com", r.Email)
+		if r.SourceID == realAdmins[0] {
+			if r.Email != "francis@x.com" {
+				t.Fatalf("francis email = %q, want francis@x.com", r.Email)
+			}
+			return
 		}
 	}
+	t.Fatal("francis row missing")
 }
 
 // --- buildItems ---

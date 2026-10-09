@@ -448,3 +448,18 @@ func TestGetOrCreateUser_CaseVariantOfPasswordAccountConflicts(t *testing.T) {
 	assert.Nil(t, user)
 	assert.ErrorIs(t, err, models.ErrEmailRegisteredWithPassword)
 }
+
+func TestFindByEmail_UnicodeLookalikeDoesNotMatch(t *testing.T) {
+	ctx := context.Background()
+	local := "repo-test-" + uuid.NewString()
+	id := uuid.New()
+	_, err := db.DB.Exec(ctx,
+		`INSERT INTO users (id, password_hash, email) VALUES ($1, $2, $3)`,
+		id, "bcrypt-hash-placeholder", local+"@kite.com",
+	)
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, id)
+
+	_, err = userRepo.FindByEmail(ctx, local+"@Kite.com")
+	assert.ErrorIs(t, err, models.ErrUserNotFound)
+}

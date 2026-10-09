@@ -321,13 +321,16 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   to stay private — authenticated delivery means signed URLs on every
   render.
 - **Email identity is case-insensitive** (`CROC-069`): `users.email` is
-  stored lowercase, enforced by `CHECK (email = lower(email))` beside the
-  plain `users_email_key` unique constraint; the user repository
-  lowercases every email it looks up or inserts. Rejected: a
+  stored with A–Z lowercased, enforced by `CHECK (email =
+  translate(email, 'A…Z', 'a…z'))` beside the plain `users_email_key`
+  unique constraint; the user repository folds every email it looks up
+  or inserts the same way. Rejected: a
   `lower(email)` index (rewrites every lookup, renames the constraint
   conflict mapping keys on) and `citext` (extension + sqlc override).
-  Display casing is lost. Revisit only if an email-change feature or a
-  real need for display casing appears.
+  Only A–Z fold: Unicode-wide folding (`lower()`, `strings.ToLower`)
+  lets lookalikes such as the Kelvin sign match real accounts. Display
+  casing is lost. Revisit only if an email-change feature or a real need
+  for display casing appears.
 - **Email**: Resend, for verification and password-reset emails (matching
   the old app's provider choice).
 - **API error response shape**: locked in at `CROC-005` (previously
@@ -1123,14 +1126,14 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   (recipe update/delete, and one per photo in `DELETE /me`) also run
   before the response against the same deadline; respond first, destroy
   after. `docs/findings/2026-10-08-tech-debt.md` finding 1.
-- **CROC-069** — Auth identity hardening: emails are matched
-  case-sensitively (duplicate accounts, failed logins, Google login
-  skipping the password-account conflict). Also claim confirmation
-  attempts atomically so concurrent guesses can't exceed the 5-attempt
-  cap. Medium. Findings 2–3. **Grilled** (2026-10-09,
-  `docs/handoffs/CROC-069.md`): stored lowercase under a CHECK (not a
-  `lower(email)` index), normalised in the repository, attempt claimed by
-  one conditional `UPDATE`. Open.
+- **CROC-069** — **Done** (2026-10-09, `docs/handoffs/CROC-069.md`).
+  Emails are stored with A–Z lowercased under the `users_email_lowercase`
+  CHECK (migration `000018`) and folded the same way by the user
+  repository on every lookup and insert, so case variants find the
+  existing account. Only A–Z fold, so Unicode lookalikes don't match.
+  `migrate-data` folds on import. `ConfirmEmail` claims an attempt with
+  one conditional `UPDATE` before comparing the code, so concurrent
+  guesses can't exceed the 5-attempt cap. Findings 2–3.
 - **CROC-070** — Handler convention drift: the 8 admin reference-data
   PATCH/DELETE routes skip `parseID` (a malformed id gives a 500); role
   checks are repeated string literals. Add `parseID`, role constants and

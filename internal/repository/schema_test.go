@@ -445,3 +445,15 @@ func TestUsersEmailMustBeLowercase(t *testing.T) {
 	assert.Equal(t, "23514", pgErr.Code)
 	assert.Equal(t, "users_email_lowercase", pgErr.ConstraintName)
 }
+
+// Only A–Z fold: a non-ASCII capital such as the Kelvin sign is stored as typed, not rejected.
+func TestUsersEmailAllowsNonASCIICapitals(t *testing.T) {
+	id := uuid.New()
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, id)
+
+	_, err := db.DB.Exec(context.Background(),
+		`INSERT INTO users (id, google_id, email) VALUES ($1, $2, $3)`,
+		id, "repo-test-google-"+id.String(), "repo-test-"+id.String()+"@Kite.com",
+	)
+	require.NoError(t, err)
+}

@@ -40,7 +40,11 @@ under. Source: `docs/findings/2026-10-04-tech-debt.md` findings 2–3.
 
 1. **Store lowercase and enforce with a CHECK. No `lower(email)` index,
    no `citext`.** Migration `000018` lowercases existing rows and adds
-   `CONSTRAINT users_email_lowercase CHECK (email = lower(email))`.
+   `CONSTRAINT users_email_lowercase CHECK (email = translate(email,
+   'A…Z', 'a…z'))`. Only A–Z fold, in the CHECK and in Go: Postgres
+   `lower()` (`C.UTF-8`) and Go `strings.ToLower` fold all of Unicode, so
+   `victim@\u212Aite.com` (Kelvin sign) would match `victim@kite.com`.
+   Changed after branch review, before release; `000018` edited in place.
    `users_email_key` stays, so every query and both constraint-name
    matches stay valid. The CHECK makes a write path that forgets to
    normalise fail loudly instead of creating a duplicate. Gives up
@@ -74,7 +78,10 @@ under. Source: `docs/findings/2026-10-04-tech-debt.md` findings 2–3.
 - [ ] Migration `000018` up on the dev DB: existing emails lowercased,
       `users_email_lowercase` present; down/up round-trips.
 - [ ] A raw `INSERT` of a mixed-case email fails with SQLSTATE `23514`
-      on `users_email_lowercase`.
+      on `users_email_lowercase`; a non-ASCII capital (Kelvin sign) is
+      accepted as typed.
+- [ ] `FindByEmail` with a Unicode lookalike of an existing address
+      returns `ErrUserNotFound`.
 - [ ] `CreateUnconfirmedUser("Jane@Example.com")` stores
       `jane@example.com`; `FindByEmail("JANE@example.com")` finds it.
 - [ ] `CreateUnconfirmedUser` with a case variant of an existing
@@ -118,7 +125,8 @@ under. Source: `docs/findings/2026-10-04-tech-debt.md` findings 2–3.
 
 - **Logic** (failing tests first): `./scripts/test-repo.sh -run
   'Email|User|ClaimAttempt'`, `go test ./internal/handler/...`,
-  `go test ./cmd/migrate-data/...`.
+  `go test ./cmd/migrate-data/...` (with `.env` loaded: its load tests
+  need `DATABASE_URL`).
 - **Service boundary**: the migration applied to the Neon dev DB by
   starting the server, then `requests/auth.http` run against the local
   API (`lsof -iTCP:8080 -sTCP:LISTEN` first): register `Mixed@…`,

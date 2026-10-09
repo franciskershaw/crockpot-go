@@ -266,7 +266,12 @@ func buildUsers(users []mongoUser, subs map[oid]string, allowMissingSub bool) ([
 		if !ok {
 			return nil, nil, fmt.Errorf("admin user %s is absent from the User export", adminID)
 		}
-		email := strings.ToLower(src.Email)
+		email := strings.Map(func(r rune) rune {
+			if r >= 'A' && r <= 'Z' {
+				return r + ('a' - 'A')
+			}
+			return r
+		}, src.Email)
 		gid := subs[src.ID]
 		if gid == "" {
 			if !allowMissingSub {

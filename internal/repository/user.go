@@ -13,9 +13,14 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// normaliseEmail matches users.email's lowercase CHECK; every email lookup and insert goes through it.
+// normaliseEmail folds A–Z only, matching users.email's CHECK; full Unicode folding would let lookalikes (Kelvin sign → k) match real accounts.
 func normaliseEmail(email string) string {
-	return strings.ToLower(email)
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, email)
 }
 
 type PostgresUserRepository struct {

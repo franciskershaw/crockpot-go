@@ -696,3 +696,9 @@ implementation quality until CROC-001 lands.
 ## 2026-10-09 — CROC-017 — Admin approval with a stale-view guard; clean build, slips in the handoff and the reds
 
 - No rework in behaviour. The handoff's contract table had two wrong codes (malformed id is `400` via `parseID`, recipe 404 is `not_found`), caught at piece 3. One locked red decoded the success body with the string-only decoder, so it could never go green (stop-and-flag). Review found `Approve` was the fourth copy of the write-lock prelude, the same miss as CROC-051; extracted to `lockRecipeForWrite`.
+
+## 2026-10-09 — CROC-069 — Case-insensitive email identity and an atomic attempt cap; review caught Unicode folding
+
+- One rework: the grill chose `strings.ToLower` and a `lower()` CHECK without asking what they fold beyond ASCII. Branch review found the Kelvin sign folds to `k`, so a lookalike address matched a real account; fixed by folding A–Z only in Go and the CHECK, editing the unreleased `000018` in place. Codes and links already went to the stored address, which kept it low.
+- Red without stubs worked twice: a missing migration and an unconditional increment each failed on assertions, and skipping a stub migration avoided the shared-dev-DB `migrate down` trap.
+- **Pattern**: when normalising an identifier, name the exact character set and check that the app and the database fold it identically (test a non-ASCII case), before the grill records "lowercase".
