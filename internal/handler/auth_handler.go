@@ -51,7 +51,7 @@ type RefreshTokenRepository interface {
 type EmailVerificationTokenRepository interface {
 	Create(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*models.EmailVerificationToken, error)
 	FindActiveByUserID(ctx context.Context, userID string) (*models.EmailVerificationToken, error)
-	IncrementAttempts(ctx context.Context, id string) (*models.EmailVerificationToken, error)
+	ClaimAttempt(ctx context.Context, id string, maxAttempts int) error
 	MarkUsed(ctx context.Context, id string) error
 	DeleteActiveForUser(ctx context.Context, userID string) error
 }
@@ -387,11 +387,16 @@ func (h *AuthHandler) ConfirmEmail(c *gin.Context) {
 		return
 	}
 
-	if auth.HashToken(req.Code) != token.TokenHash {
-		if _, err := h.emailVerificationTokenRepo.IncrementAttempts(ctx, token.ID.String()); err != nil {
-			internalError(c, "failed to record failed confirmation attempt", err)
+	if err := h.emailVerificationTokenRepo.ClaimAttempt(ctx, token.ID.String(), maxConfirmationAttempts); err != nil {
+		if errors.Is(err, models.ErrTooManyAttempts) {
+			badRequest(c, "too_many_attempts")
 			return
 		}
+		internalError(c, "failed to claim confirmation attempt", err)
+		return
+	}
+
+	if auth.HashToken(req.Code) != token.TokenHash {
 		badRequest(c, "code_invalid")
 		return
 	}

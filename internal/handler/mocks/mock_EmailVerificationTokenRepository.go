@@ -25,6 +25,54 @@ func (_m *MockEmailVerificationTokenRepository) EXPECT() *MockEmailVerificationT
 	return &MockEmailVerificationTokenRepository_Expecter{mock: &_m.Mock}
 }
 
+// ClaimAttempt provides a mock function with given fields: ctx, id, maxAttempts
+func (_m *MockEmailVerificationTokenRepository) ClaimAttempt(ctx context.Context, id string, maxAttempts int) error {
+	ret := _m.Called(ctx, id, maxAttempts)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClaimAttempt")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) error); ok {
+		r0 = rf(ctx, id, maxAttempts)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockEmailVerificationTokenRepository_ClaimAttempt_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ClaimAttempt'
+type MockEmailVerificationTokenRepository_ClaimAttempt_Call struct {
+	*mock.Call
+}
+
+// ClaimAttempt is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - maxAttempts int
+func (_e *MockEmailVerificationTokenRepository_Expecter) ClaimAttempt(ctx interface{}, id interface{}, maxAttempts interface{}) *MockEmailVerificationTokenRepository_ClaimAttempt_Call {
+	return &MockEmailVerificationTokenRepository_ClaimAttempt_Call{Call: _e.mock.On("ClaimAttempt", ctx, id, maxAttempts)}
+}
+
+func (_c *MockEmailVerificationTokenRepository_ClaimAttempt_Call) Run(run func(ctx context.Context, id string, maxAttempts int)) *MockEmailVerificationTokenRepository_ClaimAttempt_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(int))
+	})
+	return _c
+}
+
+func (_c *MockEmailVerificationTokenRepository_ClaimAttempt_Call) Return(_a0 error) *MockEmailVerificationTokenRepository_ClaimAttempt_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockEmailVerificationTokenRepository_ClaimAttempt_Call) RunAndReturn(run func(context.Context, string, int) error) *MockEmailVerificationTokenRepository_ClaimAttempt_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Create provides a mock function with given fields: ctx, userID, tokenHash, expiresAt
 func (_m *MockEmailVerificationTokenRepository) Create(ctx context.Context, userID string, tokenHash string, expiresAt time.Time) (*models.EmailVerificationToken, error) {
 	ret := _m.Called(ctx, userID, tokenHash, expiresAt)
@@ -188,65 +236,6 @@ func (_c *MockEmailVerificationTokenRepository_FindActiveByUserID_Call) Return(_
 }
 
 func (_c *MockEmailVerificationTokenRepository_FindActiveByUserID_Call) RunAndReturn(run func(context.Context, string) (*models.EmailVerificationToken, error)) *MockEmailVerificationTokenRepository_FindActiveByUserID_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// IncrementAttempts provides a mock function with given fields: ctx, id
-func (_m *MockEmailVerificationTokenRepository) IncrementAttempts(ctx context.Context, id string) (*models.EmailVerificationToken, error) {
-	ret := _m.Called(ctx, id)
-
-	if len(ret) == 0 {
-		panic("no return value specified for IncrementAttempts")
-	}
-
-	var r0 *models.EmailVerificationToken
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) (*models.EmailVerificationToken, error)); ok {
-		return rf(ctx, id)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) *models.EmailVerificationToken); ok {
-		r0 = rf(ctx, id)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*models.EmailVerificationToken)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, id)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockEmailVerificationTokenRepository_IncrementAttempts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementAttempts'
-type MockEmailVerificationTokenRepository_IncrementAttempts_Call struct {
-	*mock.Call
-}
-
-// IncrementAttempts is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id string
-func (_e *MockEmailVerificationTokenRepository_Expecter) IncrementAttempts(ctx interface{}, id interface{}) *MockEmailVerificationTokenRepository_IncrementAttempts_Call {
-	return &MockEmailVerificationTokenRepository_IncrementAttempts_Call{Call: _e.mock.On("IncrementAttempts", ctx, id)}
-}
-
-func (_c *MockEmailVerificationTokenRepository_IncrementAttempts_Call) Run(run func(ctx context.Context, id string)) *MockEmailVerificationTokenRepository_IncrementAttempts_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockEmailVerificationTokenRepository_IncrementAttempts_Call) Return(_a0 *models.EmailVerificationToken, _a1 error) *MockEmailVerificationTokenRepository_IncrementAttempts_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockEmailVerificationTokenRepository_IncrementAttempts_Call) RunAndReturn(run func(context.Context, string) (*models.EmailVerificationToken, error)) *MockEmailVerificationTokenRepository_IncrementAttempts_Call {
 	_c.Call.Return(run)
 	return _c
 }

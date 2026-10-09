@@ -7,12 +7,6 @@ RETURNING *;
 SELECT * FROM email_verification_tokens
 WHERE user_id = $1 AND used_at IS NULL;
 
--- name: IncrementEmailVerificationTokenAttempts :one
-UPDATE email_verification_tokens
-SET attempts = attempts + 1
-WHERE id = $1
-RETURNING *;
-
 -- name: ClaimEmailVerificationTokenAttempt :one
 UPDATE email_verification_tokens
 SET attempts = attempts + 1

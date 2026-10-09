@@ -54,23 +54,6 @@ func TestEmailVerificationTokenFindActiveByUserID_ReturnsErrWhenNoneActive(t *te
 	assert.ErrorIs(t, err, models.ErrNoActiveEmailVerificationToken)
 }
 
-func TestEmailVerificationTokenIncrementAttempts_IncrementsCount(t *testing.T) {
-	ctx := context.Background()
-	hash := "repo-test-hash-" + uuid.NewString()
-
-	created, err := emailVerificationTokenRepo.Create(ctx, repoUserID.String(), hash, time.Now().Add(10*time.Minute))
-	require.NoError(t, err)
-	cleanupExec(t, `DELETE FROM email_verification_tokens WHERE id = $1`, created.ID)
-
-	updated, err := emailVerificationTokenRepo.IncrementAttempts(ctx, created.ID.String())
-	require.NoError(t, err)
-	assert.Equal(t, 1, updated.Attempts)
-
-	updated, err = emailVerificationTokenRepo.IncrementAttempts(ctx, created.ID.String())
-	require.NoError(t, err)
-	assert.Equal(t, 2, updated.Attempts)
-}
-
 func TestEmailVerificationTokenMarkUsed_ExcludesFromActiveLookup(t *testing.T) {
 	ctx := context.Background()
 	hash := "repo-test-hash-" + uuid.NewString()

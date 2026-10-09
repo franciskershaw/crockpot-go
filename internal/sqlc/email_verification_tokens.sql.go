@@ -97,28 +97,6 @@ func (q *Queries) FindActiveEmailVerificationTokenByUserID(ctx context.Context, 
 	return i, err
 }
 
-const incrementEmailVerificationTokenAttempts = `-- name: IncrementEmailVerificationTokenAttempts :one
-UPDATE email_verification_tokens
-SET attempts = attempts + 1
-WHERE id = $1
-RETURNING id, user_id, token_hash, attempts, expires_at, used_at, created_at
-`
-
-func (q *Queries) IncrementEmailVerificationTokenAttempts(ctx context.Context, id pgtype.UUID) (EmailVerificationToken, error) {
-	row := q.db.QueryRow(ctx, incrementEmailVerificationTokenAttempts, id)
-	var i EmailVerificationToken
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.TokenHash,
-		&i.Attempts,
-		&i.ExpiresAt,
-		&i.UsedAt,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const markEmailVerificationTokenUsed = `-- name: MarkEmailVerificationTokenUsed :exec
 UPDATE email_verification_tokens
 SET used_at = CURRENT_TIMESTAMP

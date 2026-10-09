@@ -53,19 +53,6 @@ func (r *PostgresEmailVerificationTokenRepository) FindActiveByUserID(ctx contex
 	return toModelEmailVerificationToken(found), nil
 }
 
-func (r *PostgresEmailVerificationTokenRepository) IncrementAttempts(ctx context.Context, id string) (*models.EmailVerificationToken, error) {
-	idUUID, err := uuidParam(id)
-	if err != nil {
-		return nil, fmt.Errorf("invalid token id: %w", err)
-	}
-
-	updated, err := queriesFor(ctx, r.db).IncrementEmailVerificationTokenAttempts(ctx, idUUID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to increment email verification token attempts: %w", err)
-	}
-	return toModelEmailVerificationToken(updated), nil
-}
-
 // ClaimAttempt spends one attempt in a single conditional UPDATE, so concurrent guesses can't exceed maxAttempts.
 func (r *PostgresEmailVerificationTokenRepository) ClaimAttempt(ctx context.Context, id string, maxAttempts int) error {
 	idUUID, err := uuidParam(id)
