@@ -320,6 +320,14 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   review (the public_id is a random UUID). Revisit if photos ever need
   to stay private — authenticated delivery means signed URLs on every
   render.
+- **Email identity is case-insensitive** (`CROC-069`): `users.email` is
+  stored lowercase, enforced by `CHECK (email = lower(email))` beside the
+  plain `users_email_key` unique constraint; the user repository
+  lowercases every email it looks up or inserts. Rejected: a
+  `lower(email)` index (rewrites every lookup, renames the constraint
+  conflict mapping keys on) and `citext` (extension + sqlc override).
+  Display casing is lost. Revisit only if an email-change feature or a
+  real need for display casing appears.
 - **Email**: Resend, for verification and password-reset emails (matching
   the old app's provider choice).
 - **API error response shape**: locked in at `CROC-005` (previously
@@ -1117,10 +1125,12 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   after. `docs/findings/2026-10-08-tech-debt.md` finding 1.
 - **CROC-069** — Auth identity hardening: emails are matched
   case-sensitively (duplicate accounts, failed logins, Google login
-  skipping the password-account conflict). Normalise at the boundary
-  plus a `lower(email)` unique index while the migration source is
-  clean. Also claim confirmation attempts atomically so concurrent
-  guesses can't exceed the 5-attempt cap. Medium. Open. Findings 2–3.
+  skipping the password-account conflict). Also claim confirmation
+  attempts atomically so concurrent guesses can't exceed the 5-attempt
+  cap. Medium. Findings 2–3. **Grilled** (2026-10-09,
+  `docs/handoffs/CROC-069.md`): stored lowercase under a CHECK (not a
+  `lower(email)` index), normalised in the repository, attempt claimed by
+  one conditional `UPDATE`. Open.
 - **CROC-070** — Handler convention drift: the 8 admin reference-data
   PATCH/DELETE routes skip `parseID` (a malformed id gives a 500); role
   checks are repeated string literals. Add `parseID`, role constants and
