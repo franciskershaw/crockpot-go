@@ -139,6 +139,24 @@ func TestBuildUsersEmailVerifiedFallback(t *testing.T) {
 	}
 }
 
+func TestBuildUsersLowercasesEmail(t *testing.T) {
+	users := []mongoUser{
+		mUser(realAdmins[0], "F", "Francis@X.com"),
+		mUser(realAdmins[1], "Z", "z@x.com"),
+	}
+	subs := map[oid]string{realAdmins[0]: "S", realAdmins[1]: "S2"}
+
+	rows, _, err := buildUsers(users, subs, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.SourceID == realAdmins[0] && r.Email != "francis@x.com" {
+			t.Fatalf("francis email = %q, want francis@x.com", r.Email)
+		}
+	}
+}
+
 // --- buildItems ---
 
 func itemDepsFixture() itemDeps {

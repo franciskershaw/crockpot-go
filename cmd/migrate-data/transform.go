@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -265,6 +266,7 @@ func buildUsers(users []mongoUser, subs map[oid]string, allowMissingSub bool) ([
 		if !ok {
 			return nil, nil, fmt.Errorf("admin user %s is absent from the User export", adminID)
 		}
+		email := strings.ToLower(src.Email)
 		gid := subs[src.ID]
 		if gid == "" {
 			if !allowMissingSub {
@@ -272,8 +274,8 @@ func buildUsers(users []mongoUser, subs map[oid]string, allowMissingSub bool) ([
 					"user %s (%s) has no google account in Account.json; pass --allow-missing-google-sub to insert a placeholder",
 					src.ID, src.Email)
 			}
-			gid = "pending:" + src.Email
-			notes = append(notes, transformNote{Kind: noteGoogleSubPending, Entity: src.Email,
+			gid = "pending:" + email
+			notes = append(notes, transformNote{Kind: noteGoogleSubPending, Entity: email,
 				Detail: "inserted google_id " + gid + "; fix with an UPDATE once the real sub is known"})
 		}
 		verified := src.CreatedAt.Time
@@ -283,7 +285,7 @@ func buildUsers(users []mongoUser, subs map[oid]string, allowMissingSub bool) ([
 		rows = append(rows, userRow{
 			SourceID:        src.ID,
 			ID:              objectIDToUUID(src.ID),
-			Email:           src.Email,
+			Email:           email,
 			GoogleID:        gid,
 			Name:            src.Name,
 			Role:            "ADMIN",
