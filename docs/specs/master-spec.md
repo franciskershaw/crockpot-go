@@ -559,9 +559,11 @@ session.*
   `CROC-015`'s 403 (visible)/404 (hidden) enumeration-defense split.
   Cloudinary orphan cleanup deliberately out of scope — owned by
   `CROC-040`.
-- **CROC-017** — Admin approval (`PATCH /recipes/:id/approve`, admin-only).
-  May add a `GET /recipes?approved=false` admin-only pending-queue filter
-  (CROC-015 makes admins see all recipes but adds no focused filter).
+- **CROC-017** — Admin approval (`PATCH /recipes/:id/approve`, admin-only,
+  body `{updatedAt}` with `409 recipe_changed` on a stale view) plus a
+  `GET /recipes?approved=false` pending filter. Approval is one-way;
+  rejecting is admin delete. Grilled 2026-10-09, see
+  `docs/handoffs/CROC-017.md`.
 - **CROC-018** — Favourites: `POST`/`DELETE /recipes/:id/favourite`
   (idempotent toggle) + `GET /recipes/favourites` (paginated, own
   favourites only). **Done** (2026-09-02, `docs/handoffs/CROC-018.md`).
