@@ -772,6 +772,20 @@ session.*
   transaction; the recipe row is locked `FOR UPDATE` so a concurrent menu
   add either lands first or gets 404.
 
+- **CROC-073** — Keep water off generated shopping lists. Founder-raised
+  in the pre-MVP bug run (2026-10-09). Not blocking go-live. Water is an
+  ordinary item in Cupboard (an ingredient category), so
+  `AggregateMenuIngredients` puts it on every list whose menu has a
+  recipe using it. Proposed: an item-level `always_on_hand` flag
+  (migration sets it on Water), skipped by `AggregateMenuIngredients`
+  and exposed on the items response. Adding it by hand (bottled water)
+  stays allowed. No admin toggle for MVP. The old app hard-coded water's
+  ID and hid it from display, which also hid manually added water. Needs
+  a short grill (new column and API field). Open: should a flagged item
+  also stop counting toward browse ingredient-match ranking, and should
+  anything besides Water be flagged on day one? Frontend half:
+  `crockpot-react` `CFE-058`.
+
 ### Epic 7: Roles & Tier Gating
 - **CROC-023** — **Delivered by CROC-014** (`docs/handoffs/CROC-014.md`
   decision 1). The recipe-cap limit helper: a `role`-keyed limit lookup
