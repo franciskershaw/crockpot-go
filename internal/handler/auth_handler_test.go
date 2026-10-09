@@ -668,6 +668,7 @@ func TestConfirmEmail_Success(t *testing.T) {
 
 	m.userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(confirmUser, nil)
 	m.emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, confirmUser.ID.String()).Return(token, nil)
+	m.emailTokenRepo.EXPECT().ClaimAttempt(mock.Anything, token.ID.String(), 5).Return(nil)
 	m.userRepo.EXPECT().MarkEmailConfirmed(mock.Anything, confirmUser.ID.String()).Return(confirmUser, nil)
 	m.emailTokenRepo.EXPECT().MarkUsed(mock.Anything, token.ID.String()).Return(nil)
 
@@ -723,7 +724,7 @@ func TestConfirmEmail_Fails(t *testing.T) {
 			wantError: "code_expired",
 		},
 		{
-			name: "wrong code increments attempts",
+			name: "wrong code claims an attempt",
 			setup: func(userRepo *genmocks.MockUserRepository, emailTokenRepo *genmocks.MockEmailVerificationTokenRepository) {
 				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(confirmUser, nil)
 				tokenID := uuid.New()
@@ -731,10 +732,38 @@ func TestConfirmEmail_Fails(t *testing.T) {
 					ID: tokenID, UserID: confirmUser.ID, TokenHash: auth.HashToken("482913"),
 					Attempts: 0, ExpiresAt: time.Now().Add(5 * time.Minute),
 				}, nil)
-				emailTokenRepo.EXPECT().IncrementAttempts(mock.Anything, tokenID.String()).Return(&models.EmailVerificationToken{ID: tokenID, Attempts: 1}, nil)
+				emailTokenRepo.EXPECT().ClaimAttempt(mock.Anything, tokenID.String(), 5).Return(nil)
 			},
 			wantCode:  http.StatusBadRequest,
 			wantError: "code_invalid",
+		},
+		{
+			name: "claim refused by a concurrent guess",
+			setup: func(userRepo *genmocks.MockUserRepository, emailTokenRepo *genmocks.MockEmailVerificationTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(confirmUser, nil)
+				tokenID := uuid.New()
+				emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, confirmUser.ID.String()).Return(&models.EmailVerificationToken{
+					ID: tokenID, UserID: confirmUser.ID, TokenHash: auth.HashToken("000000"),
+					Attempts: 4, ExpiresAt: time.Now().Add(5 * time.Minute),
+				}, nil)
+				emailTokenRepo.EXPECT().ClaimAttempt(mock.Anything, tokenID.String(), 5).Return(models.ErrTooManyAttempts)
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "too_many_attempts",
+		},
+		{
+			name: "claim generic error",
+			setup: func(userRepo *genmocks.MockUserRepository, emailTokenRepo *genmocks.MockEmailVerificationTokenRepository) {
+				userRepo.EXPECT().FindByEmail(mock.Anything, "confirm@example.com").Return(confirmUser, nil)
+				tokenID := uuid.New()
+				emailTokenRepo.EXPECT().FindActiveByUserID(mock.Anything, confirmUser.ID.String()).Return(&models.EmailVerificationToken{
+					ID: tokenID, UserID: confirmUser.ID, TokenHash: auth.HashToken("000000"),
+					Attempts: 0, ExpiresAt: time.Now().Add(5 * time.Minute),
+				}, nil)
+				emailTokenRepo.EXPECT().ClaimAttempt(mock.Anything, tokenID.String(), 5).Return(errors.New("db exploded"))
+			},
+			wantCode:  http.StatusInternalServerError,
+			wantError: "server_error",
 		},
 		{
 			name: "already locked out",

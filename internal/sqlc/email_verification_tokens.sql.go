@@ -11,6 +11,25 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const claimEmailVerificationTokenAttempt = `-- name: ClaimEmailVerificationTokenAttempt :one
+UPDATE email_verification_tokens
+SET attempts = attempts + 1
+WHERE id = $1 AND attempts < $2
+RETURNING attempts
+`
+
+type ClaimEmailVerificationTokenAttemptParams struct {
+	ID          pgtype.UUID
+	MaxAttempts int32
+}
+
+func (q *Queries) ClaimEmailVerificationTokenAttempt(ctx context.Context, arg ClaimEmailVerificationTokenAttemptParams) (int32, error) {
+	row := q.db.QueryRow(ctx, claimEmailVerificationTokenAttempt, arg.ID, arg.MaxAttempts)
+	var attempts int32
+	err := row.Scan(&attempts)
+	return attempts, err
+}
+
 const createEmailVerificationToken = `-- name: CreateEmailVerificationToken :one
 INSERT INTO email_verification_tokens (user_id, token_hash, expires_at)
 VALUES ($1, $2, $3)
@@ -65,28 +84,6 @@ WHERE user_id = $1 AND used_at IS NULL
 
 func (q *Queries) FindActiveEmailVerificationTokenByUserID(ctx context.Context, userID pgtype.UUID) (EmailVerificationToken, error) {
 	row := q.db.QueryRow(ctx, findActiveEmailVerificationTokenByUserID, userID)
-	var i EmailVerificationToken
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.TokenHash,
-		&i.Attempts,
-		&i.ExpiresAt,
-		&i.UsedAt,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const incrementEmailVerificationTokenAttempts = `-- name: IncrementEmailVerificationTokenAttempts :one
-UPDATE email_verification_tokens
-SET attempts = attempts + 1
-WHERE id = $1
-RETURNING id, user_id, token_hash, attempts, expires_at, used_at, created_at
-`
-
-func (q *Queries) IncrementEmailVerificationTokenAttempts(ctx context.Context, id pgtype.UUID) (EmailVerificationToken, error) {
-	row := q.db.QueryRow(ctx, incrementEmailVerificationTokenAttempts, id)
 	var i EmailVerificationToken
 	err := row.Scan(
 		&i.ID,

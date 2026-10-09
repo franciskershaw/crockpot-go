@@ -261,6 +261,32 @@ Content-Type: application/json
 
 ###
 
+### Setup for the case-insensitivity check below — registers a mixed-case
+### address. Expect 500 for the same Resend reason as the 🔒 403 setup
+### above; the row is committed, stored lowercase.
+POST http://localhost:{{$dotenv PORT}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "Crockpot-HTTP-Test-Case@Example.com",
+  "password": "correcthorsebattery",
+  "name": "HTTP Test Case User"
+}
+
+###
+
+### 🔒 403 — the mixed-case account above, logged into in lowercase. 403
+### (not 401 invalid_credentials) proves the lookup found it.
+POST http://localhost:{{$dotenv PORT}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "crockpot-http-test-case@example.com",
+  "password": "correcthorsebattery"
+}
+
+###
+
 ### Setup for the 🔒 401 case below — no register/confirm path produces
 ### a Google-only account, so insert one directly (mirrors the expired-
 ### code setup above). password_hash stays NULL: the users table CHECK
@@ -525,7 +551,7 @@ Content-Type: application/json
 #  Cleanup
 # ══════════════════════════════════════════
 
-### The ✅ 201 register request, the 🔒 403 setup register, and the 🔒
+### The ✅ 201 register request, the 🔒 403 and case-check setup registers, and the 🔒
 ### 401 setup INSERT above are the only requests that leave top-level
 ### rows behind — everything else fails before reaching the DB or acts
 ### on one of those same rows or their children (the password reset
@@ -537,5 +563,6 @@ Content-Type: application/json
 #   DELETE FROM users WHERE email IN (
 #     'REPLACE_WITH_YOUR_REAL_EMAIL',
 #     'crockpot-http-test-login-unconfirmed@example.com',
+#     'crockpot-http-test-case@example.com',
 #     'crockpot-http-test-login-google@example.com'
 #   );

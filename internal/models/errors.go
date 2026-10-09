@@ -10,6 +10,8 @@ var ErrEmailUnconfirmed = errors.New("email has an existing unconfirmed registra
 
 var ErrNoActiveEmailVerificationToken = errors.New("no active email verification token for user")
 
+var ErrTooManyAttempts = errors.New("confirmation code attempts exhausted")
+
 var ErrNoActivePasswordResetToken = errors.New("no active password reset token")
 
 var ErrUserNotFound = errors.New("user not found")

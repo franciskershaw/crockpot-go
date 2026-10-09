@@ -9,6 +9,7 @@ import (
 
 	"github.com/franciskershaw/crockpot-go/db"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -427,4 +428,32 @@ func TestRegularItemsSchema(t *testing.T) {
 		_, err := db.DB.Exec(context.Background(), `DELETE FROM units WHERE id = $1`, unit)
 		assert.Error(t, err)
 	})
+}
+
+// Emails are identities matched case-insensitively; storage is lowercase so the plain unique constraint does the matching.
+func TestUsersEmailMustBeLowercase(t *testing.T) {
+	id := uuid.New()
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, id)
+
+	_, err := db.DB.Exec(context.Background(),
+		`INSERT INTO users (id, google_id, email) VALUES ($1, $2, $3)`,
+		id, "repo-test-google-"+id.String(), "Repo-Test-"+id.String()+"@Example.com",
+	)
+
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr, "a mixed-case email was stored")
+	assert.Equal(t, "23514", pgErr.Code)
+	assert.Equal(t, "users_email_lowercase", pgErr.ConstraintName)
+}
+
+// Only A–Z fold: a non-ASCII capital such as the Kelvin sign is stored as typed, not rejected.
+func TestUsersEmailAllowsNonASCIICapitals(t *testing.T) {
+	id := uuid.New()
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, id)
+
+	_, err := db.DB.Exec(context.Background(),
+		`INSERT INTO users (id, google_id, email) VALUES ($1, $2, $3)`,
+		id, "repo-test-google-"+id.String(), "repo-test-"+id.String()+"@Kite.com",
+	)
+	require.NoError(t, err)
 }

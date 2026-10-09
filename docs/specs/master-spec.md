@@ -320,6 +320,17 @@ app granted ADMIN: manually, by an admin. No separate beta-access flag.
   review (the public_id is a random UUID). Revisit if photos ever need
   to stay private — authenticated delivery means signed URLs on every
   render.
+- **Email identity is case-insensitive** (`CROC-069`): `users.email` is
+  stored with A–Z lowercased, enforced by `CHECK (email =
+  translate(email, 'A…Z', 'a…z'))` beside the plain `users_email_key`
+  unique constraint; the user repository folds every email it looks up
+  or inserts the same way. Rejected: a
+  `lower(email)` index (rewrites every lookup, renames the constraint
+  conflict mapping keys on) and `citext` (extension + sqlc override).
+  Only A–Z fold: Unicode-wide folding (`lower()`, `strings.ToLower`)
+  lets lookalikes such as the Kelvin sign match real accounts. Display
+  casing is lost. Revisit only if an email-change feature or a real need
+  for display casing appears.
 - **Email**: Resend, for verification and password-reset emails (matching
   the old app's provider choice).
 - **API error response shape**: locked in at `CROC-005` (previously
@@ -580,10 +591,10 @@ session.*
   CROC-014's contract — every `recipe_ingredients` row still carries a
   real `item_id`. Rejected alternative: nullable `item_id` + free-text
   `raw_text` on `recipe_ingredients` (guts shopping-list aggregation).
-  **Sequencing:** must land before real FREE-user signup opens or the
-  frontend recipe-create form ships, else users hit "item not found"
-  walls. Until then the founder (admin) adds missing items via CROC-012's
-  `/items` API. Grill properly before building — the approve-vs-merge
+  **Sequencing:** not a launch blocker (founder, 2026-10-09). Signup opens
+  without it: a non-admin whose ingredient isn't in the ~390-item catalog
+  can't add it, which is accepted. The founder (admin) adds missing items
+  meanwhile. Grill properly before building — the approve-vs-merge
   UX and near-duplicate handling are open.
 - **CROC-040** — Recipe photos: proxied multipart upload to Cloudinary
   plus cleanup of replaced/removed/deleted assets. **Done** (2026-10-02,
@@ -809,15 +820,14 @@ session.*
   `-data-review` companion) and the "Data migration" architecture bullet.
   - **Not yet run against prod** — a separate explicitly-approved step at
     real cutover, from a *fresh* export of all 8 collections (including
-    `RecipeMenu`) (`--allow-prod --yes`). Before it: the history import
-    has no zero-date guard (a missing date would load as `0001-01-01`);
-    add the `fallbackTime`-plus-note pattern recipes already use.
+    `RecipeMenu`) (`--allow-prod --yes`), run by `CROC-077`. Before it:
+    `CROC-074` (zero-date guard on the history import).
   - **Still deferred to a later pass**: the 40 spam users, favourites,
     the current-menu `entries` and `shoppinglists` (a scrapped menu is
     acceptable at cutover). Menu **history** for the two real users is
     imported by `CROC-020` (into `menu_history_baseline`).
   - **Delete the tool** (`cmd/migrate-data/` + `internal/sqlc/migrate.sql*`)
-    once prod cutover is done and settled — disposal steps in the handoff.
+    once prod cutover is done and settled — `CROC-078`.
 
 ### Epic 9: Premium — Weekly Planner
 - **CROC-025** — Planner schema + CRUD: day × meal-slot (breakfast/lunch/
@@ -878,6 +888,81 @@ is in `crockpot-react`'s `docs/handoffs/CFE-055.md`. Build `CROC-051`, then
 - **CROC-030** — **Done** (2026-10-08). `DELETE /me`: hard delete under a
   user row lock; drafts deleted (lists rebuilt, photos destroyed),
   approved recipes kept with a null creator. `docs/handoffs/CROC-030.md`.
+
+### Epic 13: Deployment & Go-live
+*Set 2026-10-09: ship the MVP and start using it for real. Signup opens to
+everyone at launch. This epic is the go-live roadmap for both repos;
+`crockpot-react`'s Epic 8 holds the frontend tickets it sequences.*
+
+**Go-live order**
+1. **Code, one commit each:** `CROC-069` (before the prod import, while
+   the source emails are clean), `CROC-074`, `CROC-066` (needs the
+   droplet's CPU count and the Neon plan, so check those first),
+   `CROC-075`; frontend `CFE-063`, `CFE-065`.
+2. **Security reviews:** `CROC-076` + `crockpot-react` `CFE-064`, run after
+   step 1 so the deploy config is in scope.
+3. **Cutover:** `CROC-077`, which runs `crockpot-react` `CFE-066`,
+   `CFE-044` and `CFE-062` in its sequence.
+4. **Once settled:** `CROC-078`.
+
+Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
+`CROC-070`–`CROC-073`, `crockpot-react` `CFE-056`/`CFE-058`.
+
+- **CROC-074** — `migrate-data` prod readiness: the history import has no
+  zero-date guard, so a missing date loads as `0001-01-01`. Add the
+  `fallbackTime`-plus-note pattern recipes already use. Small. Open.
+- **CROC-075** — Deploy pipeline, copied from `packing-list-go`
+  (`Dockerfile`, `.dockerignore`, `nginx/`, the `build`/`deploy` jobs in
+  `.github/workflows/ci.yml`; decisions in its `docs/handoffs/PACK-038.md`):
+  multi-stage distroless image, blue-green swap with a `:previous`
+  rollback, host-side `/health` poll. Differences from that precedent:
+  - nginx `client_max_body_size 6m` (photo uploads, `CROC-040`/`CROC-068`).
+  - nginx restores the client IP behind Cloudflare (`set_real_ip_from`
+    Cloudflare's ranges, `real_ip_header CF-Connecting-IP`). Without it
+    Gin's `ClientIP()` is a Cloudflare edge address and every per-IP rate
+    limit (login 10/min) is shared by everyone on that edge.
+  - Extra env: `RESEND_API_KEY`, `EMAIL_FROM`, the four `CLOUDINARY_*`
+    (`CLOUDINARY_UPLOAD_FOLDER=recipes`), `TRUSTED_PROXIES=127.0.0.1`.
+  - A free droplet port (`events-api` 5500, `salary-split-api` 5300,
+    `packing-list-api` 5400).
+  CI's `checks` job keeps its Postgres service container. Verified by
+  the first real deploy passing its health check. Open.
+- **CROC-076** — Pre-launch security review, the first for this repo (five
+  tech-debt passes, no security pass). Findings to a dated
+  `docs/findings/` doc; fix what blocks launch, file the rest. Paired
+  with `crockpot-react` `CFE-064`. Open.
+- **CROC-077** — Production cutover. Mostly accounts, config and data,
+  little code. Replaces the old Next.js site, live on Vercel today.
+  - **Accounts and config, before deploying:**
+    - Neon: a prod branch; if IP Allow is on, add the droplet; know the
+      plan's restore window.
+    - Google OAuth: add `https://<api host>/auth/google/callback` and the
+      frontend origin; the consent screen must be "In production", or
+      only listed test users can sign in.
+    - Resend: verify the sending domain for `EMAIL_FROM`.
+    - DNS (Cloudflare): the API on a subdomain of the frontend's domain.
+      The refresh cookie is `SameSite=None` in production
+      (`auth_handler.go` `setRefreshCookie`); on another registrable
+      domain Safari blocks it as third-party and sessions die every
+      15 min. `FRONTEND_URL` is the one CORS origin: pick apex or `www`,
+      redirect the other.
+    - GitHub secrets for `CROC-075`.
+  - **Item audit** (e.g. ready meals into better categories): in the old
+    Mongo data before the export, or via `/items` after the import.
+    Never only in the dev DB: `migrate-data` truncates and reloads items.
+  - **Sequence:** deploy the API (schema and reference data self-provision
+    through migrations `000003`/`000004`/`000006`) → take the old site
+    offline → fresh export of all 8 collections → `migrate-data
+    --allow-prod --yes` → `crockpot-react` `CFE-066` (Vercel) → `CFE-044`
+    (headers) → `CFE-062` checks and `CFE-049`'s phone upload/429 check →
+    smoke test with both real accounts (Google sign-in lands on the
+    migrated row).
+  Open.
+- **CROC-078** — Post-cutover cleanup, once prod is settled: delete
+  `cmd/migrate-data/` + `internal/sqlc/migrate.sql*` (disposal steps in
+  `docs/handoffs/CROC-024.md`), retire the old Mongo database and the old
+  app's repo/Vercel link, and rewrite both repos' `CLAUDE.md` "Not
+  deployed yet" banners and planned-hosting lines. Open.
 
 ### Tech Debt & Production Readiness
 *From the first whole-codebase tech-debt pass, 2026-08-30. Full detail:
@@ -1024,9 +1109,8 @@ is in `crockpot-react`'s `docs/handoffs/CFE-055.md`. Build `CROC-051`, then
   returns `total`/`totalPages` 0 (reverses CROC-015; no consumer).
 - **CROC-066** — Deploy readiness: explicit pgxpool `MaxConns` plus a
   server-side `statement_timeout`, and run the token sweeper once at
-  startup. Open, *time-coupled: do alongside the deploy-pipeline ticket
-  (not yet numbered), once the droplet's CPU count and Neon plan are
-  known.* Findings 6–7.
+  startup. Open, *time-coupled: do alongside `CROC-075` (deploy pipeline),
+  once the droplet's CPU count and Neon plan are known.* Findings 6–7.
 
 *From the fourth whole-codebase tech-debt pass, 2026-10-04. Full detail:
 `docs/findings/2026-10-04-tech-debt.md`.*
@@ -1037,18 +1121,19 @@ is in `crockpot-react`'s `docs/handoffs/CFE-055.md`. Build `CROC-051`, then
   then duplicates the recipe. Per-route deadlines via
   `http.ResponseController`, Cloudinary timeout under the remaining
   budget. Medium. Open, *half time-coupled: nginx's default
-  `client_max_body_size` (1m) must be raised to ≥6m in the deploy-
-  pipeline ticket (not yet numbered); the deadline fix doesn't wait for
-  it.* Finding 1. *Widened 2026-10-08:* best-effort photo destroys
+  `client_max_body_size` (1m) must be raised to ≥6m in `CROC-075`; the
+  deadline fix doesn't wait for it.* Finding 1. *Widened 2026-10-08:* best-effort photo destroys
   (recipe update/delete, and one per photo in `DELETE /me`) also run
   before the response against the same deadline; respond first, destroy
   after. `docs/findings/2026-10-08-tech-debt.md` finding 1.
-- **CROC-069** — Auth identity hardening: emails are matched
-  case-sensitively (duplicate accounts, failed logins, Google login
-  skipping the password-account conflict). Normalise at the boundary
-  plus a `lower(email)` unique index while the migration source is
-  clean. Also claim confirmation attempts atomically so concurrent
-  guesses can't exceed the 5-attempt cap. Medium. Open. Findings 2–3.
+- **CROC-069** — **Done** (2026-10-09, `docs/handoffs/CROC-069.md`).
+  Emails are stored with A–Z lowercased under the `users_email_lowercase`
+  CHECK (migration `000018`) and folded the same way by the user
+  repository on every lookup and insert, so case variants find the
+  existing account. Only A–Z fold, so Unicode lookalikes don't match.
+  `migrate-data` folds on import. `ConfirmEmail` claims an attempt with
+  one conditional `UPDATE` before comparing the code, so concurrent
+  guesses can't exceed the 5-attempt cap. Findings 2–3.
 - **CROC-070** — Handler convention drift: the 8 admin reference-data
   PATCH/DELETE routes skip `parseID` (a malformed id gives a 500); role
   checks are repeated string literals. Add `parseID`, role constants and

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/franciskershaw/crockpot-go/internal/models"
 	"github.com/franciskershaw/crockpot-go/internal/sqlc"
@@ -11,6 +12,16 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+// normaliseEmail folds A–Z only, matching users.email's CHECK; full Unicode folding would let lookalikes (Kelvin sign → k) match real accounts.
+func normaliseEmail(email string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, email)
+}
 
 type PostgresUserRepository struct {
 	db sqlc.DBTX
@@ -22,6 +33,7 @@ func NewPostgresUserRepository(db sqlc.DBTX) *PostgresUserRepository {
 
 // GetOrCreateUser updates only last_login_at on a google_id match (the stored name is the user's to edit), creates one otherwise, or returns models.ErrEmailRegisteredWithPassword on an email conflict.
 func (r *PostgresUserRepository) GetOrCreateUser(ctx context.Context, email, googleID, displayName string) (*models.User, error) {
+	email = normaliseEmail(email)
 	existing, err := queriesFor(ctx, r.db).GetUserByGoogleID(ctx, textParam(googleID))
 	switch {
 	case err == nil:
@@ -55,6 +67,7 @@ func (r *PostgresUserRepository) GetOrCreateUser(ctx context.Context, email, goo
 
 // On an email collision, distinguishes a Google account, a confirmed password account, and an abandoned unconfirmed signup rather than one generic conflict error.
 func (r *PostgresUserRepository) CreateUnconfirmedUser(ctx context.Context, email, passwordHash, name string) (*models.User, error) {
+	email = normaliseEmail(email)
 	created, err := queriesFor(ctx, r.db).CreateUnconfirmedUser(ctx, sqlc.CreateUnconfirmedUserParams{
 		Email:        email,
 		PasswordHash: textParam(passwordHash),
@@ -82,7 +95,7 @@ func (r *PostgresUserRepository) CreateUnconfirmedUser(ctx context.Context, emai
 }
 
 func (r *PostgresUserRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
-	found, err := queriesFor(ctx, r.db).GetUserByEmail(ctx, email)
+	found, err := queriesFor(ctx, r.db).GetUserByEmail(ctx, normaliseEmail(email))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, models.ErrUserNotFound

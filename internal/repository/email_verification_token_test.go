@@ -2,6 +2,8 @@ package repository_test
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -50,23 +52,6 @@ func TestEmailVerificationTokenFindActiveByUserID_ReturnsErrWhenNoneActive(t *te
 
 	_, err := emailVerificationTokenRepo.FindActiveByUserID(ctx, userWithNoToken.String())
 	assert.ErrorIs(t, err, models.ErrNoActiveEmailVerificationToken)
-}
-
-func TestEmailVerificationTokenIncrementAttempts_IncrementsCount(t *testing.T) {
-	ctx := context.Background()
-	hash := "repo-test-hash-" + uuid.NewString()
-
-	created, err := emailVerificationTokenRepo.Create(ctx, repoUserID.String(), hash, time.Now().Add(10*time.Minute))
-	require.NoError(t, err)
-	cleanupExec(t, `DELETE FROM email_verification_tokens WHERE id = $1`, created.ID)
-
-	updated, err := emailVerificationTokenRepo.IncrementAttempts(ctx, created.ID.String())
-	require.NoError(t, err)
-	assert.Equal(t, 1, updated.Attempts)
-
-	updated, err = emailVerificationTokenRepo.IncrementAttempts(ctx, created.ID.String())
-	require.NoError(t, err)
-	assert.Equal(t, 2, updated.Attempts)
 }
 
 func TestEmailVerificationTokenMarkUsed_ExcludesFromActiveLookup(t *testing.T) {
@@ -134,4 +119,50 @@ func TestEmailVerificationTokenDeleteActiveForUser_RemovesActiveRow(t *testing.T
 
 	_, err = emailVerificationTokenRepo.FindActiveByUserID(ctx, repoUserID.String())
 	assert.ErrorIs(t, err, models.ErrNoActiveEmailVerificationToken)
+}
+
+func TestEmailVerificationTokenClaimAttempt_RefusesPastMax(t *testing.T) {
+	ctx := context.Background()
+	created, err := emailVerificationTokenRepo.Create(ctx, repoUserID.String(), "repo-test-hash-"+uuid.NewString(), time.Now().Add(10*time.Minute))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM email_verification_tokens WHERE id = $1`, created.ID)
+
+	for i := range 3 {
+		require.NoError(t, emailVerificationTokenRepo.ClaimAttempt(ctx, created.ID.String(), 3), "claim %d", i+1)
+	}
+	assert.ErrorIs(t, emailVerificationTokenRepo.ClaimAttempt(ctx, created.ID.String(), 3), models.ErrTooManyAttempts)
+	assert.Equal(t, 3, rowCount(t, `SELECT attempts FROM email_verification_tokens WHERE id = $1`, created.ID))
+}
+
+func TestEmailVerificationTokenClaimAttempt_ConcurrentClaimsStopAtMax(t *testing.T) {
+	ctx := context.Background()
+	created, err := emailVerificationTokenRepo.Create(ctx, repoUserID.String(), "repo-test-hash-"+uuid.NewString(), time.Now().Add(10*time.Minute))
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM email_verification_tokens WHERE id = $1`, created.ID)
+
+	const claims, maxAttempts = 20, 5
+	errs := make([]error, claims)
+	var wg sync.WaitGroup
+	for i := range claims {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = emailVerificationTokenRepo.ClaimAttempt(ctx, created.ID.String(), maxAttempts)
+		}(i)
+	}
+	wg.Wait()
+
+	succeeded, refused := 0, 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, models.ErrTooManyAttempts):
+			refused++
+		default:
+			t.Errorf("unexpected claim error: %v", err)
+		}
+	}
+	assert.Equal(t, maxAttempts, succeeded)
+	assert.Equal(t, claims-maxAttempts, refused)
 }

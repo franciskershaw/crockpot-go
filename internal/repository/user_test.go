@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -366,4 +367,99 @@ func TestFindByIDForUpdate_BlocksConcurrentWriteUntilCommit(t *testing.T) {
 
 	require.NoError(t, <-holdErr)
 	require.NoError(t, <-written)
+}
+
+func TestCreateUnconfirmedUser_StoresEmailLowercase(t *testing.T) {
+	ctx := context.Background()
+	email := "repo-test-" + uuid.NewString() + "@example.com"
+
+	user, err := userRepo.CreateUnconfirmedUser(ctx, strings.ToUpper(email), "bcrypt-hash-placeholder", "Test User")
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, user.ID)
+
+	assert.Equal(t, email, user.Email)
+}
+
+func TestFindByEmail_MatchesAnyCase(t *testing.T) {
+	ctx := context.Background()
+	email := "repo-test-" + uuid.NewString() + "@example.com"
+	id := uuid.New()
+	_, err := db.DB.Exec(ctx,
+		`INSERT INTO users (id, password_hash, email) VALUES ($1, $2, $3)`,
+		id, "bcrypt-hash-placeholder", email,
+	)
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, id)
+
+	found, err := userRepo.FindByEmail(ctx, strings.ToUpper(email))
+	require.NoError(t, err)
+	assert.Equal(t, id, found.ID)
+}
+
+func TestCreateUnconfirmedUser_CaseVariantOfExistingEmailConflicts(t *testing.T) {
+	cases := []struct {
+		name   string
+		insert string
+		want   error
+	}{
+		{"google account", `INSERT INTO users (id, email, google_id, email_verified_at) VALUES ($1, $2, 'repo-test-google-' || $1::text, CURRENT_TIMESTAMP)`, models.ErrEmailRegisteredWithGoogle},
+		{"confirmed password account", `INSERT INTO users (id, email, password_hash, email_verified_at) VALUES ($1, $2, 'bcrypt-hash-placeholder', CURRENT_TIMESTAMP)`, models.ErrEmailRegisteredWithPassword},
+		{"unconfirmed signup", `INSERT INTO users (id, email, password_hash) VALUES ($1, $2, 'bcrypt-hash-placeholder')`, models.ErrEmailUnconfirmed},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			email := "repo-test-" + uuid.NewString() + "@example.com"
+			id := uuid.New()
+			_, err := db.DB.Exec(ctx, tc.insert, id, email)
+			require.NoError(t, err)
+			cleanupExec(t, `DELETE FROM users WHERE id = $1`, id)
+
+			user, err := userRepo.CreateUnconfirmedUser(ctx, strings.ToUpper(email), "bcrypt-hash-placeholder", "Test User")
+			assert.Nil(t, user)
+			assert.ErrorIs(t, err, tc.want)
+		})
+	}
+}
+
+func TestGetOrCreateUser_StoresEmailLowercase(t *testing.T) {
+	ctx := context.Background()
+	email := "repo-test-" + uuid.NewString() + "@example.com"
+
+	user, err := userRepo.GetOrCreateUser(ctx, strings.ToUpper(email), "repo-test-google-"+uuid.NewString(), "Test User")
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, user.ID)
+
+	assert.Equal(t, email, user.Email)
+}
+
+func TestGetOrCreateUser_CaseVariantOfPasswordAccountConflicts(t *testing.T) {
+	ctx := context.Background()
+	email := "repo-test-" + uuid.NewString() + "@example.com"
+	id := uuid.New()
+	_, err := db.DB.Exec(ctx,
+		`INSERT INTO users (id, password_hash, email) VALUES ($1, $2, $3)`,
+		id, "bcrypt-hash-placeholder", email,
+	)
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, id)
+
+	user, err := userRepo.GetOrCreateUser(ctx, strings.ToUpper(email), "repo-test-google-"+uuid.NewString(), "Test User")
+	assert.Nil(t, user)
+	assert.ErrorIs(t, err, models.ErrEmailRegisteredWithPassword)
+}
+
+func TestFindByEmail_UnicodeLookalikeDoesNotMatch(t *testing.T) {
+	ctx := context.Background()
+	local := "repo-test-" + uuid.NewString()
+	id := uuid.New()
+	_, err := db.DB.Exec(ctx,
+		`INSERT INTO users (id, password_hash, email) VALUES ($1, $2, $3)`,
+		id, "bcrypt-hash-placeholder", local+"@kite.com",
+	)
+	require.NoError(t, err)
+	cleanupExec(t, `DELETE FROM users WHERE id = $1`, id)
+
+	_, err = userRepo.FindByEmail(ctx, local+"@Kite.com")
+	assert.ErrorIs(t, err, models.ErrUserNotFound)
 }
