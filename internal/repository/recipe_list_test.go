@@ -432,52 +432,50 @@ func TestListRecipes_Score_NoFiltersIsZeroWithNoTier(t *testing.T) {
 	assert.Nil(t, card.Tier)
 }
 
-func TestListRecipes_Tier_Thresholds(t *testing.T) {
+func TestListRecipes_Tier_FromIngredientCoverage(t *testing.T) {
 	ctx := context.Background()
 	owner := insertTestUser(t, "Cook")
+	cat := insertTestRecipeCategory(t, "repo-test-rc-tier-"+uuid.NewString())
+	itemCat := insertTestItemCategory(t, "repo-test-ic-"+uuid.NewString(), "repo-test-icon-"+uuid.NewString())
+	items := make([]uuid.UUID, 4)
+	ingredients := make([]models.Ingredient, 4)
+	for i := range items {
+		items[i] = insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+		ingredients[i] = models.Ingredient{ItemID: items[i], Quantity: 1}
+	}
+	recipeID := createTestRecipe(t, recipeOpts{
+		createdBy: owner, approved: true,
+		categoryIDs: []uuid.UUID{cat}, ingredients: ingredients,
+	})
 
-	// newScoredRecipe tags a recipe with `matched` categories out of `total` distinct selected ones,
-	// so filtering by all `total` yields a categoryCoverage of matched/total.
-	newScoredRecipe := func(total, matched int) (uuid.UUID, []uuid.UUID) {
-		var selected, tagged []uuid.UUID
-		for i := 0; i < total; i++ {
-			c := insertTestRecipeCategory(t, "repo-test-rc-tier-"+uuid.NewString())
-			selected = append(selected, c)
-			if i < matched {
-				tagged = append(tagged, c)
-			}
-		}
-		id := createTestRecipe(t, recipeOpts{createdBy: owner, approved: true, categoryIDs: tagged})
-		return id, selected
+	tierFor := func(filter models.RecipeListFilter) *string {
+		t.Helper()
+		filter.Page, filter.Limit = 1, 50
+		cards, _, err := recipeRepo.List(ctx, filter)
+		require.NoError(t, err)
+		card := cardByID(cards, recipeID)
+		require.NotNil(t, card)
+		return card.Tier
 	}
 
-	t.Run("score of exactly 0.8 is best", func(t *testing.T) {
-		recipeID, selected := newScoredRecipe(5, 4)
-		cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{IncludeCategoryIDs: selected, Page: 1, Limit: 50})
-		require.NoError(t, err)
-		card := cardByID(cards, recipeID)
-		require.NotNil(t, card)
-		require.NotNil(t, card.Tier)
-		assert.Equal(t, "best", *card.Tier)
+	t.Run("a category match alone earns no tier", func(t *testing.T) {
+		assert.Nil(t, tierFor(models.RecipeListFilter{IncludeCategoryIDs: []uuid.UUID{cat}}))
 	})
 
-	t.Run("score of exactly 0.5 is good", func(t *testing.T) {
-		recipeID, selected := newScoredRecipe(2, 1)
-		cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{IncludeCategoryIDs: selected, Page: 1, Limit: 50})
-		require.NoError(t, err)
-		card := cardByID(cards, recipeID)
-		require.NotNil(t, card)
-		require.NotNil(t, card.Tier)
-		assert.Equal(t, "good", *card.Tier)
+	t.Run("one of four ingredients is good, whatever else is selected", func(t *testing.T) {
+		unrelated := insertTestItem(t, "repo-test-item-"+uuid.NewString(), itemCat)
+		tier := tierFor(models.RecipeListFilter{
+			IncludeCategoryIDs: []uuid.UUID{cat},
+			IngredientIDs:      []uuid.UUID{items[0], unrelated},
+		})
+		require.NotNil(t, tier)
+		assert.Equal(t, "good", *tier)
 	})
 
-	t.Run("score just below 0.5 has no tier", func(t *testing.T) {
-		recipeID, selected := newScoredRecipe(3, 1)
-		cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{IncludeCategoryIDs: selected, Page: 1, Limit: 50})
-		require.NoError(t, err)
-		card := cardByID(cards, recipeID)
-		require.NotNil(t, card)
-		assert.Nil(t, card.Tier)
+	t.Run("three of four ingredients is best", func(t *testing.T) {
+		tier := tierFor(models.RecipeListFilter{IngredientIDs: items[:3]})
+		require.NotNil(t, tier)
+		assert.Equal(t, "best", *tier)
 	})
 }
 
