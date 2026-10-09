@@ -12,6 +12,11 @@ import (
 
 const tokenSweepInterval = 24 * time.Hour
 
+const writeTimeout = 15 * time.Second
+
+// requestTimeout ends a handler's DB work just before the server gives up writing its response.
+const requestTimeout = writeTimeout - time.Second
+
 type refreshTokenSweepRepository interface {
 	DeleteAllStaleFamilies(ctx context.Context) error
 }
@@ -37,7 +42,7 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      15 * time.Second,
+		WriteTimeout:      writeTimeout,
 		IdleTimeout:       60 * time.Second,
 	}
 }
