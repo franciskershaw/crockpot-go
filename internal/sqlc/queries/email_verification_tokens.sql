@@ -13,6 +13,12 @@ SET attempts = attempts + 1
 WHERE id = $1
 RETURNING *;
 
+-- name: ClaimEmailVerificationTokenAttempt :one
+UPDATE email_verification_tokens
+SET attempts = attempts + 1
+WHERE id = $1 AND attempts < sqlc.arg(max_attempts)
+RETURNING attempts;
+
 -- name: MarkEmailVerificationTokenUsed :exec
 UPDATE email_verification_tokens
 SET used_at = CURRENT_TIMESTAMP

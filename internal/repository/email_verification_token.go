@@ -66,6 +66,26 @@ func (r *PostgresEmailVerificationTokenRepository) IncrementAttempts(ctx context
 	return toModelEmailVerificationToken(updated), nil
 }
 
+// ClaimAttempt spends one attempt in a single conditional UPDATE, so concurrent guesses can't exceed maxAttempts.
+func (r *PostgresEmailVerificationTokenRepository) ClaimAttempt(ctx context.Context, id string, maxAttempts int) error {
+	idUUID, err := uuidParam(id)
+	if err != nil {
+		return fmt.Errorf("invalid token id: %w", err)
+	}
+
+	_, err = queriesFor(ctx, r.db).ClaimEmailVerificationTokenAttempt(ctx, sqlc.ClaimEmailVerificationTokenAttemptParams{
+		ID:          idUUID,
+		MaxAttempts: int32(maxAttempts),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.ErrTooManyAttempts
+		}
+		return fmt.Errorf("failed to claim email verification token attempt: %w", err)
+	}
+	return nil
+}
+
 func (r *PostgresEmailVerificationTokenRepository) MarkUsed(ctx context.Context, id string) error {
 	idUUID, err := uuidParam(id)
 	if err != nil {

@@ -11,6 +11,25 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const claimEmailVerificationTokenAttempt = `-- name: ClaimEmailVerificationTokenAttempt :one
+UPDATE email_verification_tokens
+SET attempts = attempts + 1
+WHERE id = $1 AND attempts < $2
+RETURNING attempts
+`
+
+type ClaimEmailVerificationTokenAttemptParams struct {
+	ID          pgtype.UUID
+	MaxAttempts int32
+}
+
+func (q *Queries) ClaimEmailVerificationTokenAttempt(ctx context.Context, arg ClaimEmailVerificationTokenAttemptParams) (int32, error) {
+	row := q.db.QueryRow(ctx, claimEmailVerificationTokenAttempt, arg.ID, arg.MaxAttempts)
+	var attempts int32
+	err := row.Scan(&attempts)
+	return attempts, err
+}
+
 const createEmailVerificationToken = `-- name: CreateEmailVerificationToken :one
 INSERT INTO email_verification_tokens (user_id, token_hash, expires_at)
 VALUES ($1, $2, $3)
