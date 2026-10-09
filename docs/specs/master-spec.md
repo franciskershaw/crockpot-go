@@ -908,9 +908,12 @@ everyone at launch. This epic is the go-live roadmap for both repos;
 Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
 `CROC-070`–`CROC-073`, `crockpot-react` `CFE-056`/`CFE-058`.
 
-- **CROC-074** — `migrate-data` prod readiness: the history import has no
-  zero-date guard, so a missing date loads as `0001-01-01`. Add the
-  `fallbackTime`-plus-note pattern recipes already use. Small. Open.
+- **CROC-074** — **Done** (2026-10-09). `migrate-data`'s history import
+  fills a missing date from the entry's own dates (`history-date-fallback`
+  note) and skips an entry with none (`history-undated-skipped`), before
+  the duplicate merge. Not `now()`: this table feeds recency (`CROC-050`).
+  Dry run against the current export: 100 entries, no fills; the 3
+  existing `history-recipe-missing` skips are unchanged.
 - **CROC-075** — Deploy pipeline, copied from `packing-list-go`
   (`Dockerfile`, `.dockerignore`, `nginx/`, the `build`/`deploy` jobs in
   `.github/workflows/ci.yml`; decisions in its `docs/handoffs/PACK-038.md`):

@@ -25,6 +25,8 @@ const (
 	noteGoogleSubPending     = "google-sub-pending"
 	noteHistoryRecipeMissing = "history-recipe-missing"
 	noteHistoryDuplicate     = "history-duplicate"
+	noteHistoryDateFallback  = "history-date-fallback"
+	noteHistoryUndated       = "history-undated-skipped"
 )
 
 type transformNote struct {
@@ -221,9 +223,18 @@ func buildMenuHistory(menus []mongoRecipeMenu, users []userRow, recipes []recipe
 				notes = append(notes, transformNote{Kind: noteHistoryRecipeMissing, Entity: entity, Detail: "recipe is not in the migrated set"})
 				continue
 			}
+			first, last, removed := h.FirstAddedToMenu.Time, h.LastAddedToMenu.Time, h.LastRemovedFromMenu.Time
+			if first.IsZero() && last.IsZero() && removed.IsZero() {
+				notes = append(notes, transformNote{Kind: noteHistoryUndated, Entity: entity, Detail: "no dates to fall back on"})
+				continue
+			}
+			if first.IsZero() || last.IsZero() || removed.IsZero() {
+				first, last, removed = firstNonZero(first, last, removed), firstNonZero(last, first, removed), firstNonZero(removed, last, first)
+				notes = append(notes, transformNote{Kind: noteHistoryDateFallback, Entity: entity, Detail: "missing dates filled from the entry's other dates"})
+			}
 			row := baselineRow{
 				UserID: userID, RecipeID: recipeID, TimesAdded: int(h.TimesAddedToMenu),
-				FirstAdded: h.FirstAddedToMenu.Time, LastAdded: h.LastAddedToMenu.Time, LastRemoved: h.LastRemovedFromMenu.Time,
+				FirstAdded: first, LastAdded: last, LastRemoved: removed,
 			}
 			k := key{userID, recipeID}
 			if i, seen := index[k]; seen {
@@ -591,6 +602,15 @@ func fallbackTime(primary, secondary time.Time) time.Time {
 	default:
 		return time.Now().UTC()
 	}
+}
+
+func firstNonZero(ts ...time.Time) time.Time {
+	for _, t := range ts {
+		if !t.IsZero() {
+			return t
+		}
+	}
+	return time.Time{}
 }
 
 func containsUUID(s []uuid.UUID, v uuid.UUID) bool {

@@ -587,6 +587,74 @@ func TestBuildMenuHistoryDuplicateRecipeMerges(t *testing.T) {
 	}
 }
 
+func TestBuildMenuHistoryFillsMissingDatesFromSiblings(t *testing.T) {
+	var zero time.Time
+	cases := []struct {
+		name                 string
+		first, last, removed time.Time
+		wantFirst, wantLast  time.Time
+		wantRemoved          time.Time
+	}{
+		{"first from last-added", zero, hLast, hRemoved, hLast, hLast, hRemoved},
+		{"first and last-added from last-removed", zero, zero, hRemoved, hRemoved, hRemoved, hRemoved},
+		{"last-added from first", hFirst, zero, hRemoved, hFirst, hFirst, hRemoved},
+		{"last-removed from last-added", hFirst, hLast, zero, hFirst, hLast, hLast},
+		{"last-added and last-removed from first", hFirst, zero, zero, hFirst, hFirst, hFirst},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			menus := []mongoRecipeMenu{{UserID: "francis", History: []mongoMenuHistoryEntry{mHist("r1", 2, tc.first, tc.last, tc.removed)}}}
+
+			rows, _, notes := buildMenuHistory(menus, historyUsers(), historyRecipes("r1"))
+
+			if len(rows) != 1 {
+				t.Fatalf("got %d rows, want 1", len(rows))
+			}
+			want := baselineRow{UserID: uHistFrancis, RecipeID: objectIDToUUID("r1"), TimesAdded: 2, FirstAdded: tc.wantFirst, LastAdded: tc.wantLast, LastRemoved: tc.wantRemoved}
+			if rows[0] != want {
+				t.Fatalf("row = %+v, want %+v", rows[0], want)
+			}
+			if !hasNote(notes, noteHistoryDateFallback) {
+				t.Fatalf("notes = %+v, want a %s", notes, noteHistoryDateFallback)
+			}
+		})
+	}
+}
+
+func TestBuildMenuHistoryUndatedEntrySkips(t *testing.T) {
+	var zero time.Time
+	menus := []mongoRecipeMenu{{UserID: "francis", History: []mongoMenuHistoryEntry{mHist("r1", 2, zero, zero, zero)}}}
+
+	rows, tally, notes := buildMenuHistory(menus, historyUsers(), historyRecipes("r1"))
+
+	if len(rows) != 0 {
+		t.Fatalf("got %d rows for an entry with no dates, want 0", len(rows))
+	}
+	if tally.source != 1 {
+		t.Fatalf("tally.source = %d, want 1", tally.source)
+	}
+	if !hasNote(notes, noteHistoryUndated) {
+		t.Fatalf("notes = %+v, want a %s", notes, noteHistoryUndated)
+	}
+}
+
+func TestBuildMenuHistoryFillsBeforeMerging(t *testing.T) {
+	var zero time.Time
+	menus := []mongoRecipeMenu{{UserID: "francis", History: []mongoMenuHistoryEntry{
+		mHist("r1", 2, hFirst, hLast, hRemoved),
+		mHist("r1", 1, zero, hLast, hRemoved),
+	}}}
+
+	rows, _, _ := buildMenuHistory(menus, historyUsers(), historyRecipes("r1"))
+
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows, want 1 merged row", len(rows))
+	}
+	if !rows[0].FirstAdded.Equal(hFirst) {
+		t.Fatalf("merged FirstAdded = %v, want %v (a missing date must not win the earliest-first merge)", rows[0].FirstAdded, hFirst)
+	}
+}
+
 func TestBuildMenuHistorySameRecipeAcrossUsersKeepsBoth(t *testing.T) {
 	menus := []mongoRecipeMenu{
 		{UserID: "francis", History: []mongoMenuHistoryEntry{mHist("r1", 1, hFirst, hFirst, hFirst)}},
