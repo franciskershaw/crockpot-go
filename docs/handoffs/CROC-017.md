@@ -125,3 +125,5 @@ undo.
   on Neon, with an admin and a FREE test account; confirm the 409 by
   editing the recipe as the owner between the GET and the PATCH.
 - Full repo suite green against Neon before close-out; lint uncapped.
+
+Completed 2026-10-09.

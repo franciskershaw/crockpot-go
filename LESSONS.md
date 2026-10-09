@@ -692,3 +692,7 @@ implementation quality until CROC-001 lands.
 - The failing Neon checks weren't a hang: the test running at each timeout was a different one, 0–1s in. GitHub's US runners to Neon in `eu-west-2` took 400–600s for a suite that runs in 68s locally. The suite step was dropped; the weekly version check stays.
 - **Pattern**: before copying a neighbour's conditional insert onto an upsert, check that the condition can't also suppress the update branch.
 - **Pattern**: when a CI test run "hangs", check whether the test running at the timeout changes between runs and compare total durations across runs before looking for a deadlock.
+
+## 2026-10-09 — CROC-017 — Admin approval with a stale-view guard; clean build, slips in the handoff and the reds
+
+- No rework in behaviour. The handoff's contract table had two wrong codes (malformed id is `400` via `parseID`, recipe 404 is `not_found`), caught at piece 3. One locked red decoded the success body with the string-only decoder, so it could never go green (stop-and-flag). Review found `Approve` was the fourth copy of the write-lock prelude, the same miss as CROC-051; extracted to `lockRecipeForWrite`.
