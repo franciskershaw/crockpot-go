@@ -54,6 +54,14 @@
 # internal/handler/recipe_handler_test.go). Edits and deletes resync the
 # shopping list of every user whose menu holds the recipe.
 #
+# PATCH /recipes/:id/approve, GET /recipes?approved=false — CROC-017.
+# Admin-only approve, guarded by the updatedAt the admin loaded (409
+# recipe_changed if the recipe changed since). Approval is one-way and
+# never bumps updatedAt. This file's ADMIN account creates approved
+# recipes, so the Approval section asks for one SQL line to make its
+# recipe pending. The non-admin 403 needs a second account and is covered
+# at internal/handler/recipe_approve_handler_test.go.
+
 # GET /recipes — relevance ranking (CROC-042). Scored ordering (ingredients
 # and/or categories selected) vs. seeded-random (no filters at all) vs. the
 # plain created_at-DESC default (q/time only). The section below reuses the
@@ -1286,6 +1294,133 @@ Content-Type: application/json
 ###
 
 # ══════════════════════════════════════════
+#  Approval — CROC-017
+# ══════════════════════════════════════════
+
+### ✅ 201 — a recipe to approve (comes back approved: true, ADMIN account).
+# @name createPending
+POST http://localhost:{{$dotenv PORT}}/recipes
+Authorization: Bearer {{authToken}}
+Content-Type: multipart/form-data; boundary=CrockpotBoundary
+
+--CrockpotBoundary
+Content-Disposition: form-data; name="recipe"
+Content-Type: application/json
+
+{
+  "name": "http-test Pending Recipe",
+  "timeInMinutes": 15,
+  "serves": 2,
+  "instructions": ["x"],
+  "categoryIds": ["{{recipeCategoryId1}}"],
+  "ingredients": [{ "itemId": "{{itemId}}", "quantity": 1 }]
+}
+--CrockpotBoundary--
+
+###
+
+@pendingRecipeId = {{createPending.response.body.id}}
+
+# Make it pending before continuing (no endpoint un-approves, by design):
+#   UPDATE recipes SET approved = false WHERE id = '<pendingRecipeId>';
+
+### ✅ 200 — approved=false lists it (approved: false), newest first, and
+### no approved recipe.
+GET http://localhost:{{$dotenv PORT}}/recipes?approved=false
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 200 — load it as the admin's page would; its updatedAt is what
+### the approve below must send back.
+# @name loadPending
+GET http://localhost:{{$dotenv PORT}}/recipes/{{pendingRecipeId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### 🚫 409 recipe_changed — an updatedAt from before the latest edit.
+PATCH http://localhost:{{$dotenv PORT}}/recipes/{{pendingRecipeId}}/approve
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "updatedAt": "2000-01-01T00:00:00Z"
+}
+
+###
+
+### 🚫 400 invalid_request — no updatedAt.
+PATCH http://localhost:{{$dotenv PORT}}/recipes/{{pendingRecipeId}}/approve
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{}
+
+###
+
+### 🚫 400 invalid_request — malformed id.
+PATCH http://localhost:{{$dotenv PORT}}/recipes/not-a-uuid/approve
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "updatedAt": "{{loadPending.response.body.updatedAt}}"
+}
+
+###
+
+### 🚫 404 not_found — no such recipe.
+PATCH http://localhost:{{$dotenv PORT}}/recipes/00000000-0000-0000-0000-000000000000/approve
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "updatedAt": "{{loadPending.response.body.updatedAt}}"
+}
+
+###
+
+### 🚫 401 — no token.
+PATCH http://localhost:{{$dotenv PORT}}/recipes/{{pendingRecipeId}}/approve
+Content-Type: application/json
+
+{
+  "updatedAt": "{{loadPending.response.body.updatedAt}}"
+}
+
+###
+
+### ✅ 200 — the detail with approved: true and the same updatedAt as
+### loadPending (approval doesn't bump it).
+PATCH http://localhost:{{$dotenv PORT}}/recipes/{{pendingRecipeId}}/approve
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "updatedAt": "{{loadPending.response.body.updatedAt}}"
+}
+
+###
+
+### ✅ 200 — approving again is a no-op, even with a stale updatedAt.
+PATCH http://localhost:{{$dotenv PORT}}/recipes/{{pendingRecipeId}}/approve
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "updatedAt": "2000-01-01T00:00:00Z"
+}
+
+###
+
+### ✅ 200 — approved=false no longer lists it.
+GET http://localhost:{{$dotenv PORT}}/recipes?approved=false
+Authorization: Bearer {{authToken}}
+
+###
+
+# ══════════════════════════════════════════
 #  Cleanup
 # ══════════════════════════════════════════
 
@@ -1303,7 +1438,13 @@ Authorization: Bearer {{authToken}}
 
 ###
 
-### ✅ 204 — delete the throwaway items via the real endpoint. Both
+### ✅ 204 — delete the approval recipe.
+DELETE http://localhost:{{$dotenv PORT}}/recipes/{{pendingRecipeId}}
+Authorization: Bearer {{authToken}}
+
+###
+
+### ✅ 204 — delete the throwaway items via the real endpoint. All
 ### recipes are gone by this point, so the RESTRICT FK from
 ### recipe_ingredients no longer blocks this.
 DELETE http://localhost:{{$dotenv PORT}}/items/{{itemId}}

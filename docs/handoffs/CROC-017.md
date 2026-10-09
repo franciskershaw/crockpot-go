@@ -68,10 +68,11 @@ undo.
 | Pending, `updatedAt` matches | `200` detail DTO, `approved: true` |
 | Already approved | `200` detail DTO, unchanged |
 | `updatedAt` mismatch on a pending recipe | `409 {"error":"recipe_changed"}` |
-| Body missing/malformed `updatedAt` | `400` |
+| Body missing/malformed `updatedAt` | `400 invalid_request` |
+| Malformed id | `400 invalid_request` (`parseID`, as every `/:id` route) |
 | No token | `401` |
 | Non-admin | `403` (`RequireRole`) |
-| Malformed or unknown id | `404 recipe_not_found` |
+| Unknown id | `404 not_found` (the code every recipe 404 uses) |
 
 ## Acceptance criteria
 
