@@ -133,6 +133,46 @@ func TestListRecipes_MineFilter(t *testing.T) {
 	assert.Empty(t, cards)
 }
 
+func TestListRecipes_PendingOnlyFilter(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Pending Cook")
+	other := insertTestUser(t, "Other Pending Cook")
+	admin := insertTestUser(t, "Admin")
+	cat := insertTestRecipeCategory(t, "repo-test-rc-"+uuid.NewString())
+
+	ownerPending := createTestRecipe(t, recipeOpts{createdBy: owner, approved: false, categoryIDs: []uuid.UUID{cat}})
+	_ = createTestRecipe(t, recipeOpts{createdBy: owner, approved: true, categoryIDs: []uuid.UUID{cat}})
+	otherPending := createTestRecipe(t, recipeOpts{createdBy: other, approved: false, categoryIDs: []uuid.UUID{cat}})
+
+	base := models.RecipeListFilter{IncludeCategoryIDs: []uuid.UUID{cat}, PendingOnly: true, Page: 1, Limit: 50}
+
+	t.Run("admin sees every pending recipe and no approved one", func(t *testing.T) {
+		f := base
+		f.CallerID = strptr(admin.String())
+		f.CallerIsAdmin = true
+		cards, total, err := recipeRepo.List(ctx, f)
+		require.NoError(t, err)
+		assert.Equal(t, 2, total)
+		assert.ElementsMatch(t, []uuid.UUID{ownerPending, otherPending}, cardIDs(cards))
+	})
+
+	t.Run("non-admin sees only their own pending recipes", func(t *testing.T) {
+		f := base
+		f.CallerID = strptr(owner.String())
+		cards, total, err := recipeRepo.List(ctx, f)
+		require.NoError(t, err)
+		assert.Equal(t, 1, total)
+		assert.Equal(t, []uuid.UUID{ownerPending}, cardIDs(cards))
+	})
+
+	t.Run("anonymous sees none", func(t *testing.T) {
+		cards, total, err := recipeRepo.List(ctx, base)
+		require.NoError(t, err)
+		assert.Equal(t, 0, total)
+		assert.Empty(t, cards)
+	})
+}
+
 func TestListRecipes_NameQueryCaseInsensitivePartial(t *testing.T) {
 	ctx := context.Background()
 	owner := insertTestUser(t, "Cook")
@@ -581,6 +621,31 @@ func TestListRecipes_Ordering_MineOnlyKeepsPlainDefaultOrder(t *testing.T) {
 
 	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
 		Mine: true, CallerID: strptr(owner.String()),
+		Seed: "should-be-ignored-in-this-mode", Page: 1, Limit: 50,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []uuid.UUID{ids[1], ids[3], ids[0], ids[4], ids[2]}, cardIDs(cards))
+}
+
+func TestListRecipes_Ordering_PendingOnlyKeepsPlainDefaultOrder(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+
+	// Five so a leftover shuffle can't match newest-first by chance (1 in 120).
+	ids := make([]uuid.UUID, 5)
+	now := time.Now()
+	for i := range ids {
+		ids[i] = createTestRecipe(t, recipeOpts{createdBy: owner, approved: false})
+	}
+	offsets := []int{3, 1, 5, 2, 4}
+	for i, h := range offsets {
+		setCreatedAt(t, ids[i], now.Add(time.Duration(-h)*time.Hour))
+	}
+	newestApproved := createTestRecipe(t, recipeOpts{createdBy: owner, approved: true})
+	setCreatedAt(t, newestApproved, now)
+
+	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+		PendingOnly: true, CallerID: strptr(owner.String()),
 		Seed: "should-be-ignored-in-this-mode", Page: 1, Limit: 50,
 	})
 	require.NoError(t, err)

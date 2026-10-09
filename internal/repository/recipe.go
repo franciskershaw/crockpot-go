@@ -69,12 +69,14 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 		filter.Query == "" &&
 		filter.MinTime == 0 &&
 		filter.MaxTime == 0 &&
-		!filter.Mine
+		!filter.Mine &&
+		!filter.PendingOnly
 
 	rows, err := q.ListRecipes(ctx, sqlc.ListRecipesParams{
 		CallerIsAdmin:      filter.CallerIsAdmin,
 		CallerID:           callerID,
 		OnlyMine:           filter.Mine,
+		OnlyPending:        filter.PendingOnly,
 		NameQuery:          filter.Query,
 		MinTime:            int32(filter.MinTime),
 		MaxTime:            int32(filter.MaxTime),

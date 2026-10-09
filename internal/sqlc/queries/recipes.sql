@@ -119,6 +119,7 @@ WITH candidates AS (
             NOT sqlc.arg(only_mine)::boolean
             OR (sqlc.narg(caller_id)::uuid IS NOT NULL AND r.created_by_id = sqlc.narg(caller_id)::uuid)
         )
+        AND (NOT sqlc.arg(only_pending)::boolean OR NOT r.approved)
         AND (sqlc.arg(name_query)::text = '' OR r.name ILIKE '%' || sqlc.arg(name_query)::text || '%')
         AND (sqlc.arg(min_time)::int = 0 OR r.time_in_minutes >= sqlc.arg(min_time)::int)
         AND (sqlc.arg(max_time)::int = 0 OR r.time_in_minutes <= sqlc.arg(max_time)::int)

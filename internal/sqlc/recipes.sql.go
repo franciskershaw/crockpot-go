@@ -444,14 +444,15 @@ WITH candidates AS (
             NOT $10::boolean
             OR ($8::uuid IS NOT NULL AND r.created_by_id = $8::uuid)
         )
-        AND ($11::text = '' OR r.name ILIKE '%' || $11::text || '%')
-        AND ($12::int = 0 OR r.time_in_minutes >= $12::int)
-        AND ($13::int = 0 OR r.time_in_minutes <= $13::int)
+        AND (NOT $11::boolean OR NOT r.approved)
+        AND ($12::text = '' OR r.name ILIKE '%' || $12::text || '%')
+        AND ($13::int = 0 OR r.time_in_minutes >= $13::int)
+        AND ($14::int = 0 OR r.time_in_minutes <= $14::int)
         AND (
-            cardinality($14::uuid[]) = 0
+            cardinality($15::uuid[]) = 0
             OR NOT EXISTS (
                 SELECT 1 FROM recipe_categories_recipes x
-                WHERE x.recipe_id = r.id AND x.category_id = ANY($14::uuid[])
+                WHERE x.recipe_id = r.id AND x.category_id = ANY($15::uuid[])
             )
         )
         AND (
@@ -507,6 +508,7 @@ type ListRecipesParams struct {
 	CallerID           pgtype.UUID
 	CallerIsAdmin      bool
 	OnlyMine           bool
+	OnlyPending        bool
 	NameQuery          string
 	MinTime            int32
 	MaxTime            int32
@@ -546,6 +548,7 @@ func (q *Queries) ListRecipes(ctx context.Context, arg ListRecipesParams) ([]Lis
 		arg.CallerID,
 		arg.CallerIsAdmin,
 		arg.OnlyMine,
+		arg.OnlyPending,
 		arg.NameQuery,
 		arg.MinTime,
 		arg.MaxTime,
