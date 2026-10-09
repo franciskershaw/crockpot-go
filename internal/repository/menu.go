@@ -92,7 +92,7 @@ func (r *PostgresMenuRepository) GetMenu(ctx context.Context, userID string) (*m
 	return &models.Menu{Entries: entries}, nil
 }
 
-func (r *PostgresMenuRepository) UpsertEntry(ctx context.Context, userID, recipeID string, serves int, callerIsAdmin bool) error {
+func (r *PostgresMenuRepository) UpsertEntry(ctx context.Context, userID, recipeID string, serves int, callerIsAdmin bool, limit int) error {
 	q := queriesFor(ctx, r.db)
 
 	uid, err := uuidParam(userID)
@@ -119,6 +119,18 @@ func (r *PostgresMenuRepository) UpsertEntry(ctx context.Context, userID, recipe
 	menuID, err := q.GetOrCreateMenu(ctx, uid)
 	if err != nil {
 		return fmt.Errorf("failed to get or create menu: %w", err)
+	}
+
+	// Exact only inside a transaction: GetOrCreateMenu's DO UPDATE holds the menu row lock until commit.
+	existing, err := q.MenuEntryCountAndPresence(ctx, sqlc.MenuEntryCountAndPresenceParams{
+		RecipeMenuID: menuID,
+		RecipeID:     rid,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to count menu entries: %w", err)
+	}
+	if !existing.Present && existing.EntryCount >= int64(limit) {
+		return models.ErrMenuLimitReached
 	}
 
 	if err := q.UpsertMenuEntry(ctx, sqlc.UpsertMenuEntryParams{

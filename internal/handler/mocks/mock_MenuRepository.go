@@ -226,17 +226,17 @@ func (_c *MockMenuRepository_UpdateEntryServes_Call) RunAndReturn(run func(conte
 	return _c
 }
 
-// UpsertEntry provides a mock function with given fields: ctx, userID, recipeID, serves, callerIsAdmin
-func (_m *MockMenuRepository) UpsertEntry(ctx context.Context, userID string, recipeID string, serves int, callerIsAdmin bool) error {
-	ret := _m.Called(ctx, userID, recipeID, serves, callerIsAdmin)
+// UpsertEntry provides a mock function with given fields: ctx, userID, recipeID, serves, callerIsAdmin, limit
+func (_m *MockMenuRepository) UpsertEntry(ctx context.Context, userID string, recipeID string, serves int, callerIsAdmin bool, limit int) error {
+	ret := _m.Called(ctx, userID, recipeID, serves, callerIsAdmin, limit)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpsertEntry")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, int, bool) error); ok {
-		r0 = rf(ctx, userID, recipeID, serves, callerIsAdmin)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, int, bool, int) error); ok {
+		r0 = rf(ctx, userID, recipeID, serves, callerIsAdmin, limit)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -255,13 +255,14 @@ type MockMenuRepository_UpsertEntry_Call struct {
 //   - recipeID string
 //   - serves int
 //   - callerIsAdmin bool
-func (_e *MockMenuRepository_Expecter) UpsertEntry(ctx interface{}, userID interface{}, recipeID interface{}, serves interface{}, callerIsAdmin interface{}) *MockMenuRepository_UpsertEntry_Call {
-	return &MockMenuRepository_UpsertEntry_Call{Call: _e.mock.On("UpsertEntry", ctx, userID, recipeID, serves, callerIsAdmin)}
+//   - limit int
+func (_e *MockMenuRepository_Expecter) UpsertEntry(ctx interface{}, userID interface{}, recipeID interface{}, serves interface{}, callerIsAdmin interface{}, limit interface{}) *MockMenuRepository_UpsertEntry_Call {
+	return &MockMenuRepository_UpsertEntry_Call{Call: _e.mock.On("UpsertEntry", ctx, userID, recipeID, serves, callerIsAdmin, limit)}
 }
 
-func (_c *MockMenuRepository_UpsertEntry_Call) Run(run func(ctx context.Context, userID string, recipeID string, serves int, callerIsAdmin bool)) *MockMenuRepository_UpsertEntry_Call {
+func (_c *MockMenuRepository_UpsertEntry_Call) Run(run func(ctx context.Context, userID string, recipeID string, serves int, callerIsAdmin bool, limit int)) *MockMenuRepository_UpsertEntry_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(int), args[4].(bool))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(int), args[4].(bool), args[5].(int))
 	})
 	return _c
 }
@@ -271,7 +272,7 @@ func (_c *MockMenuRepository_UpsertEntry_Call) Return(_a0 error) *MockMenuReposi
 	return _c
 }
 
-func (_c *MockMenuRepository_UpsertEntry_Call) RunAndReturn(run func(context.Context, string, string, int, bool) error) *MockMenuRepository_UpsertEntry_Call {
+func (_c *MockMenuRepository_UpsertEntry_Call) RunAndReturn(run func(context.Context, string, string, int, bool, int) error) *MockMenuRepository_UpsertEntry_Call {
 	_c.Call.Return(run)
 	return _c
 }

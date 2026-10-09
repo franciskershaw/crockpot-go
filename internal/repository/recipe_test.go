@@ -1002,9 +1002,9 @@ func TestMenuUserIDs_ReturnsHoldersOrderedByID(t *testing.T) {
 	bystander := insertTestUser(t, "Bystander")
 	recipeID := insertTestRecipeRow(t, owner, true)
 	otherRecipeID := insertTestRecipeRow(t, owner, true)
-	require.NoError(t, menuRepo.UpsertEntry(ctx, first.String(), recipeID.String(), 2, false))
-	require.NoError(t, menuRepo.UpsertEntry(ctx, second.String(), recipeID.String(), 2, false))
-	require.NoError(t, menuRepo.UpsertEntry(ctx, bystander.String(), otherRecipeID.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, first.String(), recipeID.String(), 2, false, noMenuLimit))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, second.String(), recipeID.String(), 2, false, noMenuLimit))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, bystander.String(), otherRecipeID.String(), 2, false, noMenuLimit))
 
 	users, err := recipeRepo.MenuUserIDs(ctx, recipeID.String())
 	require.NoError(t, err)
@@ -1045,9 +1045,9 @@ func TestDeleteRecipe_ReturnsUsersWhoseMenusHeldIt(t *testing.T) {
 	bystander := insertTestUser(t, "Bystander")
 	recipeID := insertTestRecipeRow(t, owner, true)
 	otherRecipeID := insertTestRecipeRow(t, owner, true)
-	require.NoError(t, menuRepo.UpsertEntry(ctx, first.String(), recipeID.String(), 2, false))
-	require.NoError(t, menuRepo.UpsertEntry(ctx, second.String(), recipeID.String(), 2, false))
-	require.NoError(t, menuRepo.UpsertEntry(ctx, bystander.String(), otherRecipeID.String(), 2, false))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, first.String(), recipeID.String(), 2, false, noMenuLimit))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, second.String(), recipeID.String(), 2, false, noMenuLimit))
+	require.NoError(t, menuRepo.UpsertEntry(ctx, bystander.String(), otherRecipeID.String(), 2, false, noMenuLimit))
 
 	users, _, err := recipeRepo.Delete(ctx, recipeID.String(), owner.String(), true)
 	require.NoError(t, err)
@@ -1099,7 +1099,7 @@ func TestDeleteRecipe_WaitsForInFlightMenuAddAndReturnsItsUser(t *testing.T) {
 	addErr := make(chan error, 1)
 	go func() {
 		addErr <- transactor.WithinTx(ctx, func(ctx context.Context) error {
-			if err := menuRepo.UpsertEntry(ctx, adder.String(), recipeID.String(), 2, false); err != nil {
+			if err := menuRepo.UpsertEntry(ctx, adder.String(), recipeID.String(), 2, false, noMenuLimit); err != nil {
 				return err
 			}
 			close(added)
@@ -1167,7 +1167,7 @@ func TestUpsertEntry_RecipeDeletedWhileWaiting_ReturnsNotFound(t *testing.T) {
 	addErr := make(chan error, 1)
 	go func() {
 		addErr <- transactor.WithinTx(ctx, func(ctx context.Context) error {
-			return menuRepo.UpsertEntry(ctx, adder.String(), recipeID.String(), 2, false)
+			return menuRepo.UpsertEntry(ctx, adder.String(), recipeID.String(), 2, false, noMenuLimit)
 		})
 	}()
 

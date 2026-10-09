@@ -6,6 +6,11 @@ RETURNING id;
 -- name: GetMenuByUserID :one
 SELECT id FROM recipe_menus WHERE user_id = $1;
 
+-- name: MenuEntryCountAndPresence :one
+SELECT count(*) AS entry_count, COALESCE(bool_or(recipe_id = sqlc.arg(recipe_id)), false)::boolean AS present
+FROM recipe_menu_entries
+WHERE recipe_menu_id = sqlc.arg(recipe_menu_id);
+
 -- name: UpsertMenuEntry :exec
 -- xmax = 0 is true only for a row this statement inserted, so a serves-only update records no event.
 WITH upserted AS (

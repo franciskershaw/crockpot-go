@@ -68,6 +68,8 @@ var ErrRecipeForbidden = errors.New("recipe not owned by caller")
 
 var ErrMenuEntryNotFound = errors.New("menu entry not found")
 
+var ErrMenuLimitReached = errors.New("menu limit reached")
+
 var ErrShoppingListInvalidItem = errors.New("shopping list item does not exist")
 
 var ErrShoppingListInvalidUnit = errors.New("shopping list unit does not exist")
