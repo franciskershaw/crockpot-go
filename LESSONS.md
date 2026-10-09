@@ -685,3 +685,10 @@ implementation quality until CROC-001 lands.
 
 - Covered `internal/`, `db/migrations/`, `config/`, `main.go`, `lifecycle.go` (`cmd/migrate-data` excluded), after `CROC-065`/`051`/`030`. 3 findings: one new ticket (`CROC-072`, test plumbing), and two that widen open tickets (`CROC-068`: photo destroys run before the response; `CROC-071`: the token tables' partial `user_id` indexes can't serve the new user-delete cascade). Full detail in `docs/findings/2026-10-08-tech-debt.md`.
 - **Pattern**: when a ticket turns a rare operation into a user-facing path (here, deleting a user), re-check the indexes and timeouts every cascade and best-effort step under it now depends on.
+
+## 2026-10-09 — CROC-059 — Menu cap of 30; clean. The Neon check "hang" was a suite timeout.
+
+- No rework in code. The grill found that the regulars cap's single-statement shape (`INSERT … WHERE count < max`) would have silently skipped the serves-change half of the menu upsert, and that `GetOrCreateMenu`'s `DO UPDATE` already serialises menu writes, so the cap is exact. Branch-review found one test that could hang instead of failing; fixed to match its neighbours' `select`.
+- The failing Neon checks weren't a hang: the test running at each timeout was a different one, 0–1s in. GitHub's US runners to Neon in `eu-west-2` took 400–600s for a suite that runs in 68s locally. The suite step was dropped; the weekly version check stays.
+- **Pattern**: before copying a neighbour's conditional insert onto an upsert, check that the condition can't also suppress the update branch.
+- **Pattern**: when a CI test run "hangs", check whether the test running at the timeout changes between runs and compare total durations across runs before looking for a deadlock.

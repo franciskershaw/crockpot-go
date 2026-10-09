@@ -700,9 +700,9 @@ session.*
 - **CROC-059** — Cap the menu at 30 recipes, every tier. `POST
   /menu/entries` refuses a recipe not already on the menu once it holds
   30, with `409 menu_limit_reached`; a serves change never counts. A hard
-  cap: the count runs under `GetOrCreateMenu`'s row lock. Paired with
-  `crockpot-react` `CFE-045`. Grilled 2026-10-09
-  (`docs/handoffs/CROC-059.md`).
+  cap: the count runs under `GetOrCreateMenu`'s row lock. **Done**
+  (2026-10-09, `docs/handoffs/CROC-059.md`). Unblocks `crockpot-react`
+  `CFE-045`.
 
 ### Epic 6: Shopping Lists
 - **CROC-021** — Generate/regenerate shopping list from current menu,
