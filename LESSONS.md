@@ -702,3 +702,8 @@ implementation quality until CROC-001 lands.
 - One rework: the grill chose `strings.ToLower` and a `lower()` CHECK without asking what they fold beyond ASCII. Branch review found the Kelvin sign folds to `k`, so a lookalike address matched a real account; fixed by folding A–Z only in Go and the CHECK, editing the unreleased `000018` in place. Codes and links already went to the stored address, which kept it low.
 - Red without stubs worked twice: a missing migration and an unconditional increment each failed on assertions, and skipping a stub migration avoided the shared-dev-DB `migrate down` trap.
 - **Pattern**: when normalising an identifier, name the exact character set and check that the app and the database fold it identically (test a non-ASCII case), before the grill records "lowercase".
+
+## 2026-10-09 — CROC-074 — History date fallback in migrate-data; clean
+
+- No rework. Checking the old app's schema first showed a missing date can't come from the app, which made it a defensive guard and settled the grill in one question. The recipe precedent's `now()` fallback was deliberately not copied, because this table exists to measure recency.
+- **Pattern**: before copying a fallback precedent, check what the target data is for; a default that's harmless for sorting can fake the signal an analytics table exists to hold.
