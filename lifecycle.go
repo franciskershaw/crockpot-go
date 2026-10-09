@@ -54,23 +54,35 @@ func runTokenSweeper(
 ) {
 	defer wg.Done()
 
+	// Deploys restart the process more often than the interval, so a tick-only sweep might never run.
+	sweepStaleTokens(ctx, refreshTokens, emailVerificationTokens, passwordResetTokens)
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			if err := refreshTokens.DeleteAllStaleFamilies(ctx); err != nil {
-				slog.Error("token sweeper: failed to delete stale refresh token families", "error", err)
-			}
-			if err := emailVerificationTokens.DeleteAllStale(ctx); err != nil {
-				slog.Error("token sweeper: failed to delete stale email verification tokens", "error", err)
-			}
-			if err := passwordResetTokens.DeleteAllStale(ctx); err != nil {
-				slog.Error("token sweeper: failed to delete stale password reset tokens", "error", err)
-			}
+			sweepStaleTokens(ctx, refreshTokens, emailVerificationTokens, passwordResetTokens)
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+func sweepStaleTokens(
+	ctx context.Context,
+	refreshTokens refreshTokenSweepRepository,
+	emailVerificationTokens staleTokenDeleter,
+	passwordResetTokens staleTokenDeleter,
+) {
+	if err := refreshTokens.DeleteAllStaleFamilies(ctx); err != nil {
+		slog.Error("token sweeper: failed to delete stale refresh token families", "error", err)
+	}
+	if err := emailVerificationTokens.DeleteAllStale(ctx); err != nil {
+		slog.Error("token sweeper: failed to delete stale email verification tokens", "error", err)
+	}
+	if err := passwordResetTokens.DeleteAllStale(ctx); err != nil {
+		slog.Error("token sweeper: failed to delete stale password reset tokens", "error", err)
 	}
 }

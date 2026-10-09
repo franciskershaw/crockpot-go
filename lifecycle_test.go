@@ -62,6 +62,24 @@ func TestRunTokenSweeper_CallsAllThreeEachTick(t *testing.T) {
 	wg.Wait()
 }
 
+func TestRunTokenSweeper_SweepsOnStartWithoutWaitingForATick(t *testing.T) {
+	refresh := &fakeStaleDeleter{}
+	emailVerification := &fakeStaleDeleter{}
+	passwordReset := &fakeStaleDeleter{}
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go runTokenSweeper(ctx, refresh, emailVerification, passwordReset, time.Hour, &wg)
+
+	waitForCalls(t, refresh, 1, time.Second)
+	waitForCalls(t, emailVerification, 1, time.Second)
+	waitForCalls(t, passwordReset, 1, time.Second)
+
+	cancel()
+	wg.Wait()
+}
+
 func TestRunTokenSweeper_OneFailureDoesNotBlockOthers(t *testing.T) {
 	refresh := &fakeStaleDeleter{err: errors.New("boom")}
 	emailVerification := &fakeStaleDeleter{}
