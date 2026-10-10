@@ -981,7 +981,8 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
       named error; the normal `.env` starts.
     - Limit, through the real client: `curl` `GET /recipes` on the dev
       server with 101 `categoryId`s gives 400, 100 gives 200.
-    - `curl -sI /auth/google` `Location` has no `access_type`. The `Lax`
+    - `curl -D - /auth/google/login` (a GET; the route has no HEAD)
+      `Location` has no `access_type`. The `Lax`
       cookie in a real browser across `crockpot.app`/`api.crockpot.app`
       is checked at `CROC-077`'s first sign-in.
 - **CROC-077** — Production cutover. Mostly accounts, config and data,
@@ -994,9 +995,9 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
       only listed test users can sign in.
     - Resend: verify the sending domain for `EMAIL_FROM`.
     - DNS (Cloudflare): the API on a subdomain of the frontend's domain.
-      The refresh cookie is `SameSite=None` in production
-      (`auth_handler.go` `setRefreshCookie`); on another registrable
-      domain Safari blocks it as third-party and sessions die every
+      The refresh cookie is `SameSite=Lax` (`auth_handler.go`
+      `setRefreshCookie`), so it only travels same-site: on another
+      registrable domain no browser sends it and sessions die every
       15 min. `FRONTEND_URL` is the one CORS origin: pick apex or `www`,
       redirect the other.
     - GitHub secrets for `CROC-075`. JWT secrets: fresh for this app

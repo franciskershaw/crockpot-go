@@ -110,11 +110,7 @@ func NewAuthHandler(userRepo UserRepository, oauthManager OAuthManager, refreshT
 }
 
 func setRefreshCookie(c *gin.Context, cfg *config.Config, value string, maxAge int) {
-	sameSite := http.SameSiteLaxMode
-	if cfg.Environment == config.EnvProduction {
-		sameSite = http.SameSiteNoneMode
-	}
-	c.SetSameSite(sameSite)
+	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie("refreshToken", value, maxAge, "/", "", cfg.Environment == config.EnvProduction, true)
 }
 

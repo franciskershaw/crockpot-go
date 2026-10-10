@@ -815,6 +815,37 @@ func TestRecipeList_BadInput400(t *testing.T) {
 	}
 }
 
+func repeatedIDQuery(key string, n int) string {
+	parts := make([]string, n)
+	for i := range parts {
+		parts[i] = key + "=" + uuid.NewString()
+	}
+	return strings.Join(parts, "&")
+}
+
+func TestRecipeList_IDListCap(t *testing.T) {
+	for _, key := range []string{"categoryId", "ingredientId"} {
+		t.Run(key+" over the cap is rejected", func(t *testing.T) {
+			m := newRecipeMocks(t)
+			m.repo.EXPECT().List(mock.Anything, mock.Anything).Return([]*models.RecipeCard{}, 0, nil).Maybe()
+
+			w := doRecipeList(m.router, repeatedIDQuery(key, 101), "")
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			assert.Equal(t, "invalid_request", decodeJSONBody(t, w)["error"])
+		})
+
+		t.Run(key+" at the cap is accepted", func(t *testing.T) {
+			m := newRecipeMocks(t)
+			m.repo.EXPECT().List(mock.Anything, mock.MatchedBy(func(f models.RecipeListFilter) bool {
+				return len(f.IncludeCategoryIDs) == 100 || len(f.IngredientIDs) == 100
+			})).Return([]*models.RecipeCard{}, 0, nil)
+
+			w := doRecipeList(m.router, repeatedIDQuery(key, 100), "")
+			assert.Equal(t, http.StatusOK, w.Code)
+		})
+	}
+}
+
 func TestRecipeList_EnvelopeShape(t *testing.T) {
 	m := newRecipeMocks(t)
 	m.repo.EXPECT().List(mock.Anything, mock.Anything).

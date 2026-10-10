@@ -33,6 +33,9 @@ type createIngredientRequest struct {
 
 const maxPhotoBytes = 5 << 20
 
+// maxFilterIDs bounds each id list on GET /recipes, well above what the filter UI can produce.
+const maxFilterIDs = 100
+
 // multipartMemoryBytes keeps a whole capped recipe write in memory rather than spilling the photo to a temp file.
 const multipartMemoryBytes = 8 << 20
 
@@ -362,6 +365,10 @@ func parseRecipeListFilter(c *gin.Context) (models.RecipeListFilter, bool) {
 
 func parseUUIDQuery(c *gin.Context, key string) ([]uuid.UUID, bool) {
 	raw := c.QueryArray(key)
+	if len(raw) > maxFilterIDs {
+		badRequest(c, "invalid_request")
+		return nil, false
+	}
 	out := make([]uuid.UUID, 0, len(raw))
 	for _, s := range raw {
 		id, err := uuid.Parse(strings.TrimSpace(s))

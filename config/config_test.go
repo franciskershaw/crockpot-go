@@ -10,9 +10,9 @@ import (
 func setRequiredEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("JWT_SECRET_ACCESS", "test-access-secret")
-	t.Setenv("JWT_SECRET_REFRESH", "test-refresh-secret")
-	t.Setenv("JWT_SECRET_OAUTH_STATE", "test-oauth-state-secret")
+	t.Setenv("JWT_SECRET_ACCESS", "test-access-secret-0123456789abcdef")
+	t.Setenv("JWT_SECRET_REFRESH", "test-refresh-secret-0123456789abcdef")
+	t.Setenv("JWT_SECRET_OAUTH_STATE", "test-oauth-state-secret-0123456789abcdef")
 	t.Setenv("GOOGLE_CLIENT_ID", "test-client-id")
 	t.Setenv("GOOGLE_CLIENT_SECRET", "test-client-secret")
 	t.Setenv("GOOGLE_REDIRECT_URI", "http://localhost:8080/callback")
@@ -99,6 +99,64 @@ func TestLoad_ReportsAllMissingVarsTogether(t *testing.T) {
 		if !strings.Contains(err.Error(), key) {
 			t.Errorf("expected error to mention %s, got: %v", key, err)
 		}
+	}
+}
+
+var jwtSecretKeys = []string{"JWT_SECRET_ACCESS", "JWT_SECRET_REFRESH", "JWT_SECRET_OAUTH_STATE"}
+
+func TestLoad_JWTSecretLength(t *testing.T) {
+	for _, key := range jwtSecretKeys {
+		t.Run(key+" at 31 bytes is rejected", func(t *testing.T) {
+			setRequiredEnv(t)
+			short := strings.Repeat("s", 31)
+			t.Setenv(key, short)
+
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("expected Load() to error when %s is 31 bytes", key)
+			}
+			if !strings.Contains(err.Error(), key) {
+				t.Errorf("expected error to mention %s, got: %v", key, err)
+			}
+			if strings.Contains(err.Error(), short) {
+				t.Errorf("error must not contain the secret, got: %v", err)
+			}
+		})
+
+		t.Run(key+" at 32 bytes is accepted", func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv(key, strings.Repeat("s", 32))
+			mustLoad(t)
+		})
+	}
+}
+
+func TestLoad_RejectsDuplicateJWTSecrets(t *testing.T) {
+	pairs := [][2]string{
+		{"JWT_SECRET_ACCESS", "JWT_SECRET_REFRESH"},
+		{"JWT_SECRET_ACCESS", "JWT_SECRET_OAUTH_STATE"},
+		{"JWT_SECRET_REFRESH", "JWT_SECRET_OAUTH_STATE"},
+	}
+	for _, pair := range pairs {
+		t.Run(pair[0]+" = "+pair[1], func(t *testing.T) {
+			setRequiredEnv(t)
+			shared := "shared-secret-0123456789abcdef-0123456789"
+			t.Setenv(pair[0], shared)
+			t.Setenv(pair[1], shared)
+
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("expected Load() to error when %s and %s are equal", pair[0], pair[1])
+			}
+			for _, key := range pair {
+				if !strings.Contains(err.Error(), key) {
+					t.Errorf("expected error to mention %s, got: %v", key, err)
+				}
+			}
+			if strings.Contains(err.Error(), shared) {
+				t.Errorf("error must not contain the secret, got: %v", err)
+			}
+		})
 	}
 }
 

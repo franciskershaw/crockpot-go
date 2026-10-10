@@ -80,7 +80,7 @@ func (g *GoogleOAuthManager) ValidateState(state string) bool {
 
 // GetAuthURL returns the URL to redirect the user to Google's consent screen
 func (g *GoogleOAuthManager) GetAuthURL(state string) string {
-	return g.config.AuthCodeURL(state, oauth2.AccessTypeOffline)
+	return g.config.AuthCodeURL(state)
 }
 
 // ExchangeCodeForToken exchanges the authorization code for tokens
