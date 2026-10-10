@@ -1,0 +1,30 @@
+# Environment files - contain sensitive data and are not needed in the image
+.env
+.env.local
+.env.*.local
+
+# Docker files - not needed inside the image
+Dockerfile
+.dockerignore
+
+# Git, CI and hooks
+.git
+.gitignore
+.github
+.githooks
+
+# Docs and dev-only tooling - not needed at runtime
+docs
+LESSONS.md
+README.md
+CLAUDE.md
+requests
+scripts
+
+# Local IDE/editor configurations
+.vscode
+.idea
+*.swp
+
+# OS generated files
+.DS_Store

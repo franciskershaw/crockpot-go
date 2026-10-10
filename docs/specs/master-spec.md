@@ -903,7 +903,8 @@ everyone at launch. This epic is the go-live roadmap for both repos;
 **Go-live order** (updated 2026-10-10; `CROC-069`/`074`/`066`/`076`/`079` done)
 1. **Security fixes:** `crockpot-react` `CFE-067`, from the 2026-10-09
    security pass. Before `CROC-075`.
-2. **Remaining code, one commit each:** `CROC-075`; frontend `CFE-063`,
+2. **Remaining code, one commit each:** `CROC-075`, then `CROC-081`
+   (its merge is `CROC-075`'s second deploy); frontend `CFE-063`,
    `CFE-065`.
 3. **Cutover:** `CROC-077`, which runs `crockpot-react` `CFE-066`,
    `CFE-044` and `CFE-062` in its sequence.
@@ -918,25 +919,50 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   the duplicate merge. Not `now()`: this table feeds recency (`CROC-050`).
   Dry run against the current export: 100 entries, no fills; the 3
   existing `history-recipe-missing` skips are unchanged.
-- **CROC-075** — Deploy pipeline, copied from `packing-list-go`
-  (`Dockerfile`, `.dockerignore`, `nginx/`, the `build`/`deploy` jobs in
-  `.github/workflows/ci.yml`; decisions in its `docs/handoffs/PACK-038.md`):
-  multi-stage distroless image, blue-green swap with a `:previous`
-  rollback, host-side `/health` poll. Differences from that precedent:
-  - nginx `client_max_body_size 6m` (photo uploads, `CROC-040`/`CROC-068`).
-  - nginx restores the client IP behind Cloudflare (`set_real_ip_from`
-    Cloudflare's ranges, `real_ip_header CF-Connecting-IP`). Without it
-    Gin's `ClientIP()` is a Cloudflare edge address and every per-IP rate
-    limit (login 10/min) is shared by everyone on that edge.
-  - Extra env: `RESEND_API_KEY`, `EMAIL_FROM`, the four `CLOUDINARY_*`
-    (`CLOUDINARY_UPLOAD_FOLDER=recipes`), `TRUSTED_PROXIES=127.0.0.1`.
-  - A free droplet port (`events-api` 5500, `salary-split-api` 5300,
-    `packing-list-api` 5400).
-  CI's `checks` job keeps its Postgres service container. Verified by
-  the first real deploy passing its health check. Its branch review stands
-  in for a security pass over the deploy config (moved after `CROC-076`):
-  secrets handling in the workflow, `TRUSTED_PROXIES`/real-IP, and the
-  nginx body limit get explicit attention there. Open.
+- **CROC-075** — Deploy pipeline from `packing-list-go`'s
+  (`docs/handoffs/PACK-038.md`): multi-stage distroless image, host-side
+  `/health` poll. Grilled 2026-10-10, AI-driven:
+  `docs/handoffs/CROC-075.md`. Merging it is the first prod deploy, so
+  the deploy's accounts and config (Cloudflare `api` record, Neon prod
+  branch, Google redirect URI, the GitHub `production` Environment) are
+  its pre-merge prerequisites, moved from `CROC-077`. Diverges from the
+  precedent where it was wrong for this app:
+  - **Real client IP.** nginx trusts Cloudflare's hardcoded ranges
+    (`CF-Connecting-IP`) and overwrites `X-Forwarded-For`; Gin trusts the
+    Docker bridge gateway's exact IP, which is the container's real peer
+    (`127.0.0.1` would key every rate limit on the gateway). Rejected:
+    fetching the ranges at deploy (a failed fetch silently trusts
+    nobody), trusting all of `172.16.0.0/12`. Revisit if the app leaves
+    the default bridge network.
+  - **Loopback-only publish** (`127.0.0.1:5600`); the precedent's
+    `0.0.0.0` publish bypasses TLS, Cloudflare and `ufw`.
+  - **nginx config re-applied every deploy** (backup, copy, `certbot
+    install`, `nginx -t`, restore on any failure); the precedent's copy
+    goes stale after the first certbot run. Rejected: Cloudflare Origin
+    CA certs (diverges from the other droplet apps). Revisit if certbot's
+    reinstall proves flaky.
+  - **Rollback target is the image last serving healthily** (tagged
+    locally on the droplet before each swap), and deploys pull the
+    commit's SHA tag. Rejected: the precedent's registry `:previous`,
+    which a failed deploy turns into the broken image.
+  - One `--env-file` for deploy and rollback; the rollback is
+    health-polled and says so when the previous image can't start
+    against a newer schema (fix forward); container logs stay on the
+    droplet (public repo); deploys queue rather than cancel;
+    `client_max_body_size 7m`, above the app's 6 MiB cap; actions
+    SHA-pinned with host-key fingerprint checks; nonroot image.
+  Open.
+- **CROC-081** — Pre-commit hook without the stash. Third conflict on
+  2026-10-10 (committing `CROC-075`: a partly staged new file made the
+  exit-time `git stash pop` fail with "both added"; recovered from the
+  stash, nothing lost). Mechanise per CLAUDE.md's "Pre-commit hook" note:
+  export the index to a temp dir (`git checkout-index`) and run gofmt,
+  vet, build and `go mod tidy` there, so the working tree is never
+  stashed or popped. gofmt/tidy then fail with "run gofmt/tidy" instead
+  of fixing and re-staging. Rejected: refusing partially staged files up
+  front (blocks the GUI's line staging). Update CLAUDE.md's "Pre-commit
+  hook" section. Its merge is also `CROC-075`'s second deploy (nginx
+  re-applied, `certbot install` without a new cert). Open.
 - **CROC-076** — **Done** (2026-10-09). First security pass, done by hand
   as a light-touch review (route guards, sessions, per-user scoping,
   input, uploads, leakage, `govulncheck`); no dynamic two-user test.
@@ -962,12 +988,16 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   JSON is unchanged. A recipe whose creator was deleted stays `null`.
 - **CROC-077** — Production cutover. Mostly accounts, config and data,
   little code. Replaces the old Next.js site, live on Vercel today.
-  - **Accounts and config, before deploying:**
-    - Neon: a prod branch; if IP Allow is on, add the droplet; know the
-      plan's restore window.
-    - Google OAuth: add `https://<api host>/auth/google/callback` and the
-      frontend origin; the consent screen must be "In production", or
-      only listed test users can sign in.
+  - **Accounts and config, before cutover** (the Neon prod branch, the
+    API's DNS record, the Google redirect URI and the GitHub secrets
+    moved to `CROC-075`'s prerequisites, since its merge is the first
+    deploy):
+    - Google OAuth (`crockpot-api-final` project): once
+      `crockpot.app/privacy` is live, fill in Branding (name, support
+      email, homepage, privacy URL, authorized domain `crockpot.app`; no
+      logo, which triggers verification) and Publish. Until then only
+      listed test users can sign in with Google. No JavaScript origin
+      needed: sign-in is a server-side redirect.
     - Resend: verify the sending domain for `EMAIL_FROM`.
     - DNS (Cloudflare): the API on a subdomain of the frontend's domain.
       The refresh cookie is `SameSite=Lax` (`auth_handler.go`
@@ -975,26 +1005,34 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
       registrable domain no browser sends it and sessions die every
       15 min. `FRONTEND_URL` is the one CORS origin: pick apex or `www`,
       redirect the other.
-    - GitHub secrets for `CROC-075`. JWT secrets: fresh for this app
-      (`openssl rand -base64 32` each), never reused from
-      `packing-list-go`, whose tokens share this claim shape
-      (`docs/findings/2026-10-09-security.md` finding 2).
+    - `FRONTEND_URL` secret: confirm it matches the apex/`www` choice
+      (set provisionally at `CROC-075`), then redeploy.
   - **Item audit** (e.g. ready meals into better categories): in the old
     Mongo data before the export, or via `/items` after the import.
     Never only in the dev DB: `migrate-data` truncates and reloads items.
   - **Sequence:** deploy the API (schema and reference data self-provision
     through migrations `000003`/`000004`/`000006`) → take the old site
     offline → fresh export of all 8 collections → `migrate-data
-    --allow-prod --yes` → `crockpot-react` `CFE-066` (Vercel) → `CFE-044`
+    --allow-prod --yes` → a manual Neon snapshot of `production` (the
+    plan's restore window is only 6 hours; snapshots don't expire with
+    it) → `crockpot-react` `CFE-066` (Vercel) → `CFE-044`
     (headers) → `CFE-062` checks and `CFE-049`'s phone upload/429 check →
     smoke test with both real accounts (Google sign-in lands on the
     migrated row).
+  Open question for its grill: with a 6-hour restore window and no
+  scheduled snapshots on the current Neon plan, is that enough backup
+  for live data, or does go-live need a paid plan or a periodic dump?
   Open.
 - **CROC-078** — Post-cutover cleanup, once prod is settled: delete
   `cmd/migrate-data/` + `internal/sqlc/migrate.sql*` (disposal steps in
   `docs/handoffs/CROC-024.md`), retire the old Mongo database and the old
-  app's repo/Vercel link, and rewrite both repos' `CLAUDE.md` "Not
-  deployed yet" banners and planned-hosting lines. Open.
+  app's repo/Vercel link and its `crockpot` Google Cloud project, and
+  rewrite both repos' `CLAUDE.md` "Not deployed yet" banners and
+  planned-hosting lines. Optional droplet tidy-up found at `CROC-075`:
+  dead nginx sites (`api.organisey.co.uk`/`api.recommendableapp.co.uk`
+  duplicate server names, `api.recommendable*`, the nameless `api.` file,
+  which may be `events-api`'s: check before removing) and
+  `api.recommendableapp.co.uk`'s expired cert. Open.
 
 ### Tech Debt & Production Readiness
 *From the first whole-codebase tech-debt pass, 2026-08-30. Full detail:

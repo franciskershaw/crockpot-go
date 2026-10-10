@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  DOCKER_IMAGE: docker.io/${{ secrets.DOCKER_USERNAME }}/crockpot-api
+  DOMAIN: api.crockpot.app
+  CONTAINER_NAME: crockpot-api
+  PORT: 5600
+  # The container's peer is the droplet's Docker bridge gateway, not 127.0.0.1.
+  TRUSTED_PROXIES: 172.17.0.1
+  CLOUDINARY_UPLOAD_FOLDER: recipes
+
 jobs:
   checks:
     runs-on: ubuntu-latest
@@ -60,3 +69,277 @@ jobs:
       - name: go test
         timeout-minutes: 10
         run: go test -p 1 -v -count=1 ./...
+
+
+  build:
+    needs: checks
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://${{ env.DOMAIN }}/health
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to DockerHub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+        timeout-minutes: 5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:latest
+            ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ env.DOCKER_IMAGE }}:latest
+          cache-to: type=gha,mode=max
+        timeout-minutes: 15
+
+      - name: Build Summary
+        run: |
+          echo "### Build Complete :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "- Image: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://${{ env.DOMAIN }}/health
+    # Queue, never cancel: a cancelled run can stop the old container or leave nginx half-updated.
+    concurrency:
+      group: crockpot-production
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy Nginx configuration
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USERNAME }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          fingerprint: ${{ secrets.DO_HOST_FINGERPRINT }}
+          source: "nginx/${{ env.CONTAINER_NAME }}.conf"
+          target: "${{ env.CONTAINER_NAME }}-deploy"
+          strip_components: 1
+          overwrite: true
+          timeout: 30s
+
+      - name: Configure Nginx and SSL
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USERNAME }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          fingerprint: ${{ secrets.DO_HOST_FINGERPRINT }}
+          timeout: 30s
+          command_timeout: 5m
+          script: |
+            set -e
+            DOMAIN="${{ env.DOMAIN }}"
+            SRC="$HOME/${{ env.CONTAINER_NAME }}-deploy/${{ env.CONTAINER_NAME }}.conf"
+            BACKUP="$HOME/${{ env.CONTAINER_NAME }}-deploy/site.backup"
+            SITE="/etc/nginx/sites-available/$DOMAIN"
+            LINK="/etc/nginx/sites-enabled/$DOMAIN"
+
+            if [ ! -f "$SRC" ]; then
+              echo "::error::nginx configuration was not uploaded"
+              exit 1
+            fi
+
+            rm -f "$BACKUP"
+            if [ -f "$SITE" ]; then
+              sudo cp "$SITE" "$BACKUP"
+            fi
+
+            # The nginx is shared with other apps: any failure puts the previous site file back.
+            restore() {
+              echo "::error::nginx update failed; restoring the previous site config"
+              if [ -f "$BACKUP" ]; then
+                sudo cp "$BACKUP" "$SITE"
+              else
+                sudo rm -f "$SITE" "$LINK"
+              fi
+              if sudo nginx -t && sudo systemctl reload nginx; then
+                echo "Previous nginx config restored"
+              else
+                echo "::error::nginx -t still fails after restoring; check /etc/nginx by hand"
+              fi
+              exit 1
+            }
+
+            apply() {
+              sudo cp "$SRC" "$SITE" &&
+              sudo ln -sf "$SITE" "$LINK" &&
+              sudo nginx -t &&
+              if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
+                sudo certbot install --cert-name "$DOMAIN" --nginx --redirect --non-interactive
+              else
+                sudo certbot --nginx -d "$DOMAIN" \
+                  --non-interactive \
+                  --agree-tos \
+                  --email "${{ secrets.CERTBOT_EMAIL }}" \
+                  --redirect
+              fi &&
+              sudo nginx -t &&
+              sudo systemctl reload nginx
+            }
+
+            if ! apply; then
+              restore
+            fi
+            echo "nginx configured for $DOMAIN"
+
+      - name: Deploy Docker Container
+        id: deploy
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USERNAME }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          fingerprint: ${{ secrets.DO_HOST_FINGERPRINT }}
+          timeout: 30s
+          command_timeout: 5m
+          script: |
+            set -e
+            NAME="${{ env.CONTAINER_NAME }}"
+            ENV_FILE="$HOME/$NAME.env"
+
+            umask 077
+            cat > "$ENV_FILE" <<'EOF'
+            APP_ENV=production
+            PORT=${{ env.PORT }}
+            TRUSTED_PROXIES=${{ env.TRUSTED_PROXIES }}
+            DATABASE_URL=${{ secrets.PROD_DATABASE_URL }}
+            JWT_SECRET_ACCESS=${{ secrets.JWT_SECRET_ACCESS }}
+            JWT_SECRET_REFRESH=${{ secrets.JWT_SECRET_REFRESH }}
+            JWT_SECRET_OAUTH_STATE=${{ secrets.JWT_SECRET_OAUTH_STATE }}
+            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+            GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+            GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}
+            FRONTEND_URL=${{ secrets.FRONTEND_URL }}
+            RESEND_API_KEY=${{ secrets.RESEND_API_KEY }}
+            EMAIL_FROM=${{ secrets.EMAIL_FROM }}
+            CLOUDINARY_CLOUD_NAME=${{ secrets.CLOUDINARY_CLOUD_NAME }}
+            CLOUDINARY_API_KEY=${{ secrets.CLOUDINARY_API_KEY }}
+            CLOUDINARY_API_SECRET=${{ secrets.CLOUDINARY_API_SECRET }}
+            CLOUDINARY_UPLOAD_FOLDER=${{ env.CLOUDINARY_UPLOAD_FOLDER }}
+            EOF
+            chmod 600 "$ENV_FILE"
+
+            echo "Pulling ${{ github.sha }}..."
+            docker pull ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+
+            # Roll back to what was actually serving, and only if it was healthy.
+            if docker inspect "$NAME" > /dev/null 2>&1 &&
+              curl -sf --max-time 5 "http://127.0.0.1:${{ env.PORT }}/health" > /dev/null; then
+              docker tag "$(docker inspect --format '{{.Image}}' "$NAME")" "$NAME:rollback"
+              echo "Tagged the running image as $NAME:rollback"
+            fi
+
+            echo "Stopping existing containers..."
+            docker stop "$NAME" "$NAME-new" || true
+            docker rm "$NAME" "$NAME-new" || true
+
+            echo "Starting new container..."
+            docker run -d \
+              --name "$NAME-new" \
+              --restart unless-stopped \
+              -p 127.0.0.1:${{ env.PORT }}:${{ env.PORT }} \
+              --env-file "$ENV_FILE" \
+              ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+
+      # Also runs when the deploy step failed partway, so a stopped old container still gets a rollback.
+      - name: Health Check
+        if: ${{ !cancelled() && (steps.deploy.outcome == 'success' || steps.deploy.outcome == 'failure') }}
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USERNAME }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          fingerprint: ${{ secrets.DO_HOST_FINGERPRINT }}
+          timeout: 30s
+          command_timeout: 5m
+          script: |
+            set -e
+            NAME="${{ env.CONTAINER_NAME }}"
+            ENV_FILE="$HOME/$NAME.env"
+
+            healthy() {
+              attempt=0
+              until curl -sf --max-time 5 "http://127.0.0.1:${{ env.PORT }}/health" > /dev/null; do
+                attempt=$((attempt + 1))
+                if [ "$attempt" -ge 15 ]; then
+                  return 1
+                fi
+                echo "Waiting for /health ($attempt/15)"
+                sleep 3
+              done
+            }
+
+            # The repo is public, so container logs stay on the droplet rather than in this job's output.
+            if docker inspect "$NAME-new" > /dev/null 2>&1; then
+              if healthy; then
+                docker rm -f "$NAME" 2>/dev/null || true
+                docker rename "$NAME-new" "$NAME"
+                docker images ${{ env.DOCKER_IMAGE }} --format '{{.Repository}}:{{.Tag}}' |
+                  grep -v ":${{ github.sha }}$" | xargs -r docker rmi > /dev/null 2>&1 || true
+                echo "Container healthy, deployment finalized"
+                exit 0
+              fi
+              docker stop "$NAME-new" || true
+              docker rm -f "$NAME-failed" 2>/dev/null || true
+              docker rename "$NAME-new" "$NAME-failed"
+              echo "::error::New container never became healthy. Logs on the droplet: docker logs $NAME-failed"
+            elif docker inspect "$NAME" > /dev/null 2>&1; then
+              echo "::error::Deploy failed before the new container started; the previous container is still serving."
+              exit 1
+            fi
+
+            if ! docker image inspect "$NAME:rollback" > /dev/null 2>&1; then
+              echo "::error::No healthy image to roll back to; nothing is serving."
+              exit 1
+            fi
+            docker run -d \
+              --name "$NAME" \
+              --restart unless-stopped \
+              -p 127.0.0.1:${{ env.PORT }}:${{ env.PORT }} \
+              --env-file "$ENV_FILE" \
+              "$NAME:rollback"
+
+            if healthy; then
+              echo "::error::Deploy failed health check — rolled back to the previous image. Investigate before retrying."
+            else
+              echo "::error::Rollback also failed — the schema is probably newer than the previous image. Fix forward. Logs on the droplet: docker logs $NAME"
+            fi
+            exit 1
+
+      - name: Update Job Summary
+        if: success()
+        run: |
+          echo "### Deployment Complete :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "- URL: https://${{ env.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Image: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Update Job Summary on Failure
+        if: failure()
+        run: |
+          echo "### Deployment Failed :x:" >> $GITHUB_STEP_SUMMARY
+          echo "Check the step logs above for details." >> $GITHUB_STEP_SUMMARY
