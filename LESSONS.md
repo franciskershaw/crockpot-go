@@ -707,3 +707,18 @@ implementation quality until CROC-001 lands.
 
 - No rework. Checking the old app's schema first showed a missing date can't come from the app, which made it a defensive guard and settled the grill in one question. The recipe precedent's `now()` fallback was deliberately not copied, because this table exists to measure recency.
 - **Pattern**: before copying a fallback precedent, check what the target data is for; a default that's harmless for sorting can fake the signal an analytics table exists to hold.
+
+## 2026-10-09 — CROC-076 — First security pass, by hand and light-touch
+
+- Covered routes, sessions, per-user scoping, input, uploads, leakage and `govulncheck`, read by trust boundary and paired with `crockpot-react`'s pass so the cookie/CORS boundary was read from both sides. 5 findings, all low or informational, one ticket (`CROC-079`). No dynamic two-user test was run; per-user scoping rests on reading every id-keyed query. The real find: the refresh cookie was `SameSite=None` though the spec chose a same-site domain layout for `Lax`.
+- **Pattern**: check cookie, CORS and redirect settings against the spec's domain decision, not just against each other; a setting chosen before the domain was fixed can quietly outlive the reason for it.
+
+## 2026-10-10 — CROC-079 — Security hardening from CROC-076
+
+- Clean: one red/green batch, branch review found nothing. Two notes: the findings doc's "match the body-side caps" suggestion (50) didn't fit a filter, which can sensibly ask for more ids than a recipe holds, so the cap became 100; and the first `curl` checks hit the founder's own dev server on 8080 and returned a misleading 200, so real-client checks run the fresh build on a spare port.
+- **Pattern**: before trusting a real-client check, confirm the binary under test is the one answering (its log, or a port nothing else holds).
+
+## 2026-10-10 — Pre-commit hook conflict on a partially staged file (second time)
+
+- Committing `CROC-079`, `config/config.go` was staged with two lines missing (likely the GUI's line/hunk staging). The staged copy didn't compile, so `go vet` failed, and the hook's exit-time `git stash pop` conflicted with the partial index. Nothing was committed; recovered from the stash. The first time was `docs/specs/master-spec.md`, committing the go-live reorder after `CROC-066`.
+- **Pattern**: the hook's `stash --keep-index` / `pop` assumes every file is either fully staged or untouched. Recovery steps are in CLAUDE.md's "Pre-commit hook" section. If it happens a third time, discuss mechanising it (e.g. the hook refusing up front, naming any partially staged file) rather than recovering by hand again.

@@ -103,7 +103,37 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
 	}
 
+	if err := validateJWTSecrets(cfg); err != nil {
+		return err
+	}
+
 	return validateUploadFolder(cfg.CloudinaryUploadFolder, cfg.Environment)
+}
+
+const minJWTSecretBytes = 32
+
+func validateJWTSecrets(cfg *Config) error {
+	secrets := []struct {
+		name string
+		val  string
+	}{
+		{"JWT_SECRET_ACCESS", cfg.JWTSecretAccess},
+		{"JWT_SECRET_REFRESH", cfg.JWTSecretRefresh},
+		{"JWT_SECRET_OAUTH_STATE", cfg.JWTSecretOAuthState},
+	}
+
+	for i, s := range secrets {
+		if len(s.val) < minJWTSecretBytes {
+			return fmt.Errorf("%s must be at least %d bytes; generate one with openssl rand -base64 32", s.name, minJWTSecretBytes)
+		}
+		for _, other := range secrets[:i] {
+			if s.val == other.val {
+				return fmt.Errorf("%s and %s must differ", other.name, s.name)
+			}
+		}
+	}
+
+	return nil
 }
 
 // validateUploadFolder keeps a non-production environment from uploading into, and so destroying in, production's folders.

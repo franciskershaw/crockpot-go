@@ -900,11 +900,9 @@ is in `crockpot-react`'s `docs/handoffs/CFE-055.md`. Build `CROC-051`, then
 everyone at launch. This epic is the go-live roadmap for both repos;
 `crockpot-react`'s Epic 8 holds the frontend tickets it sequences.*
 
-**Go-live order** (reordered 2026-10-09; `CROC-069`/`074`/`066` done)
-1. **Security reviews:** `CROC-076` + `crockpot-react` `CFE-064`, on the
-   app code as it stands. The deploy config isn't written yet; `CROC-075`
-   is all new files, so its own branch review's security lens sees all of
-   it (see that ticket).
+**Go-live order** (updated 2026-10-10; `CROC-069`/`074`/`066`/`076`/`079` done)
+1. **Security fixes:** `crockpot-react` `CFE-067`, from the 2026-10-09
+   security pass. Before `CROC-075`.
 2. **Remaining code, one commit each:** `CROC-075`; frontend `CFE-063`,
    `CFE-065`.
 3. **Cutover:** `CROC-077`, which runs `crockpot-react` `CFE-066`,
@@ -939,10 +937,21 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   in for a security pass over the deploy config (moved after `CROC-076`):
   secrets handling in the workflow, `TRUSTED_PROXIES`/real-IP, and the
   nginx body limit get explicit attention there. Open.
-- **CROC-076** — Pre-launch security review, the first for this repo (five
-  tech-debt passes, no security pass). Findings to a dated
-  `docs/findings/` doc; fix what blocks launch, file the rest. Paired
-  with `crockpot-react` `CFE-064`. Open.
+- **CROC-076** — **Done** (2026-10-09). First security pass, done by hand
+  as a light-touch review (route guards, sessions, per-user scoping,
+  input, uploads, leakage, `govulncheck`); no dynamic two-user test.
+  Founder accepted it as showing no red flags. 5 findings, all low or
+  informational: `docs/findings/2026-10-09-security.md`. Fixes in
+  `CROC-079`. A deeper scan (e.g. the Claude Security plugin) was
+  considered and deferred.
+- **CROC-079** — **Done** (2026-10-10). Security hardening from
+  `CROC-076`, findings 1–3 and 5: refresh cookie `SameSite=Lax` in every
+  environment; startup refuses any `JWT_SECRET_*` under 32 bytes (raw
+  length) or equal to another; `GET /recipes` rejects more than 100
+  `categoryId`/`ingredientId` values (`400 invalid_request`); Google
+  sign-in no longer requests offline access. Finding 4 accepted. The
+  `Lax` cookie in a real browser across `crockpot.app`/`api.crockpot.app`
+  is checked at `CROC-077`'s first sign-in.
 - **CROC-077** — Production cutover. Mostly accounts, config and data,
   little code. Replaces the old Next.js site, live on Vercel today.
   - **Accounts and config, before deploying:**
@@ -953,12 +962,15 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
       only listed test users can sign in.
     - Resend: verify the sending domain for `EMAIL_FROM`.
     - DNS (Cloudflare): the API on a subdomain of the frontend's domain.
-      The refresh cookie is `SameSite=None` in production
-      (`auth_handler.go` `setRefreshCookie`); on another registrable
-      domain Safari blocks it as third-party and sessions die every
+      The refresh cookie is `SameSite=Lax` (`auth_handler.go`
+      `setRefreshCookie`), so it only travels same-site: on another
+      registrable domain no browser sends it and sessions die every
       15 min. `FRONTEND_URL` is the one CORS origin: pick apex or `www`,
       redirect the other.
-    - GitHub secrets for `CROC-075`.
+    - GitHub secrets for `CROC-075`. JWT secrets: fresh for this app
+      (`openssl rand -base64 32` each), never reused from
+      `packing-list-go`, whose tokens share this claim shape
+      (`docs/findings/2026-10-09-security.md` finding 2).
   - **Item audit** (e.g. ready meals into better categories): in the old
     Mongo data before the export, or via `/items` after the import.
     Never only in the dev DB: `migrate-data` truncates and reloads items.

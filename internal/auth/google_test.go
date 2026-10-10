@@ -127,4 +127,7 @@ func TestGetAuthURL(t *testing.T) {
 	if !strings.Contains(authURL, "state=test-state") {
 		t.Error("auth URL missing state parameter")
 	}
+	if strings.Contains(authURL, "access_type") {
+		t.Errorf("auth URL requests an access_type, want the online default: %s", authURL)
+	}
 }

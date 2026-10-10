@@ -193,7 +193,7 @@ func TestGoogleCallback_HappyPath(t *testing.T) {
 		wantSameSite http.SameSite
 	}{
 		{config.EnvDevelopment, false, http.SameSiteLaxMode},
-		{config.EnvProduction, true, http.SameSiteNoneMode},
+		{config.EnvProduction, true, http.SameSiteLaxMode},
 	}
 
 	for _, tc := range cases {
