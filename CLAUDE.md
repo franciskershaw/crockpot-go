@@ -236,9 +236,13 @@ requests/         Manual .http regression suite, one file per resource
 
 `.githooks/pre-commit` (versioned, wired via `git config core.hooksPath
 .githooks` — run that once per clone, it doesn't apply itself) runs the
-fast, local-only, no-external-dependency checks on every commit:
-`gofmt` and `go mod tidy` auto-fix and re-stage; `go vet`/`go build`
-block the commit on failure. Deliberately excludes `golangci-lint`
+fast, local-only, no-external-dependency checks on every commit, against
+the staged snapshot only: it exports the index to a temp dir
+(`git checkout-index`) and runs `gofmt -l`, `go vet`, `go build` and
+`go mod tidy -diff` there. Any failure blocks the commit; nothing is
+auto-fixed, so run `gofmt -w` / `go mod tidy` yourself and re-stage.
+Partial staging is safe: the working tree is never stashed or touched.
+Deliberately excludes `golangci-lint`
 (borderline — fast enough on this repo's current size, revisit if it
 ever isn't), `govulncheck` (slow — builds a full symbol graph) and the
 real-DB repository tests (need a live `DATABASE_URL`, wrong thing to gate
@@ -251,15 +255,10 @@ importing code is real, so there's nothing premature left to prune.
 Landed after CI caught a stale `quic-go` CVE pin and a leftover
 `go.sum` entry that a local commit-time check would have caught first.
 
-**Known failure mode: partially staged files.** The hook stashes unstaged
-changes (`--keep-index`) and pops them on exit. If a file has both staged
-and unstaged hunks on adjacent lines, the pop conflicts and the commit
-is left with conflict markers and a `pre-commit: unstaged snapshot`
-stash. To recover: `git checkout stash@{0} -- <file>` (restores the full
-working-tree version and stages it), check `git diff --cached
-stash@{0}` is empty, then drop that one stash. Stage whole files to
-avoid it. Seen twice (see LESSONS 2026-10-10); a third time means
-changing the hook.
+Replaced a stash/pop version at `CROC-081` after its exit-time `git stash
+pop` conflicted three times on partly staged or auto-formatted new files.
+Leftover `pre-commit: unstaged snapshot` stashes from that version are
+safe to drop.
 
 ## Manual `.http` regression suite
 
