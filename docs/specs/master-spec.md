@@ -900,14 +900,10 @@ is in `crockpot-react`'s `docs/handoffs/CFE-055.md`. Build `CROC-051`, then
 everyone at launch. This epic is the go-live roadmap for both repos;
 `crockpot-react`'s Epic 8 holds the frontend tickets it sequences.*
 
-**Go-live order** (updated 2026-10-10; `CROC-069`/`074`/`066`/`076`/`079`/`075`/`081` done)
-1. **Security fixes:** `crockpot-react` `CFE-067`, from the 2026-10-09
-   security pass. Before `CROC-075`.
-2. **Remaining code, one commit each:** frontend `CFE-063`,
-   `CFE-065`.
-3. **Cutover:** `CROC-077`, which runs `crockpot-react` `CFE-066`,
+**Go-live order** (updated 2026-10-10; `CROC-069`/`074`/`066`/`076`/`079`/`075`/`081` and `crockpot-react` `CFE-067`/`063`/`065` done)
+1. **Cutover:** `CROC-077`, which runs `crockpot-react` `CFE-066`,
    `CFE-044` and `CFE-062` in its sequence.
-4. **Once settled:** `CROC-078`.
+2. **Once settled:** `CROC-078`.
 
 Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
 `CROC-070`–`CROC-073`, `crockpot-react` `CFE-056`/`CFE-058`.
@@ -996,43 +992,21 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   (`ListRecipeCardCreatorNames`) for list, favourites and menu cards;
   the field moved from `RecipeDetail` to `RecipeCard`, so the detail
   JSON is unchanged. A recipe whose creator was deleted stays `null`.
-- **CROC-077** — Production cutover. Mostly accounts, config and data,
-  little code. Replaces the old Next.js site, live on Vercel today.
-  - **Accounts and config, before cutover** (the Neon prod branch, the
-    API's DNS record, the Google redirect URI and the GitHub secrets
-    moved to `CROC-075`'s prerequisites, since its merge is the first
-    deploy):
-    - Google OAuth (`crockpot-api-final` project): once
-      `crockpot.app/privacy` is live, fill in Branding (name, support
-      email, homepage, privacy URL, authorized domain `crockpot.app`; no
-      logo, which triggers verification) and Publish. Until then only
-      listed test users can sign in with Google. No JavaScript origin
-      needed: sign-in is a server-side redirect.
-    - Resend: verify the sending domain for `EMAIL_FROM`.
-    - DNS (Cloudflare): the API on a subdomain of the frontend's domain.
-      The refresh cookie is `SameSite=Lax` (`auth_handler.go`
-      `setRefreshCookie`), so it only travels same-site: on another
-      registrable domain no browser sends it and sessions die every
-      15 min. `FRONTEND_URL` is the one CORS origin: pick apex or `www`,
-      redirect the other.
-    - `FRONTEND_URL` secret: confirm it matches the apex/`www` choice
-      (set provisionally at `CROC-075`), then redeploy.
-  - **Item audit** (e.g. ready meals into better categories): in the old
-    Mongo data before the export, or via `/items` after the import.
-    Never only in the dev DB: `migrate-data` truncates and reloads items.
-  - **Sequence:** deploy the API (schema and reference data self-provision
-    through migrations `000003`/`000004`/`000006`) → take the old site
-    offline → fresh export of all 8 collections → `migrate-data
-    --allow-prod --yes` → a manual Neon snapshot of `production` (the
-    plan's restore window is only 6 hours; snapshots don't expire with
-    it) → `crockpot-react` `CFE-066` (Vercel) → `CFE-044`
-    (headers) → `CFE-062` checks and `CFE-049`'s phone upload/429 check →
-    smoke test with both real accounts (Google sign-in lands on the
-    migrated row).
-  Open question for its grill: with a 6-hour restore window and no
-  scheduled snapshots on the current Neon plan, is that enough backup
-  for live data, or does go-live need a paid plan or a periodic dump?
-  Open.
+- **CROC-077** — Production cutover. Grilled 2026-10-10 (expensive to
+  undo, AI-driven as a guided checklist); full sequence, checks and
+  rollback in `docs/handoffs/CROC-077.md`. Settled: `www.crockpot.app` is
+  canonical (Vercel's recommendation; `FRONTEND_URL` must match it
+  exactly). Backups stay on Neon Free with a snapshot straight after the
+  import; upgrade to Launch at the first sign-up that isn't Francis or
+  Zoe. Rejected: paying before there are users, and a home-made nightly
+  dump. The Vercel switch is the takedown (no freeze). Runs
+  `crockpot-react` `CFE-062`, `CFE-044` and `CFE-066`. Open.
+- **CROC-082** — Item category audit, after cutover. Claude reads the
+  production items (read-only) and proposes better categories,
+  especially for the many filed under "Cupboard" by default; the founder
+  approves the list; changes go through the admin `PATCH /items/:id`.
+  Safe only after cutover, since `migrate-data` truncates and reloads
+  items. Open.
 - **CROC-078** — Post-cutover cleanup, once prod is settled: delete
   `cmd/migrate-data/` + `internal/sqlc/migrate.sql*` (disposal steps in
   `docs/handoffs/CROC-024.md`), retire the old Mongo database and the old
