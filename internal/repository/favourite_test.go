@@ -226,6 +226,8 @@ func TestListFavourites_CardsHaveIsFavouriteTrueAndCategoriesHydrated(t *testing
 	assert.True(t, cards[0].IsFavourite)
 	require.Len(t, cards[0].Categories, 1)
 	assert.Equal(t, cat, cards[0].Categories[0].ID)
+	require.NotNil(t, cards[0].CreatedByName)
+	assert.Equal(t, "Owner", *cards[0].CreatedByName)
 }
 
 func TestListFavourites_TotalMatchesLength(t *testing.T) {

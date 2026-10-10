@@ -337,6 +337,38 @@ func (q *Queries) ListRecipeCardCategories(ctx context.Context, recipeIds []pgty
 	return items, nil
 }
 
+const listRecipeCardCreatorNames = `-- name: ListRecipeCardCreatorNames :many
+SELECT r.id AS recipe_id, u.name
+FROM recipes r
+JOIN users u ON u.id = r.created_by_id
+WHERE r.id = ANY($1::uuid[])
+`
+
+type ListRecipeCardCreatorNamesRow struct {
+	RecipeID pgtype.UUID
+	Name     pgtype.Text
+}
+
+func (q *Queries) ListRecipeCardCreatorNames(ctx context.Context, recipeIds []pgtype.UUID) ([]ListRecipeCardCreatorNamesRow, error) {
+	rows, err := q.db.Query(ctx, listRecipeCardCreatorNames, recipeIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRecipeCardCreatorNamesRow
+	for rows.Next() {
+		var i ListRecipeCardCreatorNamesRow
+		if err := rows.Scan(&i.RecipeID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecipeDetailCategories = `-- name: ListRecipeDetailCategories :many
 SELECT rc.id, rc.name
 FROM recipe_categories_recipes rcr

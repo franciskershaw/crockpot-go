@@ -184,6 +184,12 @@ JOIN recipe_categories rc ON rc.id = rcr.category_id
 WHERE rcr.recipe_id = ANY(sqlc.arg(recipe_ids)::uuid[])
 ORDER BY rc.name;
 
+-- name: ListRecipeCardCreatorNames :many
+SELECT r.id AS recipe_id, u.name
+FROM recipes r
+JOIN users u ON u.id = r.created_by_id
+WHERE r.id = ANY(sqlc.arg(recipe_ids)::uuid[]);
+
 -- name: ListRecipeDetailCategories :many
 SELECT rc.id, rc.name
 FROM recipe_categories_recipes rcr

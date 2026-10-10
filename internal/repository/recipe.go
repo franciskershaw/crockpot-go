@@ -121,7 +121,7 @@ func (r *PostgresRecipeRepository) List(ctx context.Context, filter models.Recip
 		ids[i] = row.ID
 	}
 
-	if err := hydrateCardCategories(ctx, q, cards, ids); err != nil {
+	if err := hydrateCards(ctx, q, cards, ids); err != nil {
 		return nil, 0, err
 	}
 
@@ -154,8 +154,8 @@ func markFavourites(ctx context.Context, q *sqlc.Queries, callerID pgtype.UUID, 
 	return nil
 }
 
-// hydrateCardCategories batch-loads categories for ids and assigns them onto the matching cards in place.
-func hydrateCardCategories(ctx context.Context, q *sqlc.Queries, cards []*models.RecipeCard, ids []pgtype.UUID) error {
+// hydrateCards batch-loads categories and creator names for ids and assigns them onto the matching cards in place.
+func hydrateCards(ctx context.Context, q *sqlc.Queries, cards []*models.RecipeCard, ids []pgtype.UUID) error {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -168,10 +168,19 @@ func hydrateCardCategories(ctx context.Context, q *sqlc.Queries, cards []*models
 		rid := uuidValue(cr.RecipeID)
 		byRecipe[rid] = append(byRecipe[rid], models.CategoryRef{ID: uuidValue(cr.ID), Name: cr.Name})
 	}
+	nameRows, err := q.ListRecipeCardCreatorNames(ctx, ids)
+	if err != nil {
+		return fmt.Errorf("failed to load recipe creator names: %w", err)
+	}
+	creatorNames := make(map[uuid.UUID]*string, len(nameRows))
+	for _, nr := range nameRows {
+		creatorNames[uuidValue(nr.RecipeID)] = textPtr(nr.Name)
+	}
 	for _, card := range cards {
 		if cats := byRecipe[card.ID]; cats != nil {
 			card.Categories = cats
 		}
+		card.CreatedByName = creatorNames[card.ID]
 	}
 	return nil
 }
@@ -326,14 +335,14 @@ func buildRecipeDetail(ctx context.Context, q *sqlc.Queries, row sqlc.Recipe, ci
 			CreatedAt:            row.CreatedAt.Time,
 			IsFavourite:          isFavourite,
 			TotalIngredientCount: len(ingredients),
+			CreatedByName:        createdByName,
 		},
-		Description:   textPtr(row.Description),
-		Instructions:  instructions,
-		Notes:         notes,
-		Ingredients:   ingredients,
-		CreatedByID:   creatorID,
-		CreatedByName: createdByName,
-		UpdatedAt:     row.UpdatedAt.Time,
+		Description:  textPtr(row.Description),
+		Instructions: instructions,
+		Notes:        notes,
+		Ingredients:  ingredients,
+		CreatedByID:  creatorID,
+		UpdatedAt:    row.UpdatedAt.Time,
 	}, nil
 }
 

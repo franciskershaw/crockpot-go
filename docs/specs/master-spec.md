@@ -952,6 +952,14 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   sign-in no longer requests offline access. Finding 4 accepted. The
   `Lax` cookie in a real browser across `crockpot.app`/`api.crockpot.app`
   is checked at `CROC-077`'s first sign-in.
+- **CROC-080** — **Done** (2026-10-10). Recipe cards carry
+  `createdByName`. Founder-raised: since `crockpot-react` `CFE-068`
+  renders the detail hero from the clicked card, the by-line arrived
+  with the full recipe and shifted the hero. `hydrateCards` (was
+  `hydrateCardCategories`) also batch-loads creator names
+  (`ListRecipeCardCreatorNames`) for list, favourites and menu cards;
+  the field moved from `RecipeDetail` to `RecipeCard`, so the detail
+  JSON is unchanged. A recipe whose creator was deleted stays `null`.
 - **CROC-077** — Production cutover. Mostly accounts, config and data,
   little code. Replaces the old Next.js site, live on Vercel today.
   - **Accounts and config, before deploying:**

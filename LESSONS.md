@@ -722,3 +722,8 @@ implementation quality until CROC-001 lands.
 
 - Committing `CROC-079`, `config/config.go` was staged with two lines missing (likely the GUI's line/hunk staging). The staged copy didn't compile, so `go vet` failed, and the hook's exit-time `git stash pop` conflicted with the partial index. Nothing was committed; recovered from the stash. The first time was `docs/specs/master-spec.md`, committing the go-live reorder after `CROC-066`.
 - **Pattern**: the hook's `stash --keep-index` / `pop` assumes every file is either fully staged or untouched. Recovery steps are in CLAUDE.md's "Pre-commit hook" section. If it happens a third time, discuss mechanising it (e.g. the hook refusing up front, naming any partially staged file) rather than recovering by hand again.
+
+## 2026-10-10 — CROC-080 — Creator name on recipe cards
+
+- Clean. The by-line shift was caused by `crockpot-react` `CFE-068` rendering the hero from the card, not by a new query; the fix followed the existing `hydrateCardCategories` batch pattern, so it was one query and a field move.
+- **Pattern**: when a page starts rendering from a smaller "preview" shape, list every field the full view shows that the preview lacks; each is a late arrival and a likely layout shift.
