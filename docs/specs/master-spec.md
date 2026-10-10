@@ -900,11 +900,10 @@ is in `crockpot-react`'s `docs/handoffs/CFE-055.md`. Build `CROC-051`, then
 everyone at launch. This epic is the go-live roadmap for both repos;
 `crockpot-react`'s Epic 8 holds the frontend tickets it sequences.*
 
-**Go-live order** (updated 2026-10-10; `CROC-069`/`074`/`066`/`076`/`079` done)
+**Go-live order** (updated 2026-10-10; `CROC-069`/`074`/`066`/`076`/`079`/`075`/`081` done)
 1. **Security fixes:** `crockpot-react` `CFE-067`, from the 2026-10-09
    security pass. Before `CROC-075`.
-2. **Remaining code, one commit each:** `CROC-075`, then `CROC-081`
-   (its merge is `CROC-075`'s second deploy); frontend `CFE-063`,
+2. **Remaining code, one commit each:** frontend `CFE-063`,
    `CFE-065`.
 3. **Cutover:** `CROC-077`, which runs `crockpot-react` `CFE-066`,
    `CFE-044` and `CFE-062` in its sequence.
@@ -919,7 +918,7 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   the duplicate merge. Not `now()`: this table feeds recency (`CROC-050`).
   Dry run against the current export: 100 entries, no fills; the 3
   existing `history-recipe-missing` skips are unchanged.
-- **CROC-075** — Deploy pipeline from `packing-list-go`'s
+- **CROC-075** — **Done** (2026-10-10). Deploy pipeline from `packing-list-go`'s
   (`docs/handoffs/PACK-038.md`): multi-stage distroless image, host-side
   `/health` poll. Grilled 2026-10-10, AI-driven:
   `docs/handoffs/CROC-075.md`. Merging it is the first prod deploy, so
@@ -951,18 +950,29 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
     droplet (public repo); deploys queue rather than cancel;
     `client_max_body_size 7m`, above the app's 6 MiB cap; actions
     SHA-pinned with host-key fingerprint checks; nonroot image.
-  Open.
-- **CROC-081** — Pre-commit hook without the stash. Third conflict on
-  2026-10-10 (committing `CROC-075`: a partly staged new file made the
-  exit-time `git stash pop` fail with "both added"; recovered from the
-  stash, nothing lost). Mechanise per CLAUDE.md's "Pre-commit hook" note:
-  export the index to a temp dir (`git checkout-index`) and run gofmt,
-  vet, build and `go mod tidy` there, so the working tree is never
-  stashed or popped. gofmt/tidy then fail with "run gofmt/tidy" instead
-  of fixing and re-staging. Rejected: refusing partially staged files up
-  front (blocks the GUI's line staging). Update CLAUDE.md's "Pre-commit
-  hook" section. Its merge is also `CROC-075`'s second deploy (nginx
-  re-applied, `certbot install` without a new cert). Open.
+  First deploy green: `https://api.crockpot.app/health` 200 behind a
+  valid cert, HTTP redirects to HTTPS, port 5600 unreachable from
+  outside; `docker logs crockpot-api` shows the founder's own IP (the
+  real-IP chain works). The second-deploy `certbot install` check lands
+  with `CROC-081`'s merge. Prerequisites also retired the old Node
+  `crockpot-api` (container, image, nginx site, cert, Docker Hub repo,
+  archived GitHub repo) and added DO Cloud Firewall `droplet-web`
+  (inbound 22/80/443): the droplet's other apps were reachable over
+  plain HTTP on their ports.
+- **CROC-081** — **Done** (2026-10-10). Pre-commit hook without the
+  stash, after its third `git stash pop` conflict (committing `CROC-075`).
+  The hook exports the index to a temp dir (`git checkout-index`) and
+  runs `gofmt -l`, `go vet`, `go build` and `go mod tidy -diff` there;
+  the working tree is never touched, and gofmt/tidy now block instead of
+  auto-fixing. Checked with seven throwaway-clone scenarios (partly
+  staged new file, unformatted file, untidy `go.mod`, vet failure, clean
+  change, broken unstaged edit, untracked files): 5 red on the old hook,
+  7 green on the new one. Rejected: refusing partially staged files (the
+  GUI's line staging). CI actions moved off Node 20 and SHA-pinned:
+  `checkout` v7.0.1, `setup-go` v7.0.0, `docker/login-action` v4.6.0,
+  `setup-buildx-action` v4.4.1, `build-push-action` v7.4.0; release
+  notes read, no breaking change applies. Its merge is `CROC-075`'s
+  second deploy (nginx re-applied via `certbot install`, no new cert).
 - **CROC-076** — **Done** (2026-10-09). First security pass, done by hand
   as a light-touch review (route guards, sessions, per-user scoping,
   input, uploads, leakage, `govulncheck`); no dynamic two-user test.

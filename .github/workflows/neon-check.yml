@@ -12,7 +12,7 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: CI database image matches Neon's major version
         run: |

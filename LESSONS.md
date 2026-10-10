@@ -727,3 +727,13 @@ implementation quality until CROC-001 lands.
 
 - Clean. The by-line shift was caused by `crockpot-react` `CFE-068` rendering the hero from the card, not by a new query; the fix followed the existing `hydrateCardCategories` batch pattern, so it was one query and a field move.
 - **Pattern**: when a page starts rendering from a smaller "preview" shape, list every field the full view shows that the preview lacks; each is a late arrival and a likely layout shift.
+
+## 2026-10-10 — CROC-075 — Deploy pipeline; first deploy green
+
+- The "firm match" precedent had real faults, each found only by reading it: `TRUSTED_PROXIES=127.0.0.1` (the container's peer is the Docker gateway), a `0.0.0.0` publish, an nginx file frozen after the first certbot run, `script_stop` no longer existing in the pinned action, no rollback after a partial deploy failure, and a registry `:previous` that a failed deploy turns into the broken image (branch review). The droplet held a dead app with the same container/image names and no firewall at all.
+- **Pattern**: "copy the precedent" still means reading it line by line against the target; also inspect the live host it deploys to before the first merge.
+
+## 2026-10-10 — CROC-081 — Pre-commit hook rebuilt without the stash
+
+- Clean. The red run showed the stash/pop design failed more widely than the three incidents suggested: any new file the hook re-staged (gofmt) or that had unstaged edits conflicted on pop. The first harness run cd'd into a directory it then deleted, so later scenarios ran in a stale clone; the real repo was checked untouched before going on.
+- **Pattern**: a check that only needs a snapshot should run on an export of that snapshot, not by shuffling the working tree around it.
