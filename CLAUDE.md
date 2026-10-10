@@ -251,6 +251,16 @@ importing code is real, so there's nothing premature left to prune.
 Landed after CI caught a stale `quic-go` CVE pin and a leftover
 `go.sum` entry that a local commit-time check would have caught first.
 
+**Known failure mode: partially staged files.** The hook stashes unstaged
+changes (`--keep-index`) and pops them on exit. If a file has both staged
+and unstaged hunks on adjacent lines, the pop conflicts and the commit
+is left with conflict markers and a `pre-commit: unstaged snapshot`
+stash. To recover: `git checkout stash@{0} -- <file>` (restores the full
+working-tree version and stages it), check `git diff --cached
+stash@{0}` is empty, then drop that one stash. Stage whole files to
+avoid it. Seen twice (see LESSONS 2026-10-10); a third time means
+changing the hook.
+
 ## Manual `.http` regression suite
 
 Every ticket that adds or changes an HTTP-callable endpoint — regardless

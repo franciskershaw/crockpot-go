@@ -900,10 +900,9 @@ is in `crockpot-react`'s `docs/handoffs/CFE-055.md`. Build `CROC-051`, then
 everyone at launch. This epic is the go-live roadmap for both repos;
 `crockpot-react`'s Epic 8 holds the frontend tickets it sequences.*
 
-**Go-live order** (updated 2026-10-10; `CROC-069`/`074`/`066`/`076` done)
-1. **Security fixes:** `CROC-079` + `crockpot-react` `CFE-067`, from the
-   2026-10-09 security passes. Before `CROC-075`, so the first deploy
-   ships with the `Lax` cookie and the secret check.
+**Go-live order** (updated 2026-10-10; `CROC-069`/`074`/`066`/`076`/`079` done)
+1. **Security fixes:** `crockpot-react` `CFE-067`, from the 2026-10-09
+   security pass. Before `CROC-075`.
 2. **Remaining code, one commit each:** `CROC-075`; frontend `CFE-063`,
    `CFE-065`.
 3. **Cutover:** `CROC-077`, which runs `crockpot-react` `CFE-066`,
@@ -945,46 +944,14 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   informational: `docs/findings/2026-10-09-security.md`. Fixes in
   `CROC-079`. A deeper scan (e.g. the Claude Security plugin) was
   considered and deferred.
-- **CROC-079** — Security hardening from `CROC-076`, findings 1–3 and 5:
-  refresh cookie `SameSite=Lax` in every environment (the spec's
-  same-site domain layout; `None` lets other sites force a logout);
-  refuse to start unless each JWT secret is ≥32 bytes and all three
-  differ; cap `categoryId`/`ingredientId` lists on `GET /recipes`
-  (`400 invalid_request`); drop `oauth2.AccessTypeOffline`. Small. Open.
-  - **Acceptance:**
-    - `setRefreshCookie` sets `SameSite=Lax` in every environment;
-      `Secure` stays production-only.
-    - `config.validate` fails in every environment unless each
-      `JWT_SECRET_*` is at least 32 bytes by raw length (`jwt.go` signs
-      with `[]byte(secret)`, no decoding) and all three differ; the error
-      names the variable, never its value.
-    - `parseUUIDQuery` rejects more than 100 ids per key with
-      `400 invalid_request`, checked before parsing; 100 passes. One cap
-      for both keys: the filter UI has no cap of its own
-      (`useRecipeFilters.ts`) and there are 28+ categories, so it must
-      sit well above reachable use.
-    - `GetAuthURL` requests no `access_type=offline`.
-    - `config_test.go` fixtures use real-length secrets; `.env.example`
-      notes `openssl rand -base64 32`; `CROC-077`'s DNS line no longer
-      says the cookie is `None`; findings doc marks finding 4 accepted.
-  - **Non-goals:** finding 4 (OAuth `code`/`state` in gin's request log):
-    single-use, exchanged within the request, and the logs sit beside
-    the `.env`; a custom formatter changes every log line for one route.
-    No entropy check beyond length.
-  - **Staging:** one batch, AI-driven: all failing tests at one red stop,
-    all fixes plus doc edits at one green stop, one commit.
-  - **Verification:**
-    - Logic: `go test ./config/... ./internal/auth/... ./internal/handler/...`
-      red then green; full `go test ./...` and uncapped `golangci-lint`.
-    - Config, through the real binary: `go run .` with one secret
-      overridden short, then with two equal, refuses to start with a
-      named error; the normal `.env` starts.
-    - Limit, through the real client: `curl` `GET /recipes` on the dev
-      server with 101 `categoryId`s gives 400, 100 gives 200.
-    - `curl -D - /auth/google/login` (a GET; the route has no HEAD)
-      `Location` has no `access_type`. The `Lax`
-      cookie in a real browser across `crockpot.app`/`api.crockpot.app`
-      is checked at `CROC-077`'s first sign-in.
+- **CROC-079** — **Done** (2026-10-10). Security hardening from
+  `CROC-076`, findings 1–3 and 5: refresh cookie `SameSite=Lax` in every
+  environment; startup refuses any `JWT_SECRET_*` under 32 bytes (raw
+  length) or equal to another; `GET /recipes` rejects more than 100
+  `categoryId`/`ingredientId` values (`400 invalid_request`); Google
+  sign-in no longer requests offline access. Finding 4 accepted. The
+  `Lax` cookie in a real browser across `crockpot.app`/`api.crockpot.app`
+  is checked at `CROC-077`'s first sign-in.
 - **CROC-077** — Production cutover. Mostly accounts, config and data,
   little code. Replaces the old Next.js site, live on Vercel today.
   - **Accounts and config, before deploying:**
