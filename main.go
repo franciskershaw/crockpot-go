@@ -108,7 +108,12 @@ func main() {
 
 	// Initialize Gin server
 	gin.SetMode(configureGinMode(string(cfg.Environment)))
-	server := gin.Default()
+	server := gin.New()
+	// Production has no request logger: nginx already logs each request and deletes its logs after 14 days, as the privacy page states.
+	if cfg.Environment != config.EnvProduction {
+		server.Use(gin.Logger())
+	}
+	server.Use(gin.Recovery())
 	if err := server.SetTrustedProxies(cfg.TrustedProxies); err != nil {
 		fmt.Fprintf(os.Stderr, "SetTrustedProxies failed: %v\n", err)
 		os.Exit(1)
