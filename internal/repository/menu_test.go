@@ -420,4 +420,6 @@ func TestGetMenu_EntriesHydratedWithRecipeCardAndCategories(t *testing.T) {
 	assert.Equal(t, 3, entry.Serves, "entry serves, not the recipe's own default serves")
 	require.Len(t, entry.Recipe.Categories, 1)
 	assert.Equal(t, cat, entry.Recipe.Categories[0].ID)
+	require.NotNil(t, entry.Recipe.CreatedByName)
+	assert.Equal(t, "Owner", *entry.Recipe.CreatedByName)
 }

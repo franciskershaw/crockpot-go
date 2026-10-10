@@ -27,6 +27,7 @@ type RecipeCard struct {
 	Approved      bool          `json:"approved"`
 	Categories    []CategoryRef `json:"categories"`
 	CreatedAt     time.Time     `json:"createdAt"`
+	CreatedByName *string       `json:"createdByName"`
 	IsFavourite   bool          `json:"isFavourite"`
 
 	MatchedIngredientCount int     `json:"matchedIngredientCount"`
@@ -48,13 +49,12 @@ type HydratedIngredient struct {
 
 type RecipeDetail struct {
 	RecipeCard
-	Description   *string              `json:"description"`
-	Instructions  []string             `json:"instructions"`
-	Notes         []string             `json:"notes"`
-	Ingredients   []HydratedIngredient `json:"ingredients"`
-	CreatedByID   *uuid.UUID           `json:"createdById"`
-	CreatedByName *string              `json:"createdByName"`
-	UpdatedAt     time.Time            `json:"updatedAt"`
+	Description  *string              `json:"description"`
+	Instructions []string             `json:"instructions"`
+	Notes        []string             `json:"notes"`
+	Ingredients  []HydratedIngredient `json:"ingredients"`
+	CreatedByID  *uuid.UUID           `json:"createdById"`
+	UpdatedAt    time.Time            `json:"updatedAt"`
 }
 
 // RecipeListFilter is the validated GET /recipes query, handler → repository.

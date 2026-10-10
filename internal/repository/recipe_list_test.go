@@ -765,6 +765,24 @@ func TestListRecipes_CardCategoriesHydratedAndSorted(t *testing.T) {
 	names := []string{cards[0].Categories[0].Name, cards[0].Categories[1].Name, cards[0].Categories[2].Name}
 	assert.True(t, names[0] < names[1] && names[1] < names[2], "categories sorted by name, got %v", names)
 	assert.NotEqual(t, uuid.Nil, cards[0].Categories[0].ID)
+	require.NotNil(t, cards[0].CreatedByName)
+	assert.Equal(t, "Cook", *cards[0].CreatedByName)
+}
+
+func TestListRecipes_CardWithoutCreatorHasNoName(t *testing.T) {
+	ctx := context.Background()
+	owner := insertTestUser(t, "Cook")
+	scope := insertTestRecipeCategory(t, "repo-test-rc-scope-"+uuid.NewString())
+	id := createTestRecipe(t, recipeOpts{createdBy: owner, approved: true, categoryIDs: []uuid.UUID{scope}})
+	_, err := db.DB.Exec(ctx, `UPDATE recipes SET created_by_id = NULL WHERE id = $1`, id)
+	require.NoError(t, err)
+
+	cards, _, err := recipeRepo.List(ctx, models.RecipeListFilter{
+		IncludeCategoryIDs: []uuid.UUID{scope}, Page: 1, Limit: 50,
+	})
+	require.NoError(t, err)
+	require.Len(t, cards, 1)
+	assert.Nil(t, cards[0].CreatedByName)
 }
 
 func renameRecipeCategory(t *testing.T, id uuid.UUID, name string) {

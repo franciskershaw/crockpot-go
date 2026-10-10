@@ -99,7 +99,7 @@ func (r *PostgresRecipeRepository) ListFavourites(ctx context.Context, userID st
 		ids[i] = row.ID
 	}
 
-	if err := hydrateCardCategories(ctx, q, cards, ids); err != nil {
+	if err := hydrateCards(ctx, q, cards, ids); err != nil {
 		return nil, 0, err
 	}
 

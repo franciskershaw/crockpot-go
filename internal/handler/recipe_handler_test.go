@@ -51,12 +51,12 @@ func fakeCreatedRecipe() *models.RecipeDetail {
 			Approved:      false,
 			Categories:    []models.CategoryRef{{ID: recipeCatID, Name: "Dinner"}},
 			CreatedAt:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			CreatedByName: &byName,
 		},
-		Instructions:  []string{"Brown the beef", "Add everything else"},
-		Notes:         []string{"Freezes well"},
-		Ingredients:   []models.HydratedIngredient{{ItemID: recipeItemID, ItemName: "Beef", ItemCategoryID: uuid.New(), ItemCategoryName: "Meat", UnitID: &recipeUnitID, Quantity: 800}},
-		CreatedByID:   &recipeUserID,
-		CreatedByName: &byName,
+		Instructions: []string{"Brown the beef", "Add everything else"},
+		Notes:        []string{"Freezes well"},
+		Ingredients:  []models.HydratedIngredient{{ItemID: recipeItemID, ItemName: "Beef", ItemCategoryID: uuid.New(), ItemCategoryName: "Meat", UnitID: &recipeUnitID, Quantity: 800}},
+		CreatedByID:  &recipeUserID,
 	}
 }
 
