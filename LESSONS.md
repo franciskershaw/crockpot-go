@@ -707,3 +707,8 @@ implementation quality until CROC-001 lands.
 
 - No rework. Checking the old app's schema first showed a missing date can't come from the app, which made it a defensive guard and settled the grill in one question. The recipe precedent's `now()` fallback was deliberately not copied, because this table exists to measure recency.
 - **Pattern**: before copying a fallback precedent, check what the target data is for; a default that's harmless for sorting can fake the signal an analytics table exists to hold.
+
+## 2026-10-09 — CROC-076 — First security pass, by hand and light-touch
+
+- Covered routes, sessions, per-user scoping, input, uploads, leakage and `govulncheck`, read by trust boundary and paired with `crockpot-react`'s pass so the cookie/CORS boundary was read from both sides. 5 findings, all low or informational, one ticket (`CROC-079`). No dynamic two-user test was run; per-user scoping rests on reading every id-keyed query. The real find: the refresh cookie was `SameSite=None` though the spec chose a same-site domain layout for `Lax`.
+- **Pattern**: check cookie, CORS and redirect settings against the spec's domain decision, not just against each other; a setting chosen before the domain was fixed can quietly outlive the reason for it.
