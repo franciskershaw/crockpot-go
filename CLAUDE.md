@@ -2,19 +2,19 @@
 
 Follows the global development process — see `~/.claude/CLAUDE.md`.
 
-**Not deployed yet.** This is a ground-up rebuild that has never been
-deployed. Production is still the old Next.js/MongoDB app (`../../crockpot`).
-Every "slow", "timeout" or payload-size observation comes from local dev
-(`localhost` against Neon). No nginx, CDN or hosting layer sits in front of
-it yet, so a fix has to work in this code. "Deployment"/"Hosting" below
-describe the plan.
+**Live since 2026-10-10** (`CROC-077`) at `https://api.crockpot.app`,
+serving `crockpot-react` at `https://www.crockpot.app`. Production runs
+behind Cloudflare and nginx against Neon's `production` branch; local dev
+runs against the `development` branch with nothing in front. A "slow",
+"timeout" or payload-size observation should say which of the two it came
+from.
 
 ## Reference projects
 
 - **Functional reference**: `../../crockpot` (Next.js/Prisma/MongoDB, the
-  app this API replaces) — check `prisma/schema.prisma` and `src/` before
-  assuming a feature's exact behaviour rather than guessing from the name.
-  Also the source data for `cmd/migrate-data` (Epic 8).
+  retired app this API replaced; its GitHub repo is archived) — check
+  `prisma/schema.prisma` and `src/` before assuming a feature's exact
+  behaviour rather than guessing from the name.
 - **Design reference**: `../screenshots/` (not committed) — Claude-Design
   reskins covering landing page, browse, recipe detail, add-recipe, and
   the "your crockpot" tabs (menu/planner/favourites/my-recipes). Not
@@ -38,9 +38,10 @@ describe the plan.
   workflow (`.github/workflows/ci.yml`) is the template when that ticket
   comes up, reusing the same Neon + Docker + nginx + DigitalOcean droplet
   pattern; pick an unused port (droplet already runs `packing-list-api`
-  on 5400, `events-api` on 5500, `salary-split-api` on 5300) — that's
-  operational fact (which ports are free, how the droplet's configured),
-  not a design judgment call to re-litigate per ticket.
+  on 5400, `events-api` on 5500, `salary-split-api` on 5300,
+  `crockpot-api` on 5600) — that's operational fact (which ports are
+  free, how the droplet's configured), not a design judgment call to
+  re-litigate per ticket.
 
 ## Stack
 
@@ -83,8 +84,10 @@ describe the plan.
   collaborator mocks for a test) would otherwise collide with the
   package name. Re-run `go tool mockery` after changing any interface in
   `internal/handler`.
-- Deployment (planned, not yet live): Docker (multi-stage to distroless),
-  behind nginx, on the same DigitalOcean droplet as `packing-list-go`
+- Deployment: Docker (multi-stage to distroless), behind Cloudflare and
+  nginx, on the same DigitalOcean droplet as `packing-list-go`, published
+  on `127.0.0.1:5600`; `.github/workflows/ci.yml`'s `deploy` job ships
+  each merge to `main` (`CROC-075`)
 
 ## Architecture
 
