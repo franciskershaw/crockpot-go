@@ -98,7 +98,7 @@ func TestRecipeMenuEntriesUpsertSupport(t *testing.T) {
 	})
 }
 
-// Cross-unit shopping-list merging needs dimension/base_factor on units, correctly backfilled for every seeded unit.
+// Kept for future unit conversion: dimension/base_factor on units, correctly backfilled for every seeded unit.
 func TestUnitsDimensionAndBaseFactor(t *testing.T) {
 	ctx := context.Background()
 

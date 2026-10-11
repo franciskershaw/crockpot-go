@@ -12,35 +12,15 @@ import (
 )
 
 const aggregateMenuIngredients = `-- name: AggregateMenuIngredients :many
-WITH base_units AS (
-    SELECT
-        (SELECT id FROM units WHERE name = 'grams') AS grams_id,
-        (SELECT id FROM units WHERE name = 'milliliters') AS milliliters_id
-), expanded AS (
-    SELECT
-        ri.item_id,
-        ri.unit_id,
-        ri.quantity,
-        (rme.serves::numeric / r.serves::numeric) AS scale,
-        u.dimension,
-        u.base_factor,
-        CASE u.dimension
-            WHEN 'mass' THEN base_units.grams_id
-            WHEN 'volume' THEN base_units.milliliters_id
-        END AS base_unit_id
-    FROM recipe_menu_entries rme
-    JOIN recipes r ON r.id = rme.recipe_id
-    JOIN recipe_ingredients ri ON ri.recipe_id = r.id
-    LEFT JOIN units u ON u.id = ri.unit_id
-    CROSS JOIN base_units
-    WHERE rme.recipe_menu_id = $1
-)
 SELECT
-    item_id,
-    COALESCE(base_unit_id, unit_id)::uuid AS unit_id,
-    SUM(quantity * scale * COALESCE(base_factor, 1))::numeric(10, 2) AS quantity
-FROM expanded
-GROUP BY item_id, COALESCE(base_unit_id, unit_id)
+    ri.item_id,
+    ri.unit_id,
+    SUM(ri.quantity * rme.serves::numeric / r.serves::numeric)::numeric(10, 2) AS quantity
+FROM recipe_menu_entries rme
+JOIN recipes r ON r.id = rme.recipe_id
+JOIN recipe_ingredients ri ON ri.recipe_id = r.id
+WHERE rme.recipe_menu_id = $1
+GROUP BY ri.item_id, ri.unit_id
 `
 
 type AggregateMenuIngredientsRow struct {

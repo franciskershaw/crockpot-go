@@ -208,7 +208,28 @@ func TestRegenerate_CombinesSameUnitQuantitiesAcrossRecipes(t *testing.T) {
 	assert.Equal(t, 150.0, row.quantity)
 }
 
-func TestRegenerate_MergesCompatibleCrossUnitMetric(t *testing.T) {
+func TestRegenerate_KeepsTheRecipeUnitWithoutConverting(t *testing.T) {
+	userID := insertTestUser(t, "Teaspoon Cook")
+	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
+	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
+	teaspoons := unitIDByName(t, "teaspoons")
+	milliliters := unitIDByName(t, "milliliters")
+	registerShoppingListCascadeCleanup(t, userID)
+
+	recipeID := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{itemID, &teaspoons, 2}})
+	addToMenu(t, userID, recipeID, 8)
+
+	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
+
+	items := getShoppingListItemsByUser(t, userID)
+	row, ok := findShoppingListItem(items, itemID, &teaspoons)
+	require.True(t, ok, "expected the row in the recipe's own unit (teaspoons)")
+	assert.Equal(t, 4.0, row.quantity)
+	_, mlRowExists := findShoppingListItem(items, itemID, &milliliters)
+	assert.False(t, mlRowExists, "must not convert to milliliters")
+}
+
+func TestRegenerate_DifferentUnitsForOneItemStaySeparateRows(t *testing.T) {
 	userID := insertTestUser(t, "Cross Unit Cook")
 	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
 	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
@@ -216,7 +237,6 @@ func TestRegenerate_MergesCompatibleCrossUnitMetric(t *testing.T) {
 	milliliters := unitIDByName(t, "milliliters")
 	registerShoppingListCascadeCleanup(t, userID)
 
-	// 2 tablespoons (15ml each = 30ml) + 100ml = 130ml combined, under the volume base unit.
 	recipeA := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{itemID, &tablespoons, 2}})
 	recipeB := insertTestRecipeWithIngredients(t, userID, 4, []testIngredient{{itemID, &milliliters, 100}})
 	addToMenu(t, userID, recipeA, 4)
@@ -225,23 +245,26 @@ func TestRegenerate_MergesCompatibleCrossUnitMetric(t *testing.T) {
 	require.NoError(t, shoppingListRepo.Regenerate(context.Background(), userID.String()))
 
 	items := getShoppingListItemsByUser(t, userID)
-	row, ok := findShoppingListItem(items, itemID, &milliliters)
-	require.True(t, ok, "expected one row under the volume base unit (milliliters)")
-	assert.Equal(t, 130.0, row.quantity)
-	_, tbspRowExists := findShoppingListItem(items, itemID, &tablespoons)
-	assert.False(t, tbspRowExists, "must not leave a separate tablespoons row")
+	tbspRow, ok := findShoppingListItem(items, itemID, &tablespoons)
+	require.True(t, ok, "expected a tablespoons row")
+	assert.Equal(t, 2.0, tbspRow.quantity)
+	mlRow, ok := findShoppingListItem(items, itemID, &milliliters)
+	require.True(t, ok, "expected a milliliters row")
+	assert.Equal(t, 100.0, mlRow.quantity)
 }
 
 func TestRegenerate_AggregateOverflow_ReturnsQuantityTooLarge(t *testing.T) {
 	userID := insertTestUser(t, "Overflow Cook")
 	cat := insertTestItemCategory(t, "repo-test-sl-cat-"+uuid.NewString(), "repo-test-sl-icon-"+uuid.NewString())
 	itemID := insertTestItem(t, "repo-test-sl-item-"+uuid.NewString(), cat)
-	kilogram := unitIDByName(t, "kilogram")
+	grams := unitIDByName(t, "grams")
 	registerShoppingListCascadeCleanup(t, userID)
 
-	// 99,999 kg × 1000 g/kg × serves 50/1 ≈ 5e9 g, past NUMERIC(10, 2)'s 99,999,999.99.
-	recipeID := insertTestRecipeWithIngredients(t, userID, 1, []testIngredient{{itemID, &kilogram, 99999}})
-	addToMenu(t, userID, recipeID, 50)
+	// 21 recipes × 100,000 g × serves 50/1 = 105,000,000, past NUMERIC(10, 2)'s 99,999,999.99, all within the API's caps.
+	for range 21 {
+		recipeID := insertTestRecipeWithIngredients(t, userID, 1, []testIngredient{{itemID, &grams, 100000}})
+		addToMenu(t, userID, recipeID, 50)
+	}
 
 	err := shoppingListRepo.Regenerate(context.Background(), userID.String())
 	assert.ErrorIs(t, err, models.ErrShoppingListQuantityTooLarge)

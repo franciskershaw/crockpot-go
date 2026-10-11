@@ -40,6 +40,11 @@ type ItemCategory struct {
 	IsIngredient bool
 }
 
+type ItemMerge struct {
+	MergedID pgtype.UUID
+	KeptID   pgtype.UUID
+}
+
 // Frozen per-recipe aggregates migrated from the old app; never written by the API. times_added_to_menu is an upper bound: the old app counted serves-only changes as adds.
 type MenuHistoryBaseline struct {
 	ID                  pgtype.UUID
