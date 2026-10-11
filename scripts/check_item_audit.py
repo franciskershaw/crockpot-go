@@ -50,6 +50,16 @@ def get(api, path):
         return json.load(resp)
 
 
+def recipe_ids(api, item_id):
+    ids, page = set(), 1
+    while True:
+        body = get(api, f"/recipes?limit=50&page={page}&ingredientId={item_id}")
+        ids |= {r["id"] for r in body["recipes"]}
+        if page >= body["totalPages"]:
+            return ids
+        page += 1
+
+
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in ("before", "after"):
         sys.exit(__doc__)
@@ -81,6 +91,12 @@ def main():
                 found = get(api, f"/recipes?limit=1&ingredientId={live[item]['id']}")["total"]
                 if found:
                     problems.append(f"{item}: bound for excluded {proposed} but used in {found} recipe(s)")
+        for item, _, proposed in rows:
+            kept = proposed.removeprefix("merge into ")
+            if kept != proposed and item in live and kept in live:
+                both = recipe_ids(api, live[item]["id"]) & recipe_ids(api, live[kept]["id"])
+                if both:
+                    problems.append(f"{item}: {len(both)} recipe(s) also use {kept}, so the merge would break")
     else:
         flags = {c["name"]: c["isIngredient"] for c in cats}
         for old in renamed:
