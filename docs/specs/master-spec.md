@@ -1039,6 +1039,57 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   duplicate server names, `api.recommendable*`, the nameless `api.` file,
   which may be `events-api`'s: check before removing) and
   `api.recommendableapp.co.uk`'s expired cert. Open.
+  **Grilled 2026-10-11 (cheap to undo, no handoff doc).** Code
+  AI-driven; console and droplet work as a guided checklist (founder
+  runs it, Claude gives each step and checks the result).
+  - **Done now, not after a week.** The settling period protected two
+    fallbacks that no longer work: re-running `migrate-data` truncates
+    and reloads, wiping post-cutover data (`CROC-082`'s migrations,
+    re-added favourites, new menus), and rolling back to the old site
+    loses everything since 2026-10-10. Problems are fixed forward.
+  - **Already done by the founder:** old `crockpot` repo archived, old
+    Vercel project deleted, `crockpot` Google Cloud project gone. Mongo
+    is **kept** as a separate backstop (its Atlas cluster stays active
+    through other databases); the export in `cutover-export/` stays too.
+    The local `../../crockpot` clone stays as the functional reference.
+  - **Droplet tidy-up is in scope.** Rule: a site file or cert is removed
+    only when it maps to both a dead domain and a dead port; anything
+    unclear stays.
+
+  *AC:*
+  - [ ] `cmd/migrate-data/`, `internal/sqlc/queries/migrate.sql` and
+        `internal/sqlc/migrate.sql.go` gone (`sqlc generate`), plus
+        `TestMigrateTruncateCoversEveryReferencingTable`
+        (`internal/repository/schema_test.go`, reads `migrate.sql`; the
+        `CROC-024` disposal steps miss it) and `.gitignore`'s
+        `/migrate-data` line. `grep -ri migrate-data` outside `docs/` and
+        `LESSONS.md` finds nothing.
+  - [ ] Both repos' `CLAUDE.md`: "Not deployed yet" banner rewritten to
+        the live setup; "planned" Deployment (`crockpot-go`) and Hosting
+        (`crockpot-react`) lines made current; `../../crockpot` described
+        as the retired app; `crockpot-go`'s line on `cmd/migrate-data`
+        source data dropped and its droplet port list gains
+        `crockpot-api` on 5600.
+  - [ ] Droplet: `nginx -T`, `docker ps` and `dig +short` per domain read
+        first; the nameless `api.` file kept if it proxies to a live port
+        (5500 is `events-api`); `/etc/nginx` tarred before any change;
+        dead site files removed from `sites-available` and
+        `sites-enabled`, the expired cert removed with `certbot delete`.
+  - [ ] `sudo nginx -t` passes with no duplicate `server_name` warning
+        before reload (restore the tarball on failure); every live app
+        answers over HTTPS (`api.crockpot.app/health`, packing-list,
+        events, salary-split); `sudo certbot renew --dry-run` passes.
+
+  *Non-goals:* deleting the Mongo data or the export; changing any live
+  app's nginx config beyond removing dead files.
+
+  *Verification:* code is a deletion with no new behaviour, so no new
+  tests: `go build ./...`, `go vet ./...`, `go test
+  ./internal/handler/...` and `./scripts/test-repo.sh` green after the
+  deletion. Droplet is a service boundary: the `nginx -t`, HTTPS and
+  `certbot renew --dry-run` checks above, run on the real host.
+  Commits: one per repo (`crockpot-go` deletion + `CLAUDE.md`;
+  `crockpot-react` `CLAUDE.md`); the droplet has none.
 
 ### Tech Debt & Production Readiness
 *From the first whole-codebase tech-debt pass, 2026-08-30. Full detail:
