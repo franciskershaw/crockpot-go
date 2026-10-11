@@ -900,10 +900,8 @@ is in `crockpot-react`'s `docs/handoffs/CFE-055.md`. Build `CROC-051`, then
 everyone at launch. This epic is the go-live roadmap for both repos;
 `crockpot-react`'s Epic 8 holds the frontend tickets it sequences.*
 
-**Go-live order** (updated 2026-10-10; `CROC-069`/`074`/`066`/`076`/`079`/`075`/`081` and `crockpot-react` `CFE-067`/`063`/`065` done)
-1. **Cutover:** `CROC-077`, which runs `crockpot-react` `CFE-066`,
-   `CFE-044` and `CFE-062` in its sequence.
-2. **Once settled:** `CROC-078`.
+**Go-live order** (updated 2026-10-10; `CROC-069`/`074`/`066`/`076`/`079`/`075`/`081` and `crockpot-react` `CFE-067`/`063`/`065` done; `CROC-077` done)
+Live since 2026-10-10 (`CROC-077`). Remaining: `CROC-078` once settled.
 
 Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
 `CROC-070`–`CROC-073`, `crockpot-react` `CFE-056`/`CFE-058`.
@@ -992,21 +990,82 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   (`ListRecipeCardCreatorNames`) for list, favourites and menu cards;
   the field moved from `RecipeDetail` to `RecipeCard`, so the detail
   JSON is unchanged. A recipe whose creator was deleted stays `null`.
-- **CROC-077** — Production cutover. Grilled 2026-10-10 (expensive to
-  undo, AI-driven as a guided checklist); full sequence, checks and
-  rollback in `docs/handoffs/CROC-077.md`. Settled: `www.crockpot.app` is
-  canonical (Vercel's recommendation; `FRONTEND_URL` must match it
-  exactly). Backups stay on Neon Free with a snapshot straight after the
-  import; upgrade to Launch at the first sign-up that isn't Francis or
-  Zoe. Rejected: paying before there are users, and a home-made nightly
-  dump. The Vercel switch is the takedown (no freeze). Runs
-  `crockpot-react` `CFE-062`, `CFE-044` and `CFE-066`. Open.
+- **CROC-077** — **Done** (2026-10-10). Production cutover: the
+  rebuilt app is live at `www.crockpot.app` (apex redirects to it) on a
+  new Vercel project; the old project is kept idle for rollback until
+  `CROC-078`. `FRONTEND_URL` corrected to the `www` origin. Production
+  has no API request log (nginx's 14-day logs only), matching the
+  updated privacy page. Data imported with counts matching the dry run
+  (393 items, 219 recipes); favourites, current menus and shopping lists
+  were not carried over (11 favourites, re-added by hand). Neon stays on
+  Free with a snapshot after the import; upgrade to Launch at the first
+  sign-up that isn't Francis or Zoe. Mongo export kept in
+  `crockpot-final/cutover-export/`. Detail: `docs/handoffs/CROC-077.md`.
 - **CROC-082** — Item category audit, after cutover. Claude reads the
   production items (read-only) and proposes better categories,
   especially for the many filed under "Cupboard" by default; the founder
-  approves the list; changes go through the admin `PATCH /items/:id`.
-  Safe only after cutover, since `migrate-data` truncates and reloads
-  items. Open.
+  approves the list. Safe only after cutover, since `migrate-data`
+  truncates and reloads items. Open. Grilled 2026-10-11, AI-driven, cheap
+  to undo:
+  - **Rule:** group items so the shopping list reads sensibly, roughly by
+    aisle. No guessing at shop layouts; an item that could sit in two
+    places is flagged for the founder, not chosen. Cupboard staying large
+    is fine.
+  - **Excluded categories:** `is_ingredient = false` is a hard block, not
+    a filter: the recipe form's picker hides the item and the API rejects
+    a recipe containing it (`ListNonIngredientItemIDs`). So only items no
+    recipe uses may go into one; the audit generator and the pre-merge
+    check both enforce it. Rule for borderline items: exclude only what's
+    never cooked with; when in doubt, keep it an ingredient.
+  - **Approved list** (2026-10-11): `docs/audits/CROC-082-items.md`. 107
+    items change category, 7 typo renames, 3 merges, 2 deletions.
+    New categories: Baking, Chutneys and Spreads, Frozen, Sides, World
+    Foods. Sweets is renamed Snacks and Sweets and becomes excluded; Ready
+    Meal becomes excluded. Chutneys may get their own category later,
+    pending Zoe. Water stays in Cupboard (`CROC-073`, `crockpot-react`
+    `CFE-058` keep it off lists and the filter).
+  - **Steps:** (1) Migration `000019`: insert the new categories, rename
+    Sweets, set `is_ingredient = false` on Ready Meal and Snacks and
+    Sweets, then rename and recategorise items by name (category ids
+    differ between dev and prod). The down file restores every changed
+    item's old name and category, the old category name and flags, and
+    deletes the new categories. (2) Migration `000020`: merges
+    (Five-spice mix into Chinese 5 spice, Dill (chopped) into Dill,
+    Pepper (herb) into Black pepper) and the two deletions (Steak,
+    Washing Up Tablets). A merge copies the merged item's allowed units
+    onto the kept item, repoints `recipe_ingredients`,
+    `shopping_list_items`, `shopping_list_dismissed_items` and
+    `regular_items` (dropping a regular the user already has for the
+    kept item), then deletes the merged item. A deletion only removes an
+    item nothing references. No recipe in the export holds both items of
+    a pair. Its down file can't restore which rows pointed where; the
+    undo is Neon's restore window or snapshot. A migration rather than
+    `PATCH /items/:id` gives dev, then prod on merge, a reviewed undo for
+    `000019`, and no prod `DATABASE_URL` in a shell. (3) `crockpot-react`:
+    `categoryIcons.ts` entries for the new categories and the Sweets
+    rename: Baking `Cupcake` (needs `lucide-react` 1.34 to 1.55; 1.34
+    has no cupcake), Chutneys and Spreads `PillBottle`, Frozen
+    `Snowflake`, Sides `Salad`, World Foods `Earth`, Snacks and Sweets
+    keeps `Cookie`. Deploy order doesn't matter (an unknown name falls
+    back to the generic icon).
+  - **Acceptance:** the approved table matches the migrations row for
+    row. Before merge, a check script confirms against the live API every
+    listed name and Now category, that no new name is taken, and that no
+    item bound for an excluded category is in a recipe. After the prod
+    deploy, the same script confirms every item's name and category match
+    Proposed and the merged and deleted items are gone. On dev, a
+    `migrate down 1` / `up` round trip of `000019` restores every item's
+    name and category exactly, and every recipe that used a merged item
+    lists the kept item afterwards with the same quantity and unit.
+  - **Non-goals:** renaming categories other than Sweets, aisle order
+    on the shopping list, any API or UI change beyond the icons, water
+    (`CROC-073`).
+  - **Verification:** service boundary, through the check script against
+    the local server (dev, plus the down/up round trip and the merged
+    recipes) and `https://api.crockpot.app` (before merge and after
+    deploy). Visual, founder: the new categories' icons in the shopping
+    list and the add-item picker.
+- **CROC-083** — Proper README with screenshots. Open.
 - **CROC-078** — Post-cutover cleanup, once prod is settled: delete
   `cmd/migrate-data/` + `internal/sqlc/migrate.sql*` (disposal steps in
   `docs/handoffs/CROC-024.md`), retire the old Mongo database and the old

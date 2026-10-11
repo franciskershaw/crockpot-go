@@ -89,21 +89,22 @@ func TestListItemCategories_OrderedByName(t *testing.T) {
 	assert.Equal(t, []string{prefix + "Alpha", prefix + "Mid", prefix + "Zed"}, gotNames)
 }
 
-func TestListItemCategories_OnlyHouseIsNotIngredient(t *testing.T) {
+func TestListItemCategories_OnlySeededNonIngredientsAreExcluded(t *testing.T) {
 	categories, err := itemCategoryRepo.List(context.Background())
 	require.NoError(t, err)
 
-	sawHouse := false
+	excluded := map[string]bool{"House": true, "Ready Meal": true, "Snacks and Sweets": true}
+	seen := map[string]bool{}
 	for _, c := range categories {
 		if strings.HasPrefix(c.Name, "repo-test-") {
 			continue
 		}
-		if c.Name == "House" {
-			sawHouse = true
+		if excluded[c.Name] {
+			seen[c.Name] = true
 		}
-		assert.Equal(t, c.Name != "House", c.IsIngredient, "category %q", c.Name)
+		assert.Equal(t, !excluded[c.Name], c.IsIngredient, "category %q", c.Name)
 	}
-	assert.True(t, sawHouse, "seeded House category missing")
+	assert.Len(t, seen, len(excluded), "seeded non-ingredient categories missing, saw %v", seen)
 }
 
 func TestUpdateItemCategory_PartialName(t *testing.T) {

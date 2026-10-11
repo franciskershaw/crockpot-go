@@ -737,3 +737,8 @@ implementation quality until CROC-001 lands.
 
 - Clean. The red run showed the stash/pop design failed more widely than the three incidents suggested: any new file the hook re-staged (gofmt) or that had unstaged edits conflicted on pop. The first harness run cd'd into a directory it then deleted, so later scenarios ran in a stale clone; the real repo was checked untouched before going on.
 - **Pattern**: a check that only needs a snapshot should run on an export of that snapshot, not by shuffling the working tree around it.
+
+## 2026-10-10 — CROC-077 — Production cutover. Live the same day; the plan needed four corrections.
+
+- The handoff promised migrated favourites; the dry run's report showed none, because `CROC-024` had deferred them and nothing picked them up. Checking the live API before planning found `FRONTEND_URL` on the apex and the privacy page's "doesn't save your IP" false (Gin logged IPs, unbounded), both fixed before launch. Import-before-switch and a fresh Vercel project turned out simpler than the planned order.
+- **Pattern**: before a cutover plan promises what moves, read the importer's actual scope (or dry-run it). Check every public claim, like a privacy page, against the running system, not the code's intent.
