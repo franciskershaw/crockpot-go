@@ -753,7 +753,7 @@ session.*
   recipe-calculated quantity, so an edited or added-to row stays deleted
   across unrelated menu changes.
 
-- **CROC-054** — Feature: merge manual adds in a compatible mass/volume
+- **CROC-054** — Moved under `CROC-085`. Feature: merge manual adds in a compatible mass/volume
   unit into the existing row. Today adding flour in kg next to "Flour
   500 g" gives a separate kg row (merging matches `unit_id` exactly;
   recipe-driven rows store grams/millilitres). Fine as-is; this would
@@ -1001,71 +1001,59 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   Free with a snapshot after the import; upgrade to Launch at the first
   sign-up that isn't Francis or Zoe. Mongo export kept in
   `crockpot-final/cutover-export/`. Detail: `docs/handoffs/CROC-077.md`.
-- **CROC-082** — Item category audit, after cutover. Claude reads the
-  production items (read-only) and proposes better categories,
-  especially for the many filed under "Cupboard" by default; the founder
-  approves the list. Safe only after cutover, since `migrate-data`
-  truncates and reloads items. Open. Grilled 2026-10-11, AI-driven, cheap
-  to undo:
-  - **Rule:** group items so the shopping list reads sensibly, roughly by
-    aisle. No guessing at shop layouts; an item that could sit in two
-    places is flagged for the founder, not chosen. Cupboard staying large
-    is fine.
-  - **Excluded categories:** `is_ingredient = false` is a hard block, not
-    a filter: the recipe form's picker hides the item and the API rejects
-    a recipe containing it (`ListNonIngredientItemIDs`). So only items no
-    recipe uses may go into one; the audit generator and the pre-merge
-    check both enforce it. Rule for borderline items: exclude only what's
-    never cooked with; when in doubt, keep it an ingredient.
-  - **Approved list** (2026-10-11): `docs/audits/CROC-082-items.md`. 107
-    items change category, 7 typo renames, 3 merges, 2 deletions.
-    New categories: Baking, Chutneys and Spreads, Frozen, Sides, World
-    Foods. Sweets is renamed Snacks and Sweets and becomes excluded; Ready
-    Meal becomes excluded. Chutneys may get their own category later,
-    pending Zoe. Water stays in Cupboard (`CROC-073`, `crockpot-react`
-    `CFE-058` keep it off lists and the filter).
-  - **Steps:** (1) Migration `000019`: insert the new categories, rename
-    Sweets, set `is_ingredient = false` on Ready Meal and Snacks and
-    Sweets, then rename and recategorise items by name (category ids
-    differ between dev and prod). The down file restores every changed
-    item's old name and category, the old category name and flags, and
-    deletes the new categories. (2) Migration `000020`: merges
-    (Five-spice mix into Chinese 5 spice, Dill (chopped) into Dill,
-    Pepper (herb) into Black pepper) and the two deletions (Steak,
-    Washing Up Tablets). A merge copies the merged item's allowed units
-    onto the kept item, repoints `recipe_ingredients`,
-    `shopping_list_items`, `shopping_list_dismissed_items` and
-    `regular_items` (dropping a regular the user already has for the
-    kept item), then deletes the merged item. A deletion only removes an
-    item nothing references. No recipe in the export holds both items of
-    a pair. Its down file can't restore which rows pointed where; the
-    undo is Neon's restore window or snapshot. A migration rather than
-    `PATCH /items/:id` gives dev, then prod on merge, a reviewed undo for
-    `000019`, and no prod `DATABASE_URL` in a shell. (3) `crockpot-react`:
-    `categoryIcons.ts` entries for the new categories and the Sweets
-    rename: Baking `Cupcake` (needs `lucide-react` 1.34 to 1.55; 1.34
-    has no cupcake), Chutneys and Spreads `PillBottle`, Frozen
-    `Snowflake`, Sides `Salad`, World Foods `Earth`, Snacks and Sweets
-    keeps `Cookie`. Deploy order doesn't matter (an unknown name falls
-    back to the generic icon).
-  - **Acceptance:** the approved table matches the migrations row for
-    row. Before merge, a check script confirms against the live API every
-    listed name and Now category, that no new name is taken, and that no
-    item bound for an excluded category is in a recipe. After the prod
-    deploy, the same script confirms every item's name and category match
-    Proposed and the merged and deleted items are gone. On dev, a
-    `migrate down 1` / `up` round trip of `000019` restores every item's
-    name and category exactly, and every recipe that used a merged item
-    lists the kept item afterwards with the same quantity and unit.
-  - **Non-goals:** renaming categories other than Sweets, aisle order
-    on the shopping list, any API or UI change beyond the icons, water
-    (`CROC-073`).
-  - **Verification:** service boundary, through the check script against
-    the local server (dev, plus the down/up round trip and the merged
-    recipes) and `https://api.crockpot.app` (before merge and after
-    deploy). Visual, founder: the new categories' icons in the shopping
-    list and the add-item picker.
+- **CROC-082** — **Done** (2026-10-11). Item category audit, from the
+  approved list in `docs/audits/CROC-082-items.md`. Migration `000019`
+  added Baking, Chutneys and Spreads, Frozen, Sides and World Foods,
+  renamed Sweets to Snacks and Sweets, made it and Ready Meal excluded
+  (`is_ingredient = false`, which blocks recipe use, not just the
+  filter), moved 107 items and fixed 7 typos. `000020` merged three
+  duplicate items into their kept item (recipes, lists, regulars and
+  allowed units repointed) and deleted two unused ones; its down file is
+  a no-op, the undo being a Neon restore. `crockpot-react` gained the
+  icons (`lucide-react` 1.47 for `Cupcake`). Verified by
+  `scripts/check_item_audit.py` before and after the prod deploy (0
+  problems; 388 items). Open follow-up: chutneys may split from Chutneys
+  and Spreads, pending Zoe.
 - **CROC-083** — Proper README with screenshots. Open.
+- **CROC-084** — Stop converting units on the shopping list.
+  `AggregateMenuIngredients` turns every mass into grams and every volume
+  into millilitres (`CROC-021` decision 7), even when one recipe uses one
+  unit, so 2 tsp shows as 10 ml. Founder-raised 2026-10-11. Open.
+  Grilled 2026-10-11, AI-driven, cheap to undo:
+  - **Decision:** aggregate by the recipe's own `(item_id, unit_id)`,
+    scaled by serves, with no `base_factor`; the same rule count units
+    already follow, and what the old app did
+    (`../../crockpot/src/data/shopping-list/shoppingList.ts:13`, `:70`).
+    The same item in two units gives two rows (1 tbsp and 2 tsp paprika;
+    500 g and 1 kg potatoes); accepted until `CROC-085`.
+  - **Existing lists:** stored ml/g rows stay until the next regenerate,
+    which replaces them in recipe units, unticked; a dismissal recorded
+    in ml/g stops matching. The founder and Zoe press Regenerate once
+    after deploy; no one-off migration or command.
+  - **Kept:** `units.dimension` and `base_factor` (for `CROC-085`);
+    `CROC-064`'s overflow guard (a menu-wide sum can still exceed
+    `NUMERIC(10, 2)`).
+  - **Acceptance:** a recipe using 2 tsp on the menu gives a 2 tsp row
+    (scaled by serves); tbsp + ml for one item give two rows, each in its
+    own unit, replacing `TestRegenerate_MergesCompatibleCrossUnitMetric`;
+    same-unit rows still sum and count/`NULL` units are unchanged
+    (existing tests); `TestRegenerate_AggregateOverflow_ReturnsQuantityTooLarge`
+    rebuilt on a multi-recipe sum, since kg no longer multiplies by 1000;
+    `schema_test.go`'s comment on why the columns exist reworded.
+  - **Non-goals:** any conversion or nicer display (`CROC-085`),
+    `CROC-063`, `CROC-054`, dropping the unit columns, frontend changes.
+  - **Verification:** logic, red/green against Neon dev
+    (`./scripts/test-repo.sh -run TestRegenerate`, then the full suite);
+    service boundary, `GET /shopping-list` on the local server after
+    putting a tsp recipe on a dev menu; interactive, founder: Regenerate
+    on prod after deploy and check a teaspoon item.
+- **CROC-085** — Smarter units. Convert only where it reads better
+  (1 tbsp + 2 tsp as 5 tsp, 1,500 g as 1.5 kg), and decide what to do
+  when one item is used by mass and by volume (Honey in g, ml, tbsp and
+  tsp; 77 of 247 items mix units across recipes). Absorbs `CROC-054`
+  (merging manual adds in a compatible unit) and `CROC-063` (finding
+  base units without relying on names). Needs its own grill before any
+  design. Open.
 - **CROC-078** — Post-cutover cleanup, once prod is settled: delete
   `cmd/migrate-data/` + `internal/sqlc/migrate.sql*` (disposal steps in
   `docs/handoffs/CROC-024.md`), retire the old Mongo database and the old
@@ -1197,8 +1185,9 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
 - **CROC-063** — Shopping-list aggregation finds base units by name
   (`'grams'`/`'milliliters'`); renaming either unit silently multiplies
   kg/litre quantities by 1000 on every list. Key on `dimension` +
-  `base_factor = 1`, guarded by a partial unique index. Medium. Open.
-  Finding 1.
+  `base_factor = 1`, guarded by a partial unique index. Medium.
+  **Obsolete** once `CROC-084` removes the conversion (the lookup goes
+  with it); comes back with conversion in `CROC-085`. Finding 1.
 - **CROC-064** — **Done** (2026-10-03). Ingredient and shopping-list
   quantities are bounded to 0.01–100,000 inclusive through one shared
   `validateQuantity` (`invalid_quantity`). The ceiling only catches

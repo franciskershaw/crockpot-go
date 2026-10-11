@@ -742,3 +742,10 @@ implementation quality until CROC-001 lands.
 
 - The handoff promised migrated favourites; the dry run's report showed none, because `CROC-024` had deferred them and nothing picked them up. Checking the live API before planning found `FRONTEND_URL` on the apex and the privacy page's "doesn't save your IP" false (Gin logged IPs, unbounded), both fixed before launch. Import-before-switch and a fresh Vercel project turned out simpler than the planned order.
 - **Pattern**: before a cutover plan promises what moves, read the importer's actual scope (or dry-run it). Check every public claim, like a privacy page, against the running system, not the code's intent.
+
+## 2026-10-11 — CROC-082 — Item category audit; prod check clean first time
+
+- Rework was all in the proposal, not the code. My first category schemes leaned on guessed shop layouts and my own sense of "condiment" (eggs to Dairy, soy and pesto as condiments, a pasta-and-grains category); the founder corrected each. What settled things was evidence: how many recipes use each item, and reading `ListNonIngredientItemIDs`, which showed "not an ingredient" blocks recipe saves rather than only filtering. That turned "exclude crisps" into a rule the generator and the pre-merge check both enforce.
+- Generating the migrations from the approved table, and checking both prod stages with one script that reads the same table, left nothing to transcribe by hand. A throwaway dev fixture was the only way to exercise the merge's list and regular branches, since dev had no such rows.
+- **Pattern**: for a judgement-heavy data audit, lead with the per-row evidence (usage counts, what a flag actually enforces) and the full list, not a proposed scheme; the founder's own taxonomy beats a plausible one.
+- **Pattern**: a check run through the public API sees only what an anonymous caller sees (approved recipes here); state that limit when relying on it.
