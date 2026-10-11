@@ -1,5 +1,20 @@
 # CROC-077 — Production cutover
 
+**Done 2026-10-10.** The run differed from the plan below in four ways:
+
+- **Import before the Vercel switch.** Importing into Postgres changes
+  nothing visible, so it ran first and the new site went live with data.
+- **A new Vercel project, not a re-pointed one.** The domains moved
+  across; the old project stays idle as the rollback until `CROC-078`.
+  No Cloudflare record changed.
+- **Favourites, current menus and shopping lists don't migrate**
+  (deferred at `CROC-024`, never picked up): 11 favourites, re-added by
+  hand. Acceptance criterion 8 is wrong on this point.
+- **Extra fixes found on the way:** production dropped Gin's request
+  log (it kept IPs with no time limit; nginx keeps 14 days), the privacy
+  page gained DigitalOcean and Cloudflare, and DMARC was added. Resend
+  was already verified.
+
 **Implementation mode: AI-driven, as a guided checklist.** The founder
 does the console work (Resend, Cloudflare, GitHub, Mongo, Vercel, Neon,
 Google); Claude sequences it, gives the exact setting or command, and
