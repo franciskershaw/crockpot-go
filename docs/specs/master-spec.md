@@ -725,7 +725,7 @@ session.*
 ### Epic 6: Shopping Lists
 - **CROC-021** — Generate/regenerate shopping list from current menu,
   aggregating quantities per ingredient, merging compatible-unit
-  duplicates, and preserving `obtained`/dismissal state across
+  duplicates (removed by `CROC-084`), and preserving `obtained`/dismissal state across
   regenerations. **Done** (2026-09-18, `docs/handoffs/CROC-021.md`).
   Regeneration is a transactional side effect of `CROC-019`'s three
   menu-write endpoints, not a separate endpoint; also owns
@@ -753,13 +753,13 @@ session.*
   recipe-calculated quantity, so an edited or added-to row stays deleted
   across unrelated menu changes.
 
-- **CROC-054** — Moved under `CROC-085`. Feature: merge manual adds in a compatible mass/volume
-  unit into the existing row. Today adding flour in kg next to "Flour
-  500 g" gives a separate kg row (merging matches `unit_id` exactly;
-  recipe-driven rows store grams/millilitres). Fine as-is; this would
-  convert with `units.base_factor`, as `AggregateMenuIngredients`
-  already does, before `FindShoppingListItemForMerge`. Surfaced at
-  `CROC-053`'s branch review (2026-09-26).
+- **CROC-054** — Moved under `CROC-085`. Feature: merge manual adds in a
+  compatible mass/volume unit into the existing row. Adding flour in kg
+  next to "Flour 500 g" gives a separate kg row (merging matches
+  `unit_id` exactly, and since `CROC-084` recipe-driven rows keep the
+  recipe's unit too). Would convert with `units.base_factor` before
+  `FindShoppingListItemForMerge`. Surfaced at `CROC-053`'s branch review
+  (2026-09-26).
 - **CROC-055** — Decide what happens to an amount added to a recipe-driven
   row when that recipe leaves the menu. Since `CROC-053`, adding onions ×1
   to a recipe's onions ×2 row merges into it; removing the recipe then
@@ -1015,38 +1015,13 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
   problems; 388 items). Open follow-up: chutneys may split from Chutneys
   and Spreads, pending Zoe.
 - **CROC-083** — Proper README with screenshots. Open.
-- **CROC-084** — Stop converting units on the shopping list.
-  `AggregateMenuIngredients` turns every mass into grams and every volume
-  into millilitres (`CROC-021` decision 7), even when one recipe uses one
-  unit, so 2 tsp shows as 10 ml. Founder-raised 2026-10-11. Open.
-  Grilled 2026-10-11, AI-driven, cheap to undo:
-  - **Decision:** aggregate by the recipe's own `(item_id, unit_id)`,
-    scaled by serves, with no `base_factor`; the same rule count units
-    already follow, and what the old app did
-    (`../../crockpot/src/data/shopping-list/shoppingList.ts:13`, `:70`).
-    The same item in two units gives two rows (1 tbsp and 2 tsp paprika;
-    500 g and 1 kg potatoes); accepted until `CROC-085`.
-  - **Existing lists:** stored ml/g rows stay until the next regenerate,
-    which replaces them in recipe units, unticked; a dismissal recorded
-    in ml/g stops matching. The founder and Zoe press Regenerate once
-    after deploy; no one-off migration or command.
-  - **Kept:** `units.dimension` and `base_factor` (for `CROC-085`);
-    `CROC-064`'s overflow guard (a menu-wide sum can still exceed
-    `NUMERIC(10, 2)`).
-  - **Acceptance:** a recipe using 2 tsp on the menu gives a 2 tsp row
-    (scaled by serves); tbsp + ml for one item give two rows, each in its
-    own unit, replacing `TestRegenerate_MergesCompatibleCrossUnitMetric`;
-    same-unit rows still sum and count/`NULL` units are unchanged
-    (existing tests); `TestRegenerate_AggregateOverflow_ReturnsQuantityTooLarge`
-    rebuilt on a multi-recipe sum, since kg no longer multiplies by 1000;
-    `schema_test.go`'s comment on why the columns exist reworded.
-  - **Non-goals:** any conversion or nicer display (`CROC-085`),
-    `CROC-063`, `CROC-054`, dropping the unit columns, frontend changes.
-  - **Verification:** logic, red/green against Neon dev
-    (`./scripts/test-repo.sh -run TestRegenerate`, then the full suite);
-    service boundary, `GET /shopping-list` on the local server after
-    putting a tsp recipe on a dev menu; interactive, founder: Regenerate
-    on prod after deploy and check a teaspoon item.
+- **CROC-084** — **Done** (2026-10-11). The shopping list no longer
+  converts units: `AggregateMenuIngredients` totals by the recipe's own
+  `(item_id, unit_id)`, scaled by serves, as the old app did (supersedes
+  `CROC-021` decision 7). The same item in two units gives two rows until
+  `CROC-085`. Lists from before the change are fixed by pressing
+  Regenerate once. `units.dimension`/`base_factor` stay for `CROC-085`;
+  `CROC-064`'s overflow guard stays and its test now sums 21 recipes.
 - **CROC-085** — Smarter units. Convert only where it reads better
   (1 tbsp + 2 tsp as 5 tsp, 1,500 g as 1.5 kg), and decide what to do
   when one item is used by mass and by volume (Honey in g, ml, tbsp and
@@ -1191,9 +1166,9 @@ Not blocking go-live: `CROC-039`, `CROC-063`, `CROC-068`'s deadline half,
 - **CROC-064** — **Done** (2026-10-03). Ingredient and shopping-list
   quantities are bounded to 0.01–100,000 inclusive through one shared
   `validateQuantity` (`invalid_quantity`). The ceiling only catches
-  typos; it can't prevent overflow, because `base_factor` (up to 1000)
-  × serves ratio (up to 50) × a menu-wide sum can still pass
-  `NUMERIC(10, 2)`. The guarantee is SQLSTATE `22003` from the aggregate
+  typos; it can't prevent overflow, because quantity × serves ratio (up
+  to 50) × a menu-wide sum can still pass `NUMERIC(10, 2)` (with
+  `base_factor` up to 1000 before `CROC-084`). The guarantee is SQLSTATE `22003` from the aggregate
   or a manual-add merge → 400 `shopping_list_quantity_too_large` on
   every write that regenerates or merges. The write rolls back, so
   stored data never overflows. An admin's recipe edit can be refused

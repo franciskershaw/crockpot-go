@@ -749,3 +749,8 @@ implementation quality until CROC-001 lands.
 - Generating the migrations from the approved table, and checking both prod stages with one script that reads the same table, left nothing to transcribe by hand. A throwaway dev fixture was the only way to exercise the merge's list and regular branches, since dev had no such rows.
 - **Pattern**: for a judgement-heavy data audit, lead with the per-row evidence (usage counts, what a flag actually enforces) and the full list, not a proposed scheme; the founder's own taxonomy beats a plausible one.
 - **Pattern**: a check run through the public API sees only what an anonymous caller sees (approved recipes here); state that limit when relying on it.
+
+## 2026-10-11 — CROC-084 — Shopping list stops converting units; clean
+
+- No rework. Two notes: the overflow test only overflowed because of the kg × 1000 being removed, so it had to be rebuilt on reachable values (21 recipes) to keep `CROC-064`'s guard proven; and `sqlc generate` picked up `000020`'s temp table as an `ItemMerge` model, since sqlc reads migrations as schema. In the review I announced the agents and didn't launch them; the founder caught it.
+- **Pattern**: when a change removes a multiplier, re-check every test that relied on it to reach a limit, not just the tests about the multiplier.
